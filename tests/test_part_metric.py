@@ -217,7 +217,7 @@ def test_quarter_turn_free_vs_pinned(quarter_turned):
 
 
 def test_pose_mode_iou24_aligned_vs_lab(quarter_turned):
-    """The this repository deviation, on and off. In `iou24_aligned` the
+    """The BenchCAD 2 deviation, on and off. In `iou24_aligned` the
     rotation iou24 found is applied before surf_f1 / pix_fg, so a
     quarter-turned oracle scores 1.0 on both; in `lab` (the reference
     behaviour) those two see the delivered pose and do not."""

@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "this repository",
+  "repo": "benchcad-2",
   "split": "example"
  },
  "input": [

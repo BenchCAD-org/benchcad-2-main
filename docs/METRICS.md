@@ -434,7 +434,7 @@ pix_fg = 1 - mean(d[fg] > 8)                   TAU = 8, fixed
 
 One score over the whole 2x2 composite, not per view.
 
-### Pose handling -- a this repository adaptation
+### Pose handling -- a BenchCAD 2 adaptation
 
 `POSE_MODE_VERSION = "pose-v1 2026-09-11"`. The lab's corpus has **no
 registration step**: `surf_f1` and `pix_fg` are computed at the delivered
