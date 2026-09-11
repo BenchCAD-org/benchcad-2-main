@@ -1,0 +1,41 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t3_part2step",
+ "kind": "part",
+ "family": null,
+ "units": "mm",
+ "synthetic": true,
+ "source": {
+  "repo": "synthetic",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/views.png",
+   "sha256": "4204185c1b2c0240029e7bdab0d3049004930e6e49906881c8c7a086c9d951ee"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "ffeff19f7479341542df69ee3fb026ac09c27a99232712cea509a2c6eb61464d"
+  },
+  {
+   "path": "gt/views.json",
+   "sha256": "78d321bac2aa881b0c669752f2bbebf54852fbac8ed05f6f3465660ba85514ff"
+  }
+ ],
+ "generator": {
+  "tool": "tests/fixtures/make_fixtures.py",
+  "views": {
+   "tool": "tools/render_views.py",
+   "seed": 4190542303
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean"
+ },
+ "notes": "reference views -> STEP"
+}

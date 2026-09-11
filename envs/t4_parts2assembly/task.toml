@@ -1,0 +1,78 @@
+# t4_parts2assembly -- four-view images -> every part modelled, then the 3-D assembly
+[task]
+id = "t4_parts2assembly"
+kind = "assembly"
+submission = "cadquery_program"
+# given -- how much **3-D geometry** the model has in hand. It decides what the score
+# means, and `inputs` alone cannot distinguish T2 from T5:
+#   nothing_3d            everything is modelled from the drawings
+#   purchased_parts_step  purchased parts come as 3-D, in-house parts are modelled from
+#                         the drawings
+#   all_parts_step        all part geometry is handed over; only placement is tested
+#
+# T4 is `nothing_3d`, and it is the only assembly task that supplies no 3-D at
+# all: the part STEPs it used to hand over (`input/step_files/*.step`) are gone,
+# and `caseformat.INPUT_POLICY` now rejects them here -- the parts are the
+# answer and live under `gt/parts/`. The reason is the headline: part_x_asm_v1
+# multiplies a per-part geometry score by a placement score, and avg_part is
+# free when the parts are supplied, because a submission need only re-export
+# what it was given.
+#   T2  every part supplied + the assembly drawing -> placement only (asm_v1)
+#   T4  the reference views and nothing else       -> model every part, assemble
+#   T5  five types from their part drawings + sixteen supplied as existing 3-D
+#       -> model those five, assemble all twenty-one
+given = "nothing_3d"
+inputs = ["views.png", "parts_views.png", "bom.json"]
+
+[tools]
+# The reference renderer is NOT injected. bench_views.py is the module that
+# produced the prompt images (same cameras, same pinned PARALLEL_SCALE), so
+# supplying it made the model's render pixel-comparable to the target for free
+# and turned much of the task into optimising against the function that
+# generated the answer. Upstream measurement: 72% of programs compute a metric
+# and 57% write a sweep loop against it.
+#
+# Task-design rule: do not supply what can be derived; do supply what cannot
+# exist. A projection is derivable -- cadquery and vtk are both in the
+# container -- so recovering the camera is part of the task.
+renderer = "none"
+inject = []
+
+[verify]
+entry = "envs.verifiers.assembly:score"
+# Rendered four-view images are supplied, so the orientation is given by the task
+# statement.
+orientation = "pinned"
+# Headline metric (docs/METRICS.md): part_x_asm_v1 = avg_part x asm_v1, in [0, 1].
+#   avg_part  part_v1 per reference instance (the submitted part type's file vs
+#             the part type's canonical geometry under gt/parts, placed by
+#             gt/instances.json), both in the frame asm_v1 aligned the
+#             submission to; mean per part type, then over types -- and here
+#             every type counts, because every type had to be modelled
+#   asm_v1    per-part-type leave-one-type-out IoU gain, normalised by (1 - baseline)
+# The views pin the orientation, so the per-instance comparison is the given
+# pose: no rotation search, pose_mode "lab". `iou` / `hit` stay as diagnostics.
+metric = "part_x_asm_v1"
+pose_mode = "lab"
+oracle = "data/t4_parts2assembly/_oracle"
+
+[data]
+# ⚠️ **The source corpus must be written down in the task declaration; it must never be
+# inferred from a directory name or a runtime argument.**
+# The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
+# `the heldout corpus` and is **a different set of families**.
+# Family names overlap between the two (one part family has a copy in each corpus), so
+# the case name alone cannot tell them apart -- and once a held-out case is mixed into a
+# batch of results, the held-out set is contaminated, irreversibly: a question that has
+# appeared on a public leaderboard is spent.
+# To produce a held-out variant: copy this task.toml and change `id` (append a _heldout
+# suffix), `source_repo` and `split`. The authoring script picks families by
+# `source_repo`, and the result file names carry `split` too.
+source_repo = "benchcad-2"
+split = "open"
+root = "data/t4_parts2assembly"
+default_dataset = "v1"
+# The generator lives in the data tree, not in this repo; there is no
+# generator for T3/T4 here.
+generator = "~/Projects/the data tree/tools/make_open_source.py"
+generator_args = "--benchcad2 <repo> --out <dir> --families all --n 10 --workers 4"

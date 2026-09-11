@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "benchcad-case/1",
+  "title": "BenchCAD case manifest (case.json)",
+  "type": "object",
+  "required": [
+    "format",
+    "id",
+    "env",
+    "kind",
+    "units",
+    "source",
+    "input",
+    "gt"
+  ],
+  "properties": {
+    "format": {
+      "const": "benchcad-case/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+      "description": "Equals the directory name. Unique within the env."
+    },
+    "env": {
+      "type": "string",
+      "pattern": "^t[1-6](_[a-z0-9_]+)?$"
+    },
+    "kind": {
+      "enum": [
+        "part",
+        "assembly",
+        "ecad"
+      ]
+    },
+    "family": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "T3/T4 parametric family; null otherwise."
+    },
+    "units": {
+      "const": "mm"
+    },
+    "synthetic": {
+      "type": "boolean",
+      "description": "true for scorer fixtures with no drawing; relaxes the required-input rule."
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "repo",
+        "split"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Where the geometry came from (the data pipeline, benchcad-2, the heldout corpus, synthetic)."
+        },
+        "split": {
+          "enum": [
+            "open",
+            "heldout",
+            "example"
+          ]
+        },
+        "board_class": {
+          "type": "string",
+          "description": "T6 only: the board class the task premise depends on."
+        },
+        "admission_note": {
+          "type": "string",
+          "description": "T6 only: why a board with inner-layer routing was admitted."
+        }
+      },
+      "additionalProperties": false,
+      "description": "No identity here: no upstream case ids, Drive ids, URLs or names. Provenance goes under provenance/, never staged."
+    },
+    "input": {
+      "$ref": "#/$defs/filelist",
+      "description": "Everything under input/. Staged into the sandbox verbatim; nothing else is."
+    },
+    "gt": {
+      "$ref": "#/$defs/filelist",
+      "description": "Everything under gt/. Never staged."
+    },
+    "parts": {
+      "type": "array",
+      "description": "Assembly tasks only: one row per part type.",
+      "items": {
+        "type": "object",
+        "required": [
+          "part_id",
+          "quantity",
+          "geometry_class"
+        ],
+        "properties": {
+          "part_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "n_solids": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "geometry_class": {
+            "type": "string",
+            "pattern": "^g-[0-9a-f]{12}$",
+            "description": "Hash of pose-free invariants; equal classes are interchangeable for pairing."
+          }
+        }
+      }
+    },
+    "generator": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "views": {
+          "type": "object",
+          "description": "T3/T4: how the reference views were rendered (tools/render_views.py) and the seed of the camera perturbation recorded in gt/views.json.",
+          "properties": {
+            "tool": {
+              "type": "string"
+            },
+            "seed": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "description": "Admission measurements (rebuild_iou, floor, ...)."
+    },
+    "redaction": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "clean",
+            "placeholder_title_block",
+            "unredacted",
+            "unknown"
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "parts_list": {
+      "type": "object",
+      "description": "T2/T5: how the assembly drawing's parts list maps to part ids .",
+      "required": [
+        "mapping"
+      ],
+      "properties": {
+        "mapping": {
+          "enum": [
+            "item_number",
+            "declared",
+            "none"
+          ]
+        },
+        "note": {
+          "type": "string"
+        },
+        "table": {
+          "type": "object",
+          "description": "declared: item number -> part_id",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "drawings": {
+      "type": "object",
+      "description": "Per input drawing (key = path under input/): what the producing line measured on the source .",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "object",
+            "properties": {
+              "plusminus": {
+                "type": "integer"
+              },
+              "degree": {
+                "type": "integer"
+              },
+              "diameter": {
+                "type": "integer"
+              }
+            }
+          },
+          "source_check": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "filelist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

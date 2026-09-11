@@ -1,0 +1,50 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t3_part2step",
+ "kind": "part",
+ "family": "minifix_cam_housing",
+ "units": "mm",
+ "synthetic": false,
+ "source": {
+  "repo": "benchcad-2",
+  "split": "open"
+ },
+ "input": [
+  {
+   "path": "input/views.png",
+   "sha256": "8b0f0dc0750885a81c678f006331a46f5a22b783f51e0efe1fe2b94b74ecc6fa"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "292d96802a81dcd596e38c35d522ba02f994ce95b5b5c52d7be1f93d54980a8c"
+  },
+  {
+   "path": "gt/views.json",
+   "sha256": "78d321bac2aa881b0c669752f2bbebf54852fbac8ed05f6f3465660ba85514ff"
+  }
+ ],
+ "generator": {
+  "tool": "bench2",
+  "family": "minifix_cam_housing",
+  "tier": "hard",
+  "variant": 0,
+  "geometry": "benchcad-2 main, commit 5d47436 (an earlier change merged 2026-09-10)",
+  "views": {
+   "tool": "tools/render_views.py",
+   "seed": 4190542303
+  },
+  "dev_sample": {
+   "tool": "tools/make_dev_samples.py",
+   "from": "t3_part2step",
+   "note": "A copy of a real case with provenance/ (and, for the ECAD cases, alignment/) left out, and every PDF Info dictionary cleared. References to provenance/... in `notes` or `redaction.note` are the source case's own words and point at files that are deliberately not shipped. expected.json holds the scores this sample must reproduce."
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "unknown"
+ },
+ "notes": "Catalogue row 0, hard-tier defaults. One of the three variants shown in the task 3 figure on the 2.0 preview page. Geometry from benchcad-2 main, commit 5d47436 (an earlier change merged 2026-09-10)."
+}

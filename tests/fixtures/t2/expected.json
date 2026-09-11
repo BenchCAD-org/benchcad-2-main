@@ -1,0 +1,8 @@
+{
+ "task_kind": "assembly",
+ "given": "all_parts_step",
+ "note": "part STEPs + assembly drawing -> assembly",
+ "oracle_iou": 1.0,
+ "tol": 0.0001,
+ "placeholder": false
+}

@@ -1,0 +1,126 @@
+{
+ "n_part_types": 20,
+ "n_instances": 36,
+ "items": [
+  {
+   "part_id": "part_01",
+   "quantity": 6,
+   "source": "step",
+   "file": "step_files/part_01.step"
+  },
+  {
+   "part_id": "part_02",
+   "quantity": 6,
+   "source": "step",
+   "file": "step_files/part_02.step"
+  },
+  {
+   "part_id": "part_03",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_03.step"
+  },
+  {
+   "part_id": "part_04",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_04.step"
+  },
+  {
+   "part_id": "part_05",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_05.step"
+  },
+  {
+   "part_id": "part_06",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_06.step"
+  },
+  {
+   "part_id": "part_07",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_07.step"
+  },
+  {
+   "part_id": "part_08",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_08.step"
+  },
+  {
+   "part_id": "part_09",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_09.step"
+  },
+  {
+   "part_id": "part_10",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_10.step"
+  },
+  {
+   "part_id": "part_11",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_11.step"
+  },
+  {
+   "part_id": "part_12",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_12.step"
+  },
+  {
+   "part_id": "part_13",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_13.step"
+  },
+  {
+   "part_id": "part_14",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_14.step"
+  },
+  {
+   "part_id": "part_15",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_15.step"
+  },
+  {
+   "part_id": "part_16",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_16.step"
+  },
+  {
+   "part_id": "part_17",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_17.step"
+  },
+  {
+   "part_id": "part_18",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_18.step"
+  },
+  {
+   "part_id": "part_19",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_19.step"
+  },
+  {
+   "part_id": "part_20",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_20.step"
+  }
+ ]
+}

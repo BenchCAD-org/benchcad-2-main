@@ -1,0 +1,3083 @@
+{
+  "schema": "pcb2schematic/1.0",
+  "components": [
+    {
+      "id": "C2",
+      "type": "capacitor",
+      "terminals": [
+        "C2.1",
+        "C2.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "100nF",
+        "silkscreen": "C2",
+        "silkscreen_visible": true,
+        "x": 400.581,
+        "y": 1240.9903,
+        "angle": 90,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": 1e-07,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C3",
+      "type": "capacitor",
+      "terminals": [
+        "C3.1",
+        "C3.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "100nF",
+        "silkscreen": "C3",
+        "silkscreen_visible": true,
+        "x": 551.357,
+        "y": 1014.0097,
+        "angle": 90,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": 1e-07,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C5",
+      "type": "capacitor",
+      "terminals": [
+        "C5.1",
+        "C5.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "100nF",
+        "silkscreen": "C5",
+        "silkscreen_visible": true,
+        "x": 925,
+        "y": 900,
+        "angle": 180,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": 1e-07,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C8",
+      "type": "capacitor",
+      "terminals": [
+        "C8.1",
+        "C8.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "100nF",
+        "silkscreen": "C8",
+        "silkscreen_visible": true,
+        "x": 745,
+        "y": 540,
+        "angle": 0,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": 1e-07,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C1",
+      "type": "capacitor",
+      "terminals": [
+        "C1.1",
+        "C1.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "10UF",
+        "silkscreen": "C1",
+        "silkscreen_visible": true,
+        "x": 551.239,
+        "y": 1240.9903,
+        "angle": 90,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C4",
+      "type": "capacitor",
+      "terminals": [
+        "C4.1",
+        "C4.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "10UF",
+        "silkscreen": "C4",
+        "silkscreen_visible": true,
+        "x": 400.581,
+        "y": 1014.0097,
+        "angle": 90,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C9",
+      "type": "capacitor",
+      "terminals": [
+        "C9.1",
+        "C9.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "10UF",
+        "silkscreen": "C9",
+        "silkscreen_visible": true,
+        "x": 1890,
+        "y": 1136.0023,
+        "angle": 0,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C10",
+      "type": "capacitor",
+      "terminals": [
+        "C10.1",
+        "C10.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "10UF",
+        "silkscreen": "C10",
+        "silkscreen_visible": true,
+        "x": 2162.569,
+        "y": 1135,
+        "angle": 0,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C6",
+      "type": "capacitor",
+      "terminals": [
+        "C6.1",
+        "C6.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "47pF",
+        "silkscreen": "C6",
+        "silkscreen_visible": true,
+        "x": 1794.2122,
+        "y": 815,
+        "angle": 270,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": 4.7e-11,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "C7",
+      "type": "capacitor",
+      "terminals": [
+        "C7.1",
+        "C7.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0805",
+        "value_raw": "47pF",
+        "silkscreen": "C7",
+        "silkscreen_visible": true,
+        "x": 1794.2122,
+        "y": 602.6598,
+        "angle": 90,
+        "footprint_uuid": "dcff67c77ee5f987",
+        "source_value": 4.7e-11,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "U3",
+      "type": "crystal",
+      "terminals": [
+        "U3.1",
+        "U3.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "CRYSTAL-SMD_L114-W47-LS127",
+        "value_raw": "12MHz",
+        "silkscreen": "U3",
+        "silkscreen_visible": true,
+        "x": 2020,
+        "y": 700,
+        "angle": 270,
+        "footprint_uuid": "26842b6e3e71f267",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "H1",
+      "type": "connector",
+      "terminals": [
+        "H1.1",
+        "H1.2",
+        "H1.3",
+        "H1.4",
+        "H1.5",
+        "H1.6",
+        "H1.7",
+        "H1.8",
+        "H1.9",
+        "H1.10",
+        "H1.11",
+        "H1.12",
+        "H1.13",
+        "H1.14",
+        "H1.15",
+        "H1.16"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          12
+        ],
+        [
+          13
+        ],
+        [
+          14
+        ],
+        [
+          15
+        ]
+      ],
+      "meta": {
+        "package": "HDR-TH_16P-P254-V-M",
+        "value_raw": "{Value}",
+        "silkscreen": "H1",
+        "silkscreen_visible": false,
+        "x": 1489.8031,
+        "y": 1496.063,
+        "angle": 0,
+        "footprint_uuid": "51d197cf7816cada",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "H2",
+      "type": "connector",
+      "terminals": [
+        "H2.1",
+        "H2.2",
+        "H2.3",
+        "H2.4",
+        "H2.5",
+        "H2.6",
+        "H2.7",
+        "H2.8",
+        "H2.9",
+        "H2.10",
+        "H2.11",
+        "H2.12",
+        "H2.13",
+        "H2.14",
+        "H2.15",
+        "H2.16"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ],
+        [
+          7
+        ],
+        [
+          8
+        ],
+        [
+          9
+        ],
+        [
+          10
+        ],
+        [
+          11
+        ],
+        [
+          12
+        ],
+        [
+          13
+        ],
+        [
+          14
+        ],
+        [
+          15
+        ]
+      ],
+      "meta": {
+        "package": "HDR-TH_16P-P254-V-M",
+        "value_raw": "{Value}",
+        "silkscreen": "H2",
+        "silkscreen_visible": false,
+        "x": 1489.8031,
+        "y": 78.6982,
+        "angle": 0,
+        "footprint_uuid": "51d197cf7816cada",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "H5",
+      "type": "connector",
+      "terminals": [
+        "H5.1",
+        "H5.2",
+        "H5.3",
+        "H5.4"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "meta": {
+        "package": "HDR-TH_4P-P254-V-M",
+        "value_raw": "{Value}",
+        "silkscreen": "H5",
+        "silkscreen_visible": false,
+        "x": 445,
+        "y": 78.7402,
+        "angle": 180,
+        "footprint_uuid": "f6adc3996f5b4c18",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "H3",
+      "type": "connector",
+      "terminals": [
+        "H3.1",
+        "H3.2",
+        "H3.3",
+        "H3.4",
+        "H3.5",
+        "H3.6",
+        "H3.7"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ]
+      ],
+      "meta": {
+        "package": "HDR-TH_7P-P254-V-M",
+        "value_raw": "{Value}",
+        "silkscreen": "H3",
+        "silkscreen_visible": false,
+        "x": 2375,
+        "y": 787.4016,
+        "angle": 90,
+        "footprint_uuid": "4ebb45bfa0153a4c",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "H4",
+      "type": "connector",
+      "terminals": [
+        "H4.1",
+        "H4.2",
+        "H4.3",
+        "H4.4",
+        "H4.5",
+        "H4.6",
+        "H4.7"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ]
+      ],
+      "meta": {
+        "package": "HDR-TH_7P-P254-V-M",
+        "value_raw": "{Value}",
+        "silkscreen": "H4",
+        "silkscreen_visible": false,
+        "x": 2677.1654,
+        "y": 787.4016,
+        "angle": -90,
+        "footprint_uuid": "4ebb45bfa0153a4c",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "LED1",
+      "type": "led",
+      "terminals": [
+        "LED1.1",
+        "LED1.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "LED_0805",
+        "value_raw": "{Value}",
+        "silkscreen": "LED1",
+        "silkscreen_visible": false,
+        "x": 405,
+        "y": 1455,
+        "angle": 90,
+        "footprint_uuid": null,
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "LED2",
+      "type": "led",
+      "terminals": [
+        "LED2.1",
+        "LED2.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "LED_0805",
+        "value_raw": "{Value}",
+        "silkscreen": "LED2",
+        "silkscreen_visible": false,
+        "x": 925,
+        "y": 780,
+        "angle": 180,
+        "footprint_uuid": null,
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "LED3",
+      "type": "led",
+      "terminals": [
+        "LED3.1",
+        "LED3.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "LED_0805",
+        "value_raw": "{Value}",
+        "silkscreen": "LED3",
+        "silkscreen_visible": false,
+        "x": 925,
+        "y": 655,
+        "angle": 180,
+        "footprint_uuid": null,
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "U2",
+      "type": "ic",
+      "terminals": [
+        "U2.1",
+        "U2.2",
+        "U2.3",
+        "U2.4",
+        "U2.5",
+        "U2.6",
+        "U2.7",
+        "U2.8",
+        "U2.9",
+        "U2.10",
+        "U2.11",
+        "U2.12",
+        "U2.13",
+        "U2.14",
+        "U2.15",
+        "U2.16",
+        "U2.17",
+        "U2.18",
+        "U2.19",
+        "U2.20",
+        "U2.21",
+        "U2.22",
+        "U2.23",
+        "U2.24",
+        "U2.25",
+        "U2.26",
+        "U2.27",
+        "U2.28",
+        "U2.29",
+        "U2.30",
+        "U2.31",
+        "U2.32",
+        "U2.33",
+        "U2.34",
+        "U2.35",
+        "U2.36",
+        "U2.37",
+        "U2.38",
+        "U2.39",
+        "U2.40",
+        "U2.41",
+        "U2.42",
+        "U2.43",
+        "U2.44"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43
+        ]
+      ],
+      "meta": {
+        "package": "LQFP-44_L100-W100-P080-LS120-BL",
+        "value_raw": "{Value}",
+        "silkscreen": "U2",
+        "silkscreen_visible": true,
+        "x": 1390,
+        "y": 785,
+        "angle": 0,
+        "footprint_uuid": "e3e4fd8b29102234",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "R1",
+      "type": "resistor",
+      "terminals": [
+        "R1.1",
+        "R1.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "5.1K",
+        "silkscreen": "R1",
+        "silkscreen_visible": true,
+        "x": 425,
+        "y": 620,
+        "angle": 90,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 5100.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R2",
+      "type": "resistor",
+      "terminals": [
+        "R2.1",
+        "R2.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "5.1K",
+        "silkscreen": "R2",
+        "silkscreen_visible": true,
+        "x": 550,
+        "y": 620,
+        "angle": 90,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 5100.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R4",
+      "type": "resistor",
+      "terminals": [
+        "R4.1",
+        "R4.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R4",
+        "silkscreen_visible": true,
+        "x": 930,
+        "y": 540,
+        "angle": 180,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R7",
+      "type": "resistor",
+      "terminals": [
+        "R7.1",
+        "R7.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R7",
+        "silkscreen_visible": true,
+        "x": 825,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R8",
+      "type": "resistor",
+      "terminals": [
+        "R8.1",
+        "R8.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R8",
+        "silkscreen_visible": true,
+        "x": 925,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R9",
+      "type": "resistor",
+      "terminals": [
+        "R9.1",
+        "R9.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R9",
+        "silkscreen_visible": true,
+        "x": 1025,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R10",
+      "type": "resistor",
+      "terminals": [
+        "R10.1",
+        "R10.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R10",
+        "silkscreen_visible": true,
+        "x": 1125,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R11",
+      "type": "resistor",
+      "terminals": [
+        "R11.1",
+        "R11.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R11",
+        "silkscreen_visible": true,
+        "x": 1225,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R12",
+      "type": "resistor",
+      "terminals": [
+        "R12.1",
+        "R12.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R12",
+        "silkscreen_visible": true,
+        "x": 1325,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R13",
+      "type": "resistor",
+      "terminals": [
+        "R13.1",
+        "R13.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R13",
+        "silkscreen_visible": true,
+        "x": 1425,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R14",
+      "type": "resistor",
+      "terminals": [
+        "R14.1",
+        "R14.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "10K",
+        "silkscreen": "R14",
+        "silkscreen_visible": true,
+        "x": 1525,
+        "y": 1349.16,
+        "angle": 270,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 10000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R3",
+      "type": "resistor",
+      "terminals": [
+        "R3.1",
+        "R3.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "1K",
+        "silkscreen": "R3",
+        "silkscreen_visible": true,
+        "x": 550,
+        "y": 1460,
+        "angle": 90,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 1000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R5",
+      "type": "resistor",
+      "terminals": [
+        "R5.1",
+        "R5.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "1K",
+        "silkscreen": "R5",
+        "silkscreen_visible": true,
+        "x": 740,
+        "y": 780,
+        "angle": 180,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 1000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R6",
+      "type": "resistor",
+      "terminals": [
+        "R6.1",
+        "R6.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0805",
+        "value_raw": "1K",
+        "silkscreen": "R6",
+        "silkscreen_visible": true,
+        "x": 740,
+        "y": 655,
+        "angle": 180,
+        "footprint_uuid": "1fb4ad94e201ae5d",
+        "source_value": 1000.0,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "U1",
+      "type": "ic",
+      "terminals": [
+        "U1.1",
+        "U1.2",
+        "U1.3",
+        "U1.4"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1,
+          2,
+          3
+        ]
+      ],
+      "meta": {
+        "package": "SOT-223-3_L65-W34-P230-LS70-BR",
+        "value_raw": "{Value}",
+        "silkscreen": "U1",
+        "silkscreen_visible": true,
+        "x": 760,
+        "y": 1105,
+        "angle": 90,
+        "footprint_uuid": "00cf2b4ec12dae2a",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "SW2",
+      "type": "switch",
+      "terminals": [
+        "SW2.1",
+        "SW2.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "SW-SMD_L40-W29-LS50",
+        "value_raw": "{Value}",
+        "silkscreen": "SW2",
+        "silkscreen_visible": false,
+        "x": 480,
+        "y": 795,
+        "angle": 180,
+        "footprint_uuid": "77437fe160143089",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "SW3",
+      "type": "switch",
+      "terminals": [
+        "SW3.1",
+        "SW3.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "SW-SMD_L40-W29-LS50",
+        "value_raw": "{Value}",
+        "silkscreen": "SW3",
+        "silkscreen_visible": false,
+        "x": 2162.569,
+        "y": 1290,
+        "angle": 0,
+        "footprint_uuid": "77437fe160143089",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "SW4",
+      "type": "switch",
+      "terminals": [
+        "SW4.1",
+        "SW4.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "SW-SMD_L40-W29-LS50",
+        "value_raw": "{Value}",
+        "silkscreen": "SW4",
+        "silkscreen_visible": false,
+        "x": 1890,
+        "y": 1290,
+        "angle": 0,
+        "footprint_uuid": "77437fe160143089",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "SW1",
+      "type": "switch",
+      "terminals": [
+        "SW1.1",
+        "SW1.2",
+        "SW1.3",
+        "SW1.4",
+        "SW1.5",
+        "SW1.6"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      ],
+      "meta": {
+        "package": "SW-SMD_SS-3235S-LX",
+        "value_raw": "{Value}",
+        "silkscreen": "SW1",
+        "silkscreen_visible": true,
+        "x": 175,
+        "y": 1065,
+        "angle": 90,
+        "footprint_uuid": "6a52c57a2c121c0e",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": true,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "USB1",
+      "type": "connector",
+      "terminals": [
+        "USB1.1",
+        "USB1.2",
+        "USB1.3",
+        "USB1.4",
+        "USB1.5",
+        "USB1.6",
+        "USB1.7"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      ],
+      "meta": {
+        "package": "TYPE-C-SMD_TYPE-C-6P-3",
+        "value_raw": "{Value}",
+        "silkscreen": "USB1",
+        "silkscreen_visible": false,
+        "x": 200,
+        "y": 490,
+        "angle": 270,
+        "footprint_uuid": "cc5961de2bc9befb",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ]
+        ],
+        "observation_widened": true
+      }
+    }
+  ],
+  "nets": [
+    {
+      "id": "n_0",
+      "meta": {
+        "name": "+5V",
+        "source_name": "+5V"
+      }
+    },
+    {
+      "id": "n_1",
+      "meta": {
+        "name": "GND",
+        "source_name": "GND"
+      }
+    },
+    {
+      "id": "n_2",
+      "meta": {
+        "name": "3.3V",
+        "source_name": "3.3V"
+      }
+    },
+    {
+      "id": "n_3",
+      "meta": {
+        "name": "XTAL1",
+        "source_name": "XTAL1"
+      }
+    },
+    {
+      "id": "n_4",
+      "meta": {
+        "name": "XTAL2",
+        "source_name": "XTAL2"
+      }
+    },
+    {
+      "id": "n_5",
+      "meta": {
+        "name": "RST",
+        "source_name": "RST"
+      }
+    },
+    {
+      "id": "n_6",
+      "meta": {
+        "name": "P2.1",
+        "source_name": "P2.1"
+      }
+    },
+    {
+      "id": "n_7",
+      "meta": {
+        "name": "P2.0",
+        "source_name": "P2.0"
+      }
+    },
+    {
+      "id": "n_8",
+      "meta": {
+        "name": "P0.0",
+        "source_name": "P0.0"
+      }
+    },
+    {
+      "id": "n_9",
+      "meta": {
+        "name": "P0.1",
+        "source_name": "P0.1"
+      }
+    },
+    {
+      "id": "n_10",
+      "meta": {
+        "name": "P0.2",
+        "source_name": "P0.2"
+      }
+    },
+    {
+      "id": "n_11",
+      "meta": {
+        "name": "P0.3",
+        "source_name": "P0.3"
+      }
+    },
+    {
+      "id": "n_12",
+      "meta": {
+        "name": "P0.4",
+        "source_name": "P0.4"
+      }
+    },
+    {
+      "id": "n_13",
+      "meta": {
+        "name": "P0.5",
+        "source_name": "P0.5"
+      }
+    },
+    {
+      "id": "n_14",
+      "meta": {
+        "name": "P0.6",
+        "source_name": "P0.6"
+      }
+    },
+    {
+      "id": "n_15",
+      "meta": {
+        "name": "P0.7",
+        "source_name": "P0.7"
+      }
+    },
+    {
+      "id": "n_16",
+      "meta": {
+        "name": "P2.7",
+        "source_name": "P2.7"
+      }
+    },
+    {
+      "id": "n_17",
+      "meta": {
+        "name": "P2.6",
+        "source_name": "P2.6"
+      }
+    },
+    {
+      "id": "n_18",
+      "meta": {
+        "name": "P2.5",
+        "source_name": "P2.5"
+      }
+    },
+    {
+      "id": "n_19",
+      "meta": {
+        "name": "P2.4",
+        "source_name": "P2.4"
+      }
+    },
+    {
+      "id": "n_20",
+      "meta": {
+        "name": "P2.3",
+        "source_name": "P2.3"
+      }
+    },
+    {
+      "id": "n_21",
+      "meta": {
+        "name": "P2.2",
+        "source_name": "P2.2"
+      }
+    },
+    {
+      "id": "n_22",
+      "meta": {
+        "name": "P1.0",
+        "source_name": "P1.0"
+      }
+    },
+    {
+      "id": "n_23",
+      "meta": {
+        "name": "P1.1",
+        "source_name": "P1.1"
+      }
+    },
+    {
+      "id": "n_24",
+      "meta": {
+        "name": "P1.2",
+        "source_name": "P1.2"
+      }
+    },
+    {
+      "id": "n_25",
+      "meta": {
+        "name": "P1.3",
+        "source_name": "P1.3"
+      }
+    },
+    {
+      "id": "n_26",
+      "meta": {
+        "name": "P1.4",
+        "source_name": "P1.4"
+      }
+    },
+    {
+      "id": "n_27",
+      "meta": {
+        "name": "P1.5",
+        "source_name": "P1.5"
+      }
+    },
+    {
+      "id": "n_28",
+      "meta": {
+        "name": "P1.6",
+        "source_name": "P1.6"
+      }
+    },
+    {
+      "id": "n_29",
+      "meta": {
+        "name": "P1.7",
+        "source_name": "P1.7"
+      }
+    },
+    {
+      "id": "n_30",
+      "meta": {
+        "name": "P3.0",
+        "source_name": "P3.0"
+      }
+    },
+    {
+      "id": "n_31",
+      "meta": {
+        "name": "P3.1",
+        "source_name": "P3.1"
+      }
+    },
+    {
+      "id": "n_32",
+      "meta": {
+        "name": "P3.2",
+        "source_name": "P3.2"
+      }
+    },
+    {
+      "id": "n_33",
+      "meta": {
+        "name": "P3.3",
+        "source_name": "P3.3"
+      }
+    },
+    {
+      "id": "n_34",
+      "meta": {
+        "name": "P3.4",
+        "source_name": "P3.4"
+      }
+    },
+    {
+      "id": "n_35",
+      "meta": {
+        "name": "P3.5",
+        "source_name": "P3.5"
+      }
+    },
+    {
+      "id": "n_36",
+      "meta": {
+        "name": "P3.6",
+        "source_name": "P3.6"
+      }
+    },
+    {
+      "id": "n_37",
+      "meta": {
+        "name": "P3.7",
+        "source_name": "P3.7"
+      }
+    },
+    {
+      "id": "n_38",
+      "meta": {
+        "name": "P4.0",
+        "source_name": "P4.0"
+      }
+    },
+    {
+      "id": "n_39",
+      "meta": {
+        "name": "P4.1",
+        "source_name": "P4.1"
+      }
+    },
+    {
+      "id": "n_40",
+      "meta": {
+        "name": "P4.2",
+        "source_name": "P4.2"
+      }
+    },
+    {
+      "id": "n_41",
+      "meta": {
+        "name": "P4.3",
+        "source_name": "P4.3"
+      }
+    },
+    {
+      "id": "n_42",
+      "meta": {
+        "name": "P4.4",
+        "source_name": "P4.4"
+      }
+    },
+    {
+      "id": "n_43",
+      "meta": {
+        "name": "P4.5",
+        "source_name": "P4.5"
+      }
+    },
+    {
+      "id": "n_44",
+      "meta": {
+        "name": "P4.6",
+        "source_name": "P4.6"
+      }
+    },
+    {
+      "id": "n_45",
+      "meta": {
+        "name": "$1N13",
+        "source_name": "$1N13"
+      }
+    },
+    {
+      "id": "n_46",
+      "meta": {
+        "name": "$1N129",
+        "source_name": "$1N129"
+      }
+    },
+    {
+      "id": "n_47",
+      "meta": {
+        "name": "$1N130",
+        "source_name": "$1N130"
+      }
+    },
+    {
+      "id": "n_48",
+      "meta": {
+        "name": "$1N2",
+        "source_name": "$1N2"
+      }
+    },
+    {
+      "id": "n_49",
+      "meta": {
+        "name": "$1N1",
+        "source_name": "$1N1"
+      }
+    },
+    {
+      "id": "n_50",
+      "meta": {
+        "name": "VCC+5V",
+        "source_name": "VCC+5V"
+      }
+    }
+  ],
+  "incidences": [
+    [
+      "C1.1",
+      "n_1"
+    ],
+    [
+      "C1.2",
+      "n_0"
+    ],
+    [
+      "C10.1",
+      "n_7"
+    ],
+    [
+      "C10.2",
+      "n_1"
+    ],
+    [
+      "C2.1",
+      "n_1"
+    ],
+    [
+      "C2.2",
+      "n_0"
+    ],
+    [
+      "C3.1",
+      "n_1"
+    ],
+    [
+      "C3.2",
+      "n_2"
+    ],
+    [
+      "C4.1",
+      "n_1"
+    ],
+    [
+      "C4.2",
+      "n_2"
+    ],
+    [
+      "C5.1",
+      "n_1"
+    ],
+    [
+      "C5.2",
+      "n_0"
+    ],
+    [
+      "C6.1",
+      "n_1"
+    ],
+    [
+      "C6.2",
+      "n_3"
+    ],
+    [
+      "C7.1",
+      "n_1"
+    ],
+    [
+      "C7.2",
+      "n_4"
+    ],
+    [
+      "C8.1",
+      "n_5"
+    ],
+    [
+      "C8.2",
+      "n_0"
+    ],
+    [
+      "C9.1",
+      "n_6"
+    ],
+    [
+      "C9.2",
+      "n_1"
+    ],
+    [
+      "H1.1",
+      "n_8"
+    ],
+    [
+      "H1.10",
+      "n_17"
+    ],
+    [
+      "H1.11",
+      "n_18"
+    ],
+    [
+      "H1.12",
+      "n_19"
+    ],
+    [
+      "H1.13",
+      "n_20"
+    ],
+    [
+      "H1.14",
+      "n_21"
+    ],
+    [
+      "H1.15",
+      "n_6"
+    ],
+    [
+      "H1.16",
+      "n_7"
+    ],
+    [
+      "H1.2",
+      "n_9"
+    ],
+    [
+      "H1.3",
+      "n_10"
+    ],
+    [
+      "H1.4",
+      "n_11"
+    ],
+    [
+      "H1.5",
+      "n_12"
+    ],
+    [
+      "H1.6",
+      "n_13"
+    ],
+    [
+      "H1.7",
+      "n_14"
+    ],
+    [
+      "H1.8",
+      "n_15"
+    ],
+    [
+      "H1.9",
+      "n_16"
+    ],
+    [
+      "H2.1",
+      "n_22"
+    ],
+    [
+      "H2.10",
+      "n_31"
+    ],
+    [
+      "H2.11",
+      "n_32"
+    ],
+    [
+      "H2.12",
+      "n_33"
+    ],
+    [
+      "H2.13",
+      "n_34"
+    ],
+    [
+      "H2.14",
+      "n_35"
+    ],
+    [
+      "H2.15",
+      "n_36"
+    ],
+    [
+      "H2.16",
+      "n_37"
+    ],
+    [
+      "H2.2",
+      "n_23"
+    ],
+    [
+      "H2.3",
+      "n_24"
+    ],
+    [
+      "H2.4",
+      "n_25"
+    ],
+    [
+      "H2.5",
+      "n_26"
+    ],
+    [
+      "H2.6",
+      "n_27"
+    ],
+    [
+      "H2.7",
+      "n_28"
+    ],
+    [
+      "H2.8",
+      "n_29"
+    ],
+    [
+      "H2.9",
+      "n_30"
+    ],
+    [
+      "H3.1",
+      "n_38"
+    ],
+    [
+      "H3.2",
+      "n_39"
+    ],
+    [
+      "H3.3",
+      "n_40"
+    ],
+    [
+      "H3.4",
+      "n_41"
+    ],
+    [
+      "H3.5",
+      "n_42"
+    ],
+    [
+      "H3.6",
+      "n_43"
+    ],
+    [
+      "H3.7",
+      "n_44"
+    ],
+    [
+      "H4.1",
+      "n_0"
+    ],
+    [
+      "H4.2",
+      "n_0"
+    ],
+    [
+      "H4.3",
+      "n_2"
+    ],
+    [
+      "H4.4",
+      "n_2"
+    ],
+    [
+      "H4.5",
+      "n_1"
+    ],
+    [
+      "H4.6",
+      "n_1"
+    ],
+    [
+      "H4.7",
+      "n_1"
+    ],
+    [
+      "H5.1",
+      "n_30"
+    ],
+    [
+      "H5.2",
+      "n_31"
+    ],
+    [
+      "H5.3",
+      "n_0"
+    ],
+    [
+      "H5.4",
+      "n_1"
+    ],
+    [
+      "LED1.1",
+      "n_1"
+    ],
+    [
+      "LED1.2",
+      "n_45"
+    ],
+    [
+      "LED2.1",
+      "n_23"
+    ],
+    [
+      "LED2.2",
+      "n_46"
+    ],
+    [
+      "LED3.1",
+      "n_22"
+    ],
+    [
+      "LED3.2",
+      "n_47"
+    ],
+    [
+      "R1.1",
+      "n_48"
+    ],
+    [
+      "R1.2",
+      "n_1"
+    ],
+    [
+      "R10.1",
+      "n_11"
+    ],
+    [
+      "R10.2",
+      "n_0"
+    ],
+    [
+      "R11.1",
+      "n_12"
+    ],
+    [
+      "R11.2",
+      "n_0"
+    ],
+    [
+      "R12.1",
+      "n_13"
+    ],
+    [
+      "R12.2",
+      "n_0"
+    ],
+    [
+      "R13.1",
+      "n_14"
+    ],
+    [
+      "R13.2",
+      "n_0"
+    ],
+    [
+      "R14.1",
+      "n_15"
+    ],
+    [
+      "R14.2",
+      "n_0"
+    ],
+    [
+      "R2.1",
+      "n_49"
+    ],
+    [
+      "R2.2",
+      "n_1"
+    ],
+    [
+      "R3.1",
+      "n_2"
+    ],
+    [
+      "R3.2",
+      "n_45"
+    ],
+    [
+      "R4.1",
+      "n_1"
+    ],
+    [
+      "R4.2",
+      "n_5"
+    ],
+    [
+      "R5.1",
+      "n_46"
+    ],
+    [
+      "R5.2",
+      "n_2"
+    ],
+    [
+      "R6.1",
+      "n_47"
+    ],
+    [
+      "R6.2",
+      "n_2"
+    ],
+    [
+      "R7.1",
+      "n_8"
+    ],
+    [
+      "R7.2",
+      "n_0"
+    ],
+    [
+      "R8.1",
+      "n_9"
+    ],
+    [
+      "R8.2",
+      "n_0"
+    ],
+    [
+      "R9.1",
+      "n_10"
+    ],
+    [
+      "R9.2",
+      "n_0"
+    ],
+    [
+      "SW1.1",
+      "n_1"
+    ],
+    [
+      "SW1.2",
+      "n_1"
+    ],
+    [
+      "SW1.3",
+      "n_1"
+    ],
+    [
+      "SW1.4",
+      "n_50"
+    ],
+    [
+      "SW1.5",
+      "n_0"
+    ],
+    [
+      "SW1.6",
+      "n_0"
+    ],
+    [
+      "SW2.1",
+      "n_5"
+    ],
+    [
+      "SW2.2",
+      "n_0"
+    ],
+    [
+      "SW3.1",
+      "n_7"
+    ],
+    [
+      "SW3.2",
+      "n_1"
+    ],
+    [
+      "SW4.1",
+      "n_6"
+    ],
+    [
+      "SW4.2",
+      "n_1"
+    ],
+    [
+      "U1.1",
+      "n_1"
+    ],
+    [
+      "U1.2",
+      "n_2"
+    ],
+    [
+      "U1.3",
+      "n_0"
+    ],
+    [
+      "U1.4",
+      "n_2"
+    ],
+    [
+      "U2.1",
+      "n_27"
+    ],
+    [
+      "U2.10",
+      "n_34"
+    ],
+    [
+      "U2.11",
+      "n_35"
+    ],
+    [
+      "U2.12",
+      "n_36"
+    ],
+    [
+      "U2.13",
+      "n_37"
+    ],
+    [
+      "U2.14",
+      "n_4"
+    ],
+    [
+      "U2.15",
+      "n_3"
+    ],
+    [
+      "U2.16",
+      "n_1"
+    ],
+    [
+      "U2.17",
+      "n_38"
+    ],
+    [
+      "U2.18",
+      "n_7"
+    ],
+    [
+      "U2.19",
+      "n_6"
+    ],
+    [
+      "U2.2",
+      "n_28"
+    ],
+    [
+      "U2.20",
+      "n_21"
+    ],
+    [
+      "U2.21",
+      "n_20"
+    ],
+    [
+      "U2.22",
+      "n_19"
+    ],
+    [
+      "U2.23",
+      "n_18"
+    ],
+    [
+      "U2.24",
+      "n_17"
+    ],
+    [
+      "U2.25",
+      "n_16"
+    ],
+    [
+      "U2.26",
+      "n_42"
+    ],
+    [
+      "U2.27",
+      "n_43"
+    ],
+    [
+      "U2.28",
+      "n_39"
+    ],
+    [
+      "U2.29",
+      "n_44"
+    ],
+    [
+      "U2.3",
+      "n_29"
+    ],
+    [
+      "U2.30",
+      "n_15"
+    ],
+    [
+      "U2.31",
+      "n_14"
+    ],
+    [
+      "U2.32",
+      "n_13"
+    ],
+    [
+      "U2.33",
+      "n_12"
+    ],
+    [
+      "U2.34",
+      "n_11"
+    ],
+    [
+      "U2.35",
+      "n_10"
+    ],
+    [
+      "U2.36",
+      "n_9"
+    ],
+    [
+      "U2.37",
+      "n_8"
+    ],
+    [
+      "U2.38",
+      "n_0"
+    ],
+    [
+      "U2.39",
+      "n_40"
+    ],
+    [
+      "U2.4",
+      "n_5"
+    ],
+    [
+      "U2.40",
+      "n_22"
+    ],
+    [
+      "U2.41",
+      "n_23"
+    ],
+    [
+      "U2.42",
+      "n_24"
+    ],
+    [
+      "U2.43",
+      "n_25"
+    ],
+    [
+      "U2.44",
+      "n_26"
+    ],
+    [
+      "U2.5",
+      "n_30"
+    ],
+    [
+      "U2.6",
+      "n_41"
+    ],
+    [
+      "U2.7",
+      "n_31"
+    ],
+    [
+      "U2.8",
+      "n_32"
+    ],
+    [
+      "U2.9",
+      "n_33"
+    ],
+    [
+      "U3.1",
+      "n_3"
+    ],
+    [
+      "U3.2",
+      "n_4"
+    ],
+    [
+      "USB1.1",
+      "n_1"
+    ],
+    [
+      "USB1.2",
+      "n_50"
+    ],
+    [
+      "USB1.3",
+      "n_49"
+    ],
+    [
+      "USB1.4",
+      "n_48"
+    ],
+    [
+      "USB1.5",
+      "n_50"
+    ],
+    [
+      "USB1.6",
+      "n_1"
+    ],
+    [
+      "USB1.7",
+      "n_1"
+    ]
+  ]
+}

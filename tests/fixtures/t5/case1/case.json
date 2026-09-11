@@ -1,0 +1,80 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t5_drawings2assembly",
+ "kind": "assembly",
+ "family": null,
+ "units": "mm",
+ "synthetic": true,
+ "source": {
+  "repo": "synthetic",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/bom.json",
+   "sha256": "cfc1494094e91e5e73270ee4607fdfd5727d65efff299748ff0ea6323cb52098"
+  },
+  {
+   "path": "input/drawing.pdf",
+   "sha256": "e219434d614b6b51473e1fb5885c6702b9f71a16315b04070310d355d0b08d1f"
+  },
+  {
+   "path": "input/part_drawings/base.pdf",
+   "sha256": "df2f8e400be0a3b6f2a56b7d7e57c93710c0b88842c143d9dcc59a6bcd578966"
+  },
+  {
+   "path": "input/step_files/post_1.step",
+   "sha256": "402f162809ad5298480060cb31934e4f985115de85f066dd70edf9684d96452c"
+  },
+  {
+   "path": "input/step_files/post_2.step",
+   "sha256": "45f499a1b3dce24fc8bdda3a5df16e512e19b1a69c2b0c1208b1c14cd41bfc60"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "ec9d3025e284c408ab451243bb277578b49dc389c37ff21f081454279a0489fb"
+  },
+  {
+   "path": "gt/instances.json",
+   "sha256": "9101db6c331f78dae056fab71bd5240abeca59e6ee817169239a79db625c175e"
+  },
+  {
+   "path": "gt/parts/base.step",
+   "sha256": "d5e1df0750fa9092a26911ccc546419637e5d9eca9607b8d64d4219d54381916"
+  }
+ ],
+ "generator": {
+  "tool": "tests/fixtures/make_fixtures.py"
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean"
+ },
+ "notes": "full drawing set -> assembly (purchased parts as STEP)",
+ "parts": [
+  {
+   "part_id": "base",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-9c3324b1df8b",
+   "source": "gt"
+  },
+  {
+   "part_id": "post_1",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-a6dcd0f4506b",
+   "source": "input"
+  },
+  {
+   "part_id": "post_2",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-a6dcd0f4506b",
+   "source": "input"
+  }
+ ]
+}

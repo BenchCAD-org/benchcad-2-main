@@ -1,0 +1,42 @@
+{
+ "note": "quantities are the ground truth for the listed part types; every part type is modelled from the reference views, so there is no per-part input file to name",
+ "n_part_types": 7,
+ "n_instances": 9,
+ "items": [
+  {
+   "part_id": "body",
+   "quantity": 1,
+   "source": "views"
+  },
+  {
+   "part_id": "cover",
+   "quantity": 1,
+   "source": "views"
+  },
+  {
+   "part_id": "jaw_1",
+   "quantity": 1,
+   "source": "views"
+  },
+  {
+   "part_id": "jaw_2",
+   "quantity": 1,
+   "source": "views"
+  },
+  {
+   "part_id": "jaw_3",
+   "quantity": 1,
+   "source": "views"
+  },
+  {
+   "part_id": "pinion",
+   "quantity": 3,
+   "source": "views"
+  },
+  {
+   "part_id": "scroll_plate",
+   "quantity": 1,
+   "source": "views"
+  }
+ ]
+}

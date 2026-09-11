@@ -1,0 +1,285 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t2_realparts2assembly",
+ "kind": "assembly",
+ "family": null,
+ "units": "mm",
+ "synthetic": false,
+ "source": {
+  "repo": "this repository",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/bom.json",
+   "sha256": "77a1a1795ad05bdff9a986540f2bdfa72a157d676c200b3677eb0828306fa65e"
+  },
+  {
+   "path": "input/drawing.pdf",
+   "sha256": "b432ae7c11cb193ee3fb41c609a712cfa06cc6709d57dc0617e09c4a7c9b0131"
+  },
+  {
+   "path": "input/step_files/part_01.step",
+   "sha256": "aaa4d568a57fdb1634d1791e7310fea9bad5790ef341e3d2062b5a008fe8f72a"
+  },
+  {
+   "path": "input/step_files/part_02.step",
+   "sha256": "f6deea9b9c8216d9fd21f97fb370acb8b254d587812d342ddc2db068f5f7f507"
+  },
+  {
+   "path": "input/step_files/part_03.step",
+   "sha256": "275b984f2d87dec3195455538cda167e92d1c528f94ea4f88e015115d01aea78"
+  },
+  {
+   "path": "input/step_files/part_04.step",
+   "sha256": "e13a29d0d038dcc0f659c8ec4bafcb7b632c74d66ed65b98eaa1c3f19f25c70b"
+  },
+  {
+   "path": "input/step_files/part_05.step",
+   "sha256": "f77b0b0af4a8d5f2c443ee23071c7cbf7137d0e4c0e19d88733eec093309d3ff"
+  },
+  {
+   "path": "input/step_files/part_06.step",
+   "sha256": "c2773a2e7f824e1f61f7036c68e0c54d2d2d2dddc4718386bfd4543868b40525"
+  },
+  {
+   "path": "input/step_files/part_07.step",
+   "sha256": "bfc6c92e0f9238787d13ecd27286b3554e532a401e9e1045ca796af59e78bd14"
+  },
+  {
+   "path": "input/step_files/part_08.step",
+   "sha256": "a6396ac2dc2971775ec3a70329cc97c33f05badd01c8b4fd10fae64f681272eb"
+  },
+  {
+   "path": "input/step_files/part_09.step",
+   "sha256": "b422fbd20448e84a14d6e7d9f6e08c9c40fb6314b9517f6488ba8103d8bbfd58"
+  },
+  {
+   "path": "input/step_files/part_10.step",
+   "sha256": "c2fa56d70c7c77c5db17b3c1e59c8907a16f389ccf9faabfc7b8b810903af71b"
+  },
+  {
+   "path": "input/step_files/part_11.step",
+   "sha256": "d89d293f57f683d3d1aa74507ce6171ff8f8cbb3e14d95ed7682e6bad583aad4"
+  },
+  {
+   "path": "input/step_files/part_12.step",
+   "sha256": "93b8758ad64212fc9b09486c6a0ef5c1e1fc08822e9142bb3e85d5f72de5d18d"
+  },
+  {
+   "path": "input/step_files/part_13.step",
+   "sha256": "de06dbc7617b4b6e12e0dcef9863cad58bea6d1ade75a673f12b3e3f1e3f3fd6"
+  },
+  {
+   "path": "input/step_files/part_14.step",
+   "sha256": "38228494cd6fe8f0f21bc243d950c76f72fc5c0992cfe70872bb45c702f5ccdd"
+  },
+  {
+   "path": "input/step_files/part_15.step",
+   "sha256": "c9753100db780ede0ad8c425e0b5fada3e80dd6aa86a205f773e5239559b3cde"
+  },
+  {
+   "path": "input/step_files/part_16.step",
+   "sha256": "90d241085f7e205c022d18cb37a80c0d0fe41473f4bc52b00a41b553ac42faac"
+  },
+  {
+   "path": "input/step_files/part_17.step",
+   "sha256": "21e6b0dec66c875807740f422af92d0d9b02c56fe680ddde445b9092eff69c55"
+  },
+  {
+   "path": "input/step_files/part_18.step",
+   "sha256": "a6436a28b12eddfe27ee55cb684facfe24f7fa054b278193784bc35837f915a3"
+  },
+  {
+   "path": "input/step_files/part_19.step",
+   "sha256": "9f0d3dbd6cde1d5de84d23f3e43dfe276c74b8286e1d8c398357c3fa5231eebc"
+  },
+  {
+   "path": "input/step_files/part_20.step",
+   "sha256": "5ebff705d805495966bd612d76049ffc2a208de1ed18454a34b51389809e1d58"
+  },
+  {
+   "path": "input/step_files/part_21.step",
+   "sha256": "f12a3d1a7bb6574ab3ed33dc5a43da5b78d1fa725ecaf80cac3ccaa6d16dd1fa"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "be97806284bcbe4854bea7c6f66b7e144ae1afb7bfe82f2833dc64ac20d61b80"
+  },
+  {
+   "path": "gt/instances.json",
+   "sha256": "1677f1414f9fd27fd1b7c2f626fe027af04702c4e8855253dd80f6b82ff856a6"
+  }
+ ],
+ "generator": {
+  "tool": "tools/asmlib.py",
+  "seed": 20260911,
+  "dev_sample": {
+   "tool": "tools/make_dev_samples.py",
+   "from": "t2_realparts2assembly",
+   "note": "A copy of a real case with provenance/ (and, for the ECAD cases, alignment/) left out, and every PDF Info dictionary cleared. References to provenance/... in `notes` or `redaction.note` are the source case's own words and point at files that are deliberately not shipped. expected.json holds the scores this sample must reproduce."
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean",
+  "note": "English parts table re-set in Courier; drawing vectors retained; PDF Info and XMP cleared."
+ },
+ "notes": "Standard assembly example: 26 semantic instances, 26 solids.",
+ "parts": [
+  {
+   "part_id": "part_01",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-4b19a4f25f3e",
+   "source": "input"
+  },
+  {
+   "part_id": "part_02",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-9274c238d555",
+   "source": "input"
+  },
+  {
+   "part_id": "part_03",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-7f36fb743a37",
+   "source": "input"
+  },
+  {
+   "part_id": "part_04",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-5bad84a73d00",
+   "source": "input"
+  },
+  {
+   "part_id": "part_05",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-33fea8a804d9",
+   "source": "input"
+  },
+  {
+   "part_id": "part_06",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-51caab58577c",
+   "source": "input"
+  },
+  {
+   "part_id": "part_07",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-24d3f5f884e6",
+   "source": "input"
+  },
+  {
+   "part_id": "part_08",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-d2ccfdfa75d3",
+   "source": "input"
+  },
+  {
+   "part_id": "part_09",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-9e155fbcb0f3",
+   "source": "input"
+  },
+  {
+   "part_id": "part_10",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-7c4ccaeb91d5",
+   "source": "input"
+  },
+  {
+   "part_id": "part_11",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-daf580628487",
+   "source": "input"
+  },
+  {
+   "part_id": "part_12",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-daf580628487",
+   "source": "input"
+  },
+  {
+   "part_id": "part_13",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-4d02ec73dd7d",
+   "source": "input"
+  },
+  {
+   "part_id": "part_14",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-486c189093d0",
+   "source": "input"
+  },
+  {
+   "part_id": "part_15",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-ce4ef3011d58",
+   "source": "input"
+  },
+  {
+   "part_id": "part_16",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-0a4828477dcb",
+   "source": "input"
+  },
+  {
+   "part_id": "part_17",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-187ced64d688",
+   "source": "input"
+  },
+  {
+   "part_id": "part_18",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-8546101e5a32",
+   "source": "input"
+  },
+  {
+   "part_id": "part_19",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-4547192bdf9f",
+   "source": "input"
+  },
+  {
+   "part_id": "part_20",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-025a4e0dbb1f",
+   "source": "input"
+  },
+  {
+   "part_id": "part_21",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-42a325ee13fa",
+   "source": "input"
+  }
+ ],
+ "parts_list": {
+  "mapping": "item_number",
+  "note": "The STEP FILE column identifies each supplied part; item numbers are assembly balloons."
+ }
+}

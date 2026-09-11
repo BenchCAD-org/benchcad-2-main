@@ -1,0 +1,39 @@
+{
+ "schema": "pcb2schematic/1.0",
+ "components": [
+  {
+   "id": "U1",
+   "type": "ic",
+   "terminals": [
+    "U1.1",
+    "U1.2",
+    "U1.3"
+   ]
+  }
+ ],
+ "nets": [
+  {
+   "id": "VCC"
+  },
+  {
+   "id": "GND"
+  },
+  {
+   "id": "N1"
+  }
+ ],
+ "incidences": [
+  [
+   "U1.1",
+   "N1"
+  ],
+  [
+   "U1.2",
+   "GND"
+  ],
+  [
+   "U1.3",
+   "VCC"
+  ]
+ ]
+}

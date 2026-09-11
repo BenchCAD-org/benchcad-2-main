@@ -1,0 +1,154 @@
+{
+ "note": "one row per part type; source=drawing parts must be modelled from their drawing, source=step parts are supplied de-posed. Quantities are the ground truth; the drawing's own parts list may show hardware that is not supplied and not in the reference.",
+ "n_part_types": 21,
+ "n_instances": 25,
+ "items": [
+  {
+   "part_id": "part_01",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_01.step",
+   "name": "tool seat cover plate"
+  },
+  {
+   "part_id": "part_02",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_02.step",
+   "name": "insert clamp"
+  },
+  {
+   "part_id": "part_03",
+   "quantity": 2,
+   "source": "drawing",
+   "file": "part_drawings/part_03.pdf",
+   "name": "cutting stiffener rib"
+  },
+  {
+   "part_id": "part_04",
+   "quantity": 2,
+   "source": "step",
+   "file": "step_files/part_04.step",
+   "name": "pressure plate cover"
+  },
+  {
+   "part_id": "part_05",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_05.step",
+   "name": "ACQS-40X50 cylinder body"
+  },
+  {
+   "part_id": "part_06",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_06.step",
+   "name": "ACQS-40X50 cylinder rod"
+  },
+  {
+   "part_id": "part_07",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_07.step",
+   "name": "TH"
+  },
+  {
+   "part_id": "part_08",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_08.step",
+   "name": "upper knife holder"
+  },
+  {
+   "part_id": "part_09",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_09.step",
+   "name": "lower knife holder"
+  },
+  {
+   "part_id": "part_10",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_10.step",
+   "name": "tool seat"
+  },
+  {
+   "part_id": "part_11",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_11.step",
+   "name": "cutting insert"
+  },
+  {
+   "part_id": "part_12",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_12.step",
+   "name": "cutting insert, upper"
+  },
+  {
+   "part_id": "part_13",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_13.step",
+   "name": "cutting guide fixing plate"
+  },
+  {
+   "part_id": "part_14",
+   "quantity": 1,
+   "source": "drawing",
+   "file": "part_drawings/part_14.pdf",
+   "name": "cutting bracket"
+  },
+  {
+   "part_id": "part_15",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_15.step",
+   "name": "cutting bracket stiffener"
+  },
+  {
+   "part_id": "part_16",
+   "quantity": 1,
+   "source": "drawing",
+   "file": "part_drawings/part_16.pdf",
+   "name": "cutting cylinder fixing plate"
+  },
+  {
+   "part_id": "part_17",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_17.step",
+   "name": "pressure plate"
+  },
+  {
+   "part_id": "part_18",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_18.step",
+   "name": "round cover"
+  },
+  {
+   "part_id": "part_19",
+   "quantity": 1,
+   "source": "drawing",
+   "file": "part_drawings/part_19.pdf",
+   "name": "scrap connection nozzle"
+  },
+  {
+   "part_id": "part_20",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/part_20.step",
+   "name": "spring guide rod"
+  },
+  {
+   "part_id": "part_21",
+   "quantity": 1,
+   "source": "drawing",
+   "file": "part_drawings/part_21.pdf",
+   "name": "cylinder connector"
+  }
+ ]
+}

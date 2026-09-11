@@ -1,0 +1,406 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t5_drawings2assembly",
+ "kind": "assembly",
+ "family": null,
+ "units": "mm",
+ "synthetic": false,
+ "source": {
+  "repo": "the data pipeline",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/bom.json",
+   "sha256": "cb70ef2d5b8468b20555a52e6f2348bfb23dc810013a353c3043a6c438398841"
+  },
+  {
+   "path": "input/drawing.pdf",
+   "sha256": "bc5d04eaa963667833815130af5027e844dea807b0e6d759ccfda271586243c3"
+  },
+  {
+   "path": "input/part_drawings/part_03.pdf",
+   "sha256": "10852f91827f84906261e3f6cf3ddc9141a49bc6fb6078ad4db422409509aa8a"
+  },
+  {
+   "path": "input/part_drawings/part_14.pdf",
+   "sha256": "f26bd75e47c3f47bd9b46c21e6e4abf3ecfce22434f44707a63184d6a7a1da99"
+  },
+  {
+   "path": "input/part_drawings/part_16.pdf",
+   "sha256": "326bac6a07bcb833ead111b8f9e9695edeadcf493effb9fc9f7f40e3bf6c8b40"
+  },
+  {
+   "path": "input/part_drawings/part_19.pdf",
+   "sha256": "03d8f0ffb748f2939a5012aa4d78816e3a04fb791403870c4dbcde42c656ea7a"
+  },
+  {
+   "path": "input/part_drawings/part_21.pdf",
+   "sha256": "f3adc677e27b1fc39d1c9a3eda53474e593dcd94a53c3235057ca6d81f11decb"
+  },
+  {
+   "path": "input/step_files/part_01.step",
+   "sha256": "d0c9877144f375464e75231555f4c2b9961d2003e3901a2c7aa7d5b24785b44c"
+  },
+  {
+   "path": "input/step_files/part_02.step",
+   "sha256": "28ce15af6390b7f7c660cc1cb24b7e6eedfa12b40671181e4ca895ce22fa7326"
+  },
+  {
+   "path": "input/step_files/part_04.step",
+   "sha256": "81b8e839ddd43f9d6c1faa8426fba2e983471367ea0a5787967ebeab7f2b402c"
+  },
+  {
+   "path": "input/step_files/part_05.step",
+   "sha256": "f97a9cc4b3e4c1b9c847cefc5946ffd2fd963f95397ddb9ec73f6800e12e079c"
+  },
+  {
+   "path": "input/step_files/part_06.step",
+   "sha256": "4e6b5c3ffe26954de782d4e1fd4c5a7df6dfa91fdb2f945b2f72566214bb052d"
+  },
+  {
+   "path": "input/step_files/part_07.step",
+   "sha256": "d2a1bda743298901d739e8a930d6461f7267d694f3d06bbb84fe47e025b9240e"
+  },
+  {
+   "path": "input/step_files/part_08.step",
+   "sha256": "ee6c9222010643e8b38db5c2f613dafc0d4045a334f897439c6efc86ed609773"
+  },
+  {
+   "path": "input/step_files/part_09.step",
+   "sha256": "0b68d921d53f4af6e06a9fdd8dcd4c4943dc5f2c6e6938799d895593fc210b89"
+  },
+  {
+   "path": "input/step_files/part_10.step",
+   "sha256": "329566ccda324fecf62cf7fcd180ddf682aa1e5de0dc0289901738f7d4995138"
+  },
+  {
+   "path": "input/step_files/part_11.step",
+   "sha256": "074f57c41e62b7884bdcb5e327340fc4a0aa7408e153260c770f372b8e83d451"
+  },
+  {
+   "path": "input/step_files/part_12.step",
+   "sha256": "455d2151aa71df70e52fc98617fbd3d3277a0b4f840bf870c10554f20c1eb3df"
+  },
+  {
+   "path": "input/step_files/part_13.step",
+   "sha256": "d7df0a340a633a04eeaeb8f34d5cddbb2942da635e45c3a05d0f4c919df70495"
+  },
+  {
+   "path": "input/step_files/part_15.step",
+   "sha256": "50cac96ddf8408894113770d68c4122dacdb1b498c961b90bbba64db39c07de1"
+  },
+  {
+   "path": "input/step_files/part_17.step",
+   "sha256": "d8beb79603bcf9aba714bac0bc7cb9adef3c90b50d98d335eea17dbc3a3b8067"
+  },
+  {
+   "path": "input/step_files/part_18.step",
+   "sha256": "9dcd760f6a456ca538ac0f767716306d514d7bb245ffe292cfd694363a1d3d2d"
+  },
+  {
+   "path": "input/step_files/part_20.step",
+   "sha256": "bf7274daf00141b8ca9e311799d4a3dc296514b5366efb0c25acfceaaba3fe13"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "f3bd8f4d63f1f4b6d6d210708908d4377fa4494a71510a4896c7375042d0b019"
+  },
+  {
+   "path": "gt/instances.json",
+   "sha256": "788aaf71929f876547cd5b78a06a2708af5f1018c1329cc7c33a6ac3d281a9ca"
+  },
+  {
+   "path": "gt/parts/part_01.step",
+   "sha256": "71d8d90b8672a3a9529a793eda048e078b6ddc94cf36485617af05d6de9ce962"
+  },
+  {
+   "path": "gt/parts/part_02.step",
+   "sha256": "9e9f35ec239f26849065c55297e2f2be3257821ed1f9e46019d0b49df3ea4812"
+  },
+  {
+   "path": "gt/parts/part_03.step",
+   "sha256": "1b78b8d5fabba7dd29d77160ec592d99e6ad8419d3672c5d9d24ba7d7331357a"
+  },
+  {
+   "path": "gt/parts/part_04.step",
+   "sha256": "0235b4d5af213c186fe80695fed05e39d063f417c83d71dcecca62f467203423"
+  },
+  {
+   "path": "gt/parts/part_08.step",
+   "sha256": "904c9a909af948f44c079e1159902fce355ed651a05c3160d473a9fc3cea5c1b"
+  },
+  {
+   "path": "gt/parts/part_09.step",
+   "sha256": "1ebe24cd5e3c1734a74fff811ee7c19719a6124f524103442ac7921bde955b64"
+  },
+  {
+   "path": "gt/parts/part_10.step",
+   "sha256": "f6598004b5f20133ac537a3c9a922643b374ddae15a24b4b692f3c9665e21843"
+  },
+  {
+   "path": "gt/parts/part_11.step",
+   "sha256": "641ae073961ee0cdc3936d3eaa5084d44ee7fca9c3844643eeb7a76c08afc1c8"
+  },
+  {
+   "path": "gt/parts/part_12.step",
+   "sha256": "a084023c0f8a78b339ce453ca4cb860566c359cb9b428ed545787532e577761c"
+  },
+  {
+   "path": "gt/parts/part_13.step",
+   "sha256": "6f1617e42dee6f6e3f1d0141ea621c5ad7041c56b75f5ec771a5b5680a266c7f"
+  },
+  {
+   "path": "gt/parts/part_14.step",
+   "sha256": "980d57f77c1a40df973cc952e7306bbb286df542f8c4be643ebcff1b1e85074e"
+  },
+  {
+   "path": "gt/parts/part_15.step",
+   "sha256": "24cde1c38d503de750ef9a94724056752ce1f8641347cfd4a1388922b90ad07e"
+  },
+  {
+   "path": "gt/parts/part_16.step",
+   "sha256": "fa50c8a18fc7260e5b4ee3d3b6686286c22a2a121575dd31a66e9f9b7dad2c28"
+  },
+  {
+   "path": "gt/parts/part_17.step",
+   "sha256": "ada384a001a684608c0bab5182346297686da9fc26a480b732dac044a47296cf"
+  },
+  {
+   "path": "gt/parts/part_18.step",
+   "sha256": "bf0934e7a38551e30719cb0f615da7f2dd55db195bc94e9d16d5e58be3710e13"
+  },
+  {
+   "path": "gt/parts/part_19.step",
+   "sha256": "17a97fbec6e4727fbf40afa7899a4307dcee397110c8fdbc7f0b28fd68d32b57"
+  },
+  {
+   "path": "gt/parts/part_20.step",
+   "sha256": "020f078018b8f4af5ca96233b03697e105213e10134ad1385c4fbc08d8f9c3a4"
+  },
+  {
+   "path": "gt/parts/part_21.step",
+   "sha256": "0d90d2ac8dd9f405734fd00cd3093708ca19bb5997da0d913149797520220fa4"
+  }
+ ],
+ "generator": {
+  "tool": "tools/asm_to_case.py",
+  "seed": 20260911,
+  "names": "original BOM names -> part_01..21",
+  "dev_sample": {
+   "tool": "tools/make_dev_samples.py",
+   "from": "t5_drawings2assembly",
+   "note": "A copy of a real case with provenance/ (and, for the ECAD cases, alignment/) left out, and every PDF Info dictionary cleared. References to provenance/... in `notes` or `redaction.note` are the source case's own words and point at files that are deliberately not shipped. expected.json holds the scores this sample must reproduce."
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean",
+  "note": "The five part drawings were exported from SOLIDWORKS 2023 SP5 using the local BenchCAD Pro A3 sheet format, populated with case1 part identifiers and English annotations. PDF Info and document metadata are cleared. The unchanged assembly drawing retains the source delivery report pin.",
+  "report_sha256": "c4a89cf0458f15c618054330a0ac71225e42f828819ede28d2381c0f4199cae4"
+ },
+ "notes": "Cutting assembly, 21 part types / 25 instances. Reconstruct part_03, part_14, part_16, part_19 and part_21 (6 instances) from the five supplied part drawings. The other 16 types (19 instances) are supplied de-posed under input/step_files. Existing gt/parts files retain the canonical reference frames used by gt/instances.json.",
+ "parts": [
+  {
+   "part_id": "part_01",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-97532095d59f",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_02",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-f0cde3a7e07c",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_03",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-bb1ad963e8e0",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_04",
+   "quantity": 2,
+   "n_solids": 1,
+   "geometry_class": "g-fc037e3c6f3c",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_05",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-6d2fa1da1619",
+   "source": "input"
+  },
+  {
+   "part_id": "part_06",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-e750ce0689c5",
+   "source": "input"
+  },
+  {
+   "part_id": "part_07",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-3607017f8216",
+   "source": "input"
+  },
+  {
+   "part_id": "part_08",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-16b934b25886",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_09",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-76ef028c0f47",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_10",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-3b80c7820e0b",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_11",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-7bf97a7c3713",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_12",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-0dbc6e2ce7a4",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_13",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-7220bfbc58d6",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_14",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-25403345376a",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_15",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-286394c1238b",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_16",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-1b48db62f09c",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_17",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-ece65575f3f4",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_18",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-5770e637220b",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_19",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-78fcadd7006b",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_20",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-f98ff8945509",
+   "source": "gt"
+  },
+  {
+   "part_id": "part_21",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-c9117192b567",
+   "source": "gt"
+  }
+ ],
+ "parts_list": {
+  "mapping": "item_number",
+  "note": "balloon numbers on the assembly sheet are the part ids' numbers (1..21)"
+ },
+ "drawings": {
+  "input/part_drawings/part_03.pdf": {
+   "generator": "SOLIDWORKS 2023 SP5",
+   "sheet_format": "BenchCAD Pro A3 local template",
+   "page_size_mm": [
+    420,
+    297
+   ],
+   "units": "mm"
+  },
+  "input/part_drawings/part_14.pdf": {
+   "generator": "SOLIDWORKS 2023 SP5",
+   "sheet_format": "BenchCAD Pro A3 local template",
+   "page_size_mm": [
+    420,
+    297
+   ],
+   "units": "mm"
+  },
+  "input/part_drawings/part_16.pdf": {
+   "generator": "SOLIDWORKS 2023 SP5",
+   "sheet_format": "BenchCAD Pro A3 local template",
+   "page_size_mm": [
+    420,
+    297
+   ],
+   "units": "mm"
+  },
+  "input/part_drawings/part_19.pdf": {
+   "generator": "SOLIDWORKS 2023 SP5",
+   "sheet_format": "BenchCAD Pro A3 local template",
+   "page_size_mm": [
+    420,
+    297
+   ],
+   "units": "mm"
+  },
+  "input/part_drawings/part_21.pdf": {
+   "generator": "SOLIDWORKS 2023 SP5",
+   "sheet_format": "BenchCAD Pro A3 local template",
+   "page_size_mm": [
+    420,
+    297
+   ],
+   "units": "mm"
+  }
+ }
+}

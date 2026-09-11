@@ -1,0 +1,75 @@
+{
+ "schema": "pcb2schematic/1.0",
+ "components": [
+  {
+   "id": "R1",
+   "type": "resistor",
+   "terminals": [
+    "R1.1",
+    "R1.2"
+   ],
+   "value": 1000.0,
+   "value_unit": "ohm"
+  },
+  {
+   "id": "C1",
+   "type": "capacitor",
+   "terminals": [
+    "C1.1",
+    "C1.2"
+   ],
+   "value": 1e-07,
+   "value_unit": "F"
+  },
+  {
+   "id": "U1",
+   "type": "ic",
+   "terminals": [
+    "U1.1",
+    "U1.2",
+    "U1.3"
+   ]
+  }
+ ],
+ "nets": [
+  {
+   "id": "VCC"
+  },
+  {
+   "id": "GND"
+  },
+  {
+   "id": "N1"
+  }
+ ],
+ "incidences": [
+  [
+   "R1.1",
+   "VCC"
+  ],
+  [
+   "R1.2",
+   "N1"
+  ],
+  [
+   "U1.1",
+   "N1"
+  ],
+  [
+   "C1.1",
+   "VCC"
+  ],
+  [
+   "C1.2",
+   "GND"
+  ],
+  [
+   "U1.2",
+   "GND"
+  ],
+  [
+   "U1.3",
+   "VCC"
+  ]
+ ]
+}

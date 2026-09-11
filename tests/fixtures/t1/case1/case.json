@@ -1,0 +1,33 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t1_drawing2part",
+ "kind": "part",
+ "family": null,
+ "units": "mm",
+ "synthetic": true,
+ "source": {
+  "repo": "synthetic",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/drawing.pdf",
+   "sha256": "ffb3ed84a7cf4dc3e69ef5035ca14533e74be978b386c479f19c49e42dda53f6"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "dc197ce22926f4900f57fa11e7693586f7491d90090e2e53a6b78423e83a37ff"
+  }
+ ],
+ "generator": {
+  "tool": "tests/fixtures/make_fixtures.py"
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean"
+ },
+ "notes": "one part drawing -> 3D"
+}

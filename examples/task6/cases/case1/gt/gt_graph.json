@@ -1,0 +1,298 @@
+{
+  "schema": "pcb2schematic/1.0",
+  "components": [
+    {
+      "id": "C2",
+      "type": "capacitor_polarized",
+      "terminals": [
+        "C2.1",
+        "C2.2"
+      ],
+      "value": 1e-05,
+      "value_unit": "farad",
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C_Ele_SMD_3x54mm",
+        "value_raw": "10uF",
+        "silkscreen": "C2",
+        "silkscreen_visible": false,
+        "x": -75,
+        "y": -695,
+        "angle": 90,
+        "footprint_uuid": null,
+        "source_value": 1e-05,
+        "value_observable": true,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "C1",
+      "type": "capacitor",
+      "terminals": [
+        "C1.1",
+        "C1.2"
+      ],
+      "value": 1e-07,
+      "value_unit": "farad",
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "C0603",
+        "value_raw": "100nF",
+        "silkscreen": "C1",
+        "silkscreen_visible": false,
+        "x": 105,
+        "y": -695,
+        "angle": 90,
+        "footprint_uuid": "32947d69402c0fb5",
+        "source_value": 1e-07,
+        "value_observable": true,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "U1",
+      "type": "connector",
+      "terminals": [
+        "U1.1",
+        "U1.2"
+      ],
+      "value": null,
+      "value_unit": null,
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "CONN-TH_P500_KF301-50-2P",
+        "value_raw": "{Value}",
+        "silkscreen": "U1",
+        "silkscreen_visible": false,
+        "x": 360,
+        "y": -690,
+        "angle": 90,
+        "footprint_uuid": "b8e8a5a76aa55024",
+        "source_value": null,
+        "value_observable": false,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "observation_widened": true
+      }
+    },
+    {
+      "id": "R1",
+      "type": "resistor",
+      "terminals": [
+        "R1.1",
+        "R1.2"
+      ],
+      "value": 10000.0,
+      "value_unit": "ohm",
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0603",
+        "value_raw": "10K",
+        "silkscreen": "R1",
+        "silkscreen_visible": false,
+        "x": -355,
+        "y": -585,
+        "angle": 90,
+        "footprint_uuid": "78b1c58c27a0230b",
+        "source_value": 10000.0,
+        "value_observable": true,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R3",
+      "type": "resistor",
+      "terminals": [
+        "R3.1",
+        "R3.2"
+      ],
+      "value": 10000.0,
+      "value_unit": "ohm",
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0603",
+        "value_raw": "10K",
+        "silkscreen": "R3",
+        "silkscreen_visible": false,
+        "x": -290,
+        "y": -800,
+        "angle": 90,
+        "footprint_uuid": "78b1c58c27a0230b",
+        "source_value": 10000.0,
+        "value_observable": true,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    },
+    {
+      "id": "R2",
+      "type": "resistor",
+      "terminals": [
+        "R2.1",
+        "R2.2"
+      ],
+      "value": 20000.0,
+      "value_unit": "ohm",
+      "terminal_classes": [
+        [
+          0,
+          1
+        ]
+      ],
+      "meta": {
+        "package": "R0603",
+        "value_raw": "20K",
+        "silkscreen": "R2",
+        "silkscreen_visible": false,
+        "x": -215,
+        "y": -585,
+        "angle": 90,
+        "footprint_uuid": "78b1c58c27a0230b",
+        "source_value": 20000.0,
+        "value_observable": true,
+        "refdes_observable": false,
+        "intrinsic_classes": [
+          [
+            0,
+            1
+          ]
+        ],
+        "observation_widened": false
+      }
+    }
+  ],
+  "nets": [
+    {
+      "id": "n_0",
+      "meta": {
+        "name": "$1N3",
+        "source_name": "$1N3"
+      }
+    },
+    {
+      "id": "n_1",
+      "meta": {
+        "name": "V+",
+        "source_name": "V+"
+      }
+    },
+    {
+      "id": "n_2",
+      "meta": {
+        "name": "GND",
+        "source_name": "GND"
+      }
+    }
+  ],
+  "incidences": [
+    [
+      "C1.1",
+      "n_2"
+    ],
+    [
+      "C1.2",
+      "n_1"
+    ],
+    [
+      "C2.1",
+      "n_1"
+    ],
+    [
+      "C2.2",
+      "n_2"
+    ],
+    [
+      "R1.1",
+      "n_0"
+    ],
+    [
+      "R1.2",
+      "n_1"
+    ],
+    [
+      "R2.1",
+      "n_0"
+    ],
+    [
+      "R2.2",
+      "n_1"
+    ],
+    [
+      "R3.1",
+      "n_2"
+    ],
+    [
+      "R3.2",
+      "n_0"
+    ],
+    [
+      "U1.1",
+      "n_2"
+    ],
+    [
+      "U1.2",
+      "n_1"
+    ]
+  ]
+}

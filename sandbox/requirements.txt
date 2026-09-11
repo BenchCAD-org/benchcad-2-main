@@ -1,0 +1,35 @@
+# Exported from the live image (benchcad-sandbox:arm64) via `pip freeze`.
+# Every version pinned.
+#
+# Do not relax to >=. The cadquery 2.3.0 / cadquery-ocp 7.9.3.0 pair is matched,
+# and an OCP version change also changes HashCode behaviour -- the shim in
+# envs/common/score.py was written against one specific version.
+#
+# nlopt is deliberately NOT in this list; it is installed in the Dockerfile with
+# --no-deps. Reason is documented there: the live image's package set is one pip
+# refuses to create today (nlopt 2.11.0 declares numpy>=2, the image has 1.26.4),
+# so its own `pip freeze` output does not resolve. That is only discoverable by
+# actually rebuilding, not by reading the freeze output.
+cadquery==2.3.0
+cadquery-ocp==7.9.3.0
+cadquery-ocp-proxy==7.9.3.0
+casadi==3.7.2
+contourpy==1.3.3
+cycler==0.12.1
+ezdxf==1.4.3
+fonttools==4.63.0
+kiwisolver==1.5.0
+matplotlib==3.11.1
+multimethod==2.0.2
+nptyping==2.5.0
+numpy==1.26.4
+packaging==26.3
+pillow==12.3.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+scipy==1.17.1
+six==1.17.0
+trimesh==4.12.2
+typing_extensions==4.16.0
+typish==1.9.3
+vtk==9.5.2

@@ -1,0 +1,41 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t6_pcb2schematic",
+ "kind": "ecad",
+ "family": null,
+ "units": "mm",
+ "synthetic": true,
+ "source": {
+  "repo": "synthetic",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/README.md",
+   "sha256": "8b4d25d680ba107dafb334628b85573bb9388f2d7890812b30a7c04c09835346"
+  },
+  {
+   "path": "input/views/view_bottom.png",
+   "sha256": "8641e7a698037d336522c0d68c223a26bcd0c2d61afeb7b017548a894ec6dff4"
+  },
+  {
+   "path": "input/views/view_top.png",
+   "sha256": "8641e7a698037d336522c0d68c223a26bcd0c2d61afeb7b017548a894ec6dff4"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt_graph.json",
+   "sha256": "f52cae7cd96895b921800c5ddeeeeeb7849b0098e1b8fa3377932188a5a31a12"
+  }
+ ],
+ "generator": {
+  "tool": "tests/fixtures/make_fixtures.py"
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean"
+ },
+ "notes": "assembled-PCB renders -> terminal-net graph"
+}

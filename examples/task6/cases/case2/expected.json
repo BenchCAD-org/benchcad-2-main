@@ -1,0 +1,59 @@
+{
+ "case": "case2",
+ "computed_on": "c782ab134a5fee570917e2329fefee6dc480869b",
+ "computed_with": {
+  "metric": "ecad_v2",
+  "verifier": "envs.verifiers.ecad:score",
+  "worktree_dirty": false
+ },
+ "env": "t6_pcb2schematic",
+ "kind": "ecad",
+ "metric": "ecad_v2",
+ "score_key": "score",
+ "orientation": "n/a",
+ "pose_mode": null,
+ "verifier": "envs.verifiers.ecad:score",
+ "metric_reference": "docs/METRICS.md",
+ "tolerance": 0.0001,
+ "oracle": {
+  "submission": "gt/gt_graph.json",
+  "score": 1.0,
+  "columns": {
+   "score_v1": 1.0,
+   "components_matched": 40,
+   "components_gt": 40,
+   "incidences_matched": 173,
+   "incidences_gt": 173
+  },
+  "seconds": 0.3,
+  "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
+ },
+ "round_trip": {
+  "submission": "the reference graph, verbatim (a graph has no export step)",
+  "score": 1.0,
+  "columns": {
+   "score_v1": 1.0,
+   "components_matched": 40,
+   "components_gt": 40,
+   "incidences_matched": 173,
+   "incidences_gt": 173
+  },
+  "seconds": 0.0,
+  "note": "equal to `oracle` by construction: tools.export writes the graph dict straight to pred_graph.json"
+ },
+ "baseline": {
+  "submission": "the empty graph template: the submission schema with no components, nets or incidences",
+  "score": 0.0,
+  "columns": {
+   "score_v1": 0.0,
+   "components_matched": 0,
+   "components_gt": 40,
+   "incidences_matched": 0,
+   "incidences_gt": 173
+  },
+  "seconds": 0.0,
+  "note": "the floor of this case: the submission template with nothing filled in. `harness/run.py --model mock/dumb` submits exactly this graph, so its score should match this number."
+ },
+ "gt_sha256": "d27afd73ff28317cd63406ef649f0b9d3b086a6c22fe8001a9067895cb857c84",
+ "how_to_check": "uv run python -m envs.verifiers.ecad examples/task6/cases/case2 <your_pred_graph.json>"
+}

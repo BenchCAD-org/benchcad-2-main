@@ -1,0 +1,88 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t4_parts2assembly",
+ "kind": "assembly",
+ "family": null,
+ "units": "mm",
+ "synthetic": true,
+ "source": {
+  "repo": "synthetic",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/bom.json",
+   "sha256": "5e1d84ae4ad6bc925b6725f45d5227027897fe22aaa163b18494917ab4c93271"
+  },
+  {
+   "path": "input/parts_views.png",
+   "sha256": "1ea473f8f1740229c684fc230caa86e274a58ea8d0a868e5b513f3683174b989"
+  },
+  {
+   "path": "input/views.png",
+   "sha256": "93597c1980a2a3e52a31aba71af077c88539645a39651c1fdb9862fe1abd8843"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "e07f1fb785d839c88f4781b8fb5d8112c7912c394455e2497bdc4c7256703e2c"
+  },
+  {
+   "path": "gt/instances.json",
+   "sha256": "265eebb095cf2419328c5166447846ce47b943b46a094d88921a2373a3b5f892"
+  },
+  {
+   "path": "gt/parts/base.step",
+   "sha256": "69f655c4abf2d70e819d75624ddd0a9fc88550369b3f15c24f964cf420479faf"
+  },
+  {
+   "path": "gt/parts/post_1.step",
+   "sha256": "8dac99983d04967a15e64c49fe1a6b0f51d108a2b52aac3af0fc39b82af476c8"
+  },
+  {
+   "path": "gt/parts/post_2.step",
+   "sha256": "a26fe632684a0496edd685edc7a2bee69dfbffa340e737c2d36985d67eb35b35"
+  },
+  {
+   "path": "gt/views.json",
+   "sha256": "5b059e87086e2980190c34c66f97fc80829f307fce079041e6ed67fba0faf71f"
+  }
+ ],
+ "generator": {
+  "tool": "tests/fixtures/make_fixtures.py",
+  "views": {
+   "tool": "tools/render_views.py",
+   "seed": 4159021267
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "clean"
+ },
+ "notes": "reference views -> every part modelled, then assembled",
+ "parts": [
+  {
+   "part_id": "base",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-9c3324b1df8b",
+   "source": "gt"
+  },
+  {
+   "part_id": "post_1",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-a6dcd0f4506b",
+   "source": "gt"
+  },
+  {
+   "part_id": "post_2",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-a6dcd0f4506b",
+   "source": "gt"
+  }
+ ]
+}

@@ -1,0 +1,55 @@
+{
+ "_what": "Scores the ECAD repo's own tasks/pcb2schematic/grading/verify.py recorded for four submissions against this fixture's gt/gt_graph.json. tools/t6_alignment.py re-scores the same graphs with this repo's verifier (envs/verifiers/ecad.py) and requires the same numbers; tests/test_t6_ecad_alignment.py runs it on every clone.",
+ "_why": "Both repos vendor Metric V2 from the same source and nothing enforces that they stay the same. This fixture carries no board, so it is the one alignment set that can live in git; the real boards' sets sit beside their cases under envs/t6_pcb2schematic/cases/<id>/alignment/ (gitignored) and run only where that data tree is present.",
+ "_how": "Each submission is the fixture's own reference graph with one thing wrong (see `mutation`), written by hand. Scored on 2026-09-11 with verify.py from BenchCAD-org/the ECAD source repository @ 1e4613d, whose lib/ecad_graph was byte-identical to envs/common/ecad_graph on that day.",
+ "source_repo": "BenchCAD-org/the ECAD source repository",
+ "source_commit": "1e4613debc635a76767ad02cfe4b7637fd6dc994",
+ "case": "case1",
+ "source_task": null,
+ "runs": {
+  "reference": {
+   "submission": "reference.json",
+   "mutation": "none: the reference graph itself",
+   "v2": 1.0,
+   "v1": 1.0,
+   "components_matched": 3,
+   "components_gt": 3,
+   "incidences_matched": 7,
+   "incidences_gt": 7,
+   "exact": true
+  },
+  "invented_R2": {
+   "submission": "invented_R2.json",
+   "mutation": "an extra resistor R2 between N1 and GND that the board does not have: precision, S_C 3/4 x S_N 7/9",
+   "v2": 0.583333,
+   "v1": 0.769231,
+   "components_matched": 3,
+   "components_gt": 3,
+   "incidences_matched": 7,
+   "incidences_gt": 7,
+   "exact": true
+  },
+  "R1.2_mistraced": {
+   "submission": "R1.2_mistraced.json",
+   "mutation": "R1.2 traced to GND instead of N1: one wrong incidence, S_N 6/8",
+   "v2": 0.75,
+   "v1": 0.818182,
+   "components_matched": 3,
+   "components_gt": 3,
+   "incidences_matched": 6,
+   "incidences_gt": 7,
+   "exact": true
+  },
+  "only_U1": {
+   "submission": "only_U1.json",
+   "mutation": "only the IC recovered, R1 and C1 missing with their four incidences: S_C 1/3 x S_N 3/7",
+   "v2": 0.142857,
+   "v1": 0.4,
+   "components_matched": 1,
+   "components_gt": 3,
+   "incidences_matched": 3,
+   "incidences_gt": 7,
+   "exact": true
+  }
+ }
+}

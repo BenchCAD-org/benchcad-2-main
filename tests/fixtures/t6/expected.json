@@ -1,0 +1,8 @@
+{
+ "task_kind": "ecad",
+ "given": "renders_only",
+ "note": "assembled-PCB renders -> terminal-net graph",
+ "oracle_iou": 1.0,
+ "tol": 0.0001,
+ "placeholder": false
+}

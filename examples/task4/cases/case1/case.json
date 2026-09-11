@@ -1,0 +1,141 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t4_parts2assembly",
+ "kind": "assembly",
+ "family": "three_jaw_scroll_chuck",
+ "units": "mm",
+ "synthetic": false,
+ "source": {
+  "repo": "benchcad-2",
+  "split": "open"
+ },
+ "input": [
+  {
+   "path": "input/bom.json",
+   "sha256": "b13e7a2accc89598acad3ae1137ab2cc81b2b7ecab6e3cbb1bb373f4de4be2eb"
+  },
+  {
+   "path": "input/parts_views.png",
+   "sha256": "d9a01229aef5cd71e4b0d74edd28cdebe086f3d5b65729aa1176e84c3de7ecd2"
+  },
+  {
+   "path": "input/views.png",
+   "sha256": "c1e5ea548db3456f1b23a8a652d6c63e5c73b508e603e2f02055b708b0cfb06f"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "c2b18d109f2906d95ceaa34d6dfc8437d6ea438231233e218d68743297b9d0cb"
+  },
+  {
+   "path": "gt/instances.json",
+   "sha256": "06c1727b4c6b99da4c6e5fdb9ec3a7a0848edfb247dd7e1d6031bd7ba08a7ab9"
+  },
+  {
+   "path": "gt/parts/body.step",
+   "sha256": "06efe4d433a1e2d1bb19e71ee12532eededd56fa769f9351a0e40e6b586ce4e9"
+  },
+  {
+   "path": "gt/parts/cover.step",
+   "sha256": "04290405bccf037a8933ab684fca7340daeca63405138e82989e8c2fd67ef632"
+  },
+  {
+   "path": "gt/parts/jaw_1.step",
+   "sha256": "123523620e0d5d5a47ef7c70eee29f2e13eee5d16c37d6c3b99964150377ab97"
+  },
+  {
+   "path": "gt/parts/jaw_2.step",
+   "sha256": "5da34e98d9fee21b4004995e8bf469582070fa3d089731142ff92dcb162ea238"
+  },
+  {
+   "path": "gt/parts/jaw_3.step",
+   "sha256": "6441ae0d961bb5ba23cc272ef419f4e701b901a7acf3b2b6ba53523ea3e32d47"
+  },
+  {
+   "path": "gt/parts/pinion.step",
+   "sha256": "299ac508de2dd9b5f48a869d85a7dcffda8b3212f062b335706c13e2205b862b"
+  },
+  {
+   "path": "gt/parts/scroll_plate.step",
+   "sha256": "207727005cbd0807504db9cb1b3e732d852369055a93a775dd62bba35cacf956"
+  },
+  {
+   "path": "gt/views.json",
+   "sha256": "5b059e87086e2980190c34c66f97fc80829f307fce079041e6ed67fba0faf71f"
+  }
+ ],
+ "generator": {
+  "tool": "bench2",
+  "family": "three_jaw_scroll_chuck",
+  "tier": "medium",
+  "catalog_index": 6,
+  "jaw_open_fraction": 0.4,
+  "views": {
+   "tool": "tools/render_views.py",
+   "seed": 4159021267
+  },
+  "dev_sample": {
+   "tool": "tools/make_dev_samples.py",
+   "from": "t4_parts2assembly",
+   "note": "A copy of a real case with provenance/ (and, for the ECAD cases, alignment/) left out, and every PDF Info dictionary cleared. References to provenance/... in `notes` or `redaction.note` are the source case's own words and point at files that are deliberately not shipped. expected.json holds the scores this sample must reproduce."
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "unknown"
+ },
+ "notes": "DIN 6350 size 200, catalog_index=6, jaw_open_fraction=0.40. This is the instance drawn in the task 4 figure on the 2.0 preview page. It is a MEDIUM-tier draw, which is why it is not among the nine easy/hard cases of this family. The three jaws are distinct part types on purpose: their underside arc teeth carry the real 1/3-pitch scroll phase, so they are a matched set. The three pinions are one interchangeable part type.",
+ "parts": [
+  {
+   "part_id": "body",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-73c261f1bea1",
+   "source": "gt"
+  },
+  {
+   "part_id": "cover",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-4287fa4b71c5",
+   "source": "gt"
+  },
+  {
+   "part_id": "jaw_1",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-9f8e2a9846da",
+   "source": "gt"
+  },
+  {
+   "part_id": "jaw_2",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-25043c983bd0",
+   "source": "gt"
+  },
+  {
+   "part_id": "jaw_3",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-c1ae5868e248",
+   "source": "gt"
+  },
+  {
+   "part_id": "pinion",
+   "quantity": 3,
+   "n_solids": 1,
+   "geometry_class": "g-552ebcec6f11",
+   "source": "gt"
+  },
+  {
+   "part_id": "scroll_plate",
+   "quantity": 1,
+   "n_solids": 1,
+   "geometry_class": "g-05a7659e1f16",
+   "source": "gt"
+  }
+ ]
+}

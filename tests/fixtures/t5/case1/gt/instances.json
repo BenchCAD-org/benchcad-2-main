@@ -1,0 +1,96 @@
+{
+ "format": "benchcad-instances/1",
+ "frame": "T maps the part frame (gt/parts file if present, else the input part) to the assembly frame; row-major 4x4, mm",
+ "instances": [
+  {
+   "instance_id": "base_i1",
+   "part_id": "base",
+   "T": [
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  {
+   "instance_id": "post_1_i1",
+   "part_id": "post_1",
+   "T": [
+    [
+     1,
+     0,
+     0,
+     -20.0
+    ],
+    [
+     0,
+     1,
+     0,
+     0.0
+    ],
+    [
+     0,
+     0,
+     1,
+     18.0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  {
+   "instance_id": "post_2_i1",
+   "part_id": "post_2",
+   "T": [
+    [
+     1,
+     0,
+     0,
+     20.0
+    ],
+    [
+     0,
+     1,
+     0,
+     0.0
+    ],
+    [
+     0,
+     0,
+     1,
+     18.0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  }
+ ]
+}

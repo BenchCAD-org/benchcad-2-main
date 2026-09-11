@@ -1,0 +1,47 @@
+{
+ "case": "case1",
+ "computed_on": "c5f98e5f1c8618b30b335e496dc783b8269f5f5a",
+ "computed_with": {
+  "metric": "part_v1",
+  "verifier": "envs.verifiers.part:score",
+  "worktree_dirty": true
+ },
+ "env": "t1_drawing2part",
+ "kind": "part",
+ "metric": "part_v1",
+ "score_key": "score",
+ "orientation": "free",
+ "pose_mode": "iou24_aligned",
+ "verifier": "envs.verifiers.part:score",
+ "metric_reference": "docs/METRICS.md",
+ "tolerance": 0.0001,
+ "oracle": {
+  "submission": "gt/gt.step",
+  "score": 1.0,
+  "columns": {
+   "iou": 1.0
+  },
+  "seconds": 45.4,
+  "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
+ },
+ "round_trip": {
+  "submission": "gt/gt.step imported and re-exported with cadquery -- what a submitted program necessarily produces",
+  "score": 1.0,
+  "columns": {
+   "iou": 1.0
+  },
+  "seconds": 30.3,
+  "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
+ },
+ "baseline": {
+  "submission": "a solid block of the reference's bounding box, exported with cadquery",
+  "score": 0.120641,
+  "columns": {
+   "iou": 0.147766
+  },
+  "seconds": 16.1,
+  "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
+ },
+ "gt_sha256": "c7072e835bca45fa40e4e04eec7bd73ea3ae279b7c318a564f7bcbd4182caadf",
+ "how_to_check": "uv run python tools/verify_case.py examples/task1/cases/case1 <your.step>"
+}

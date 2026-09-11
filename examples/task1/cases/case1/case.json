@@ -1,0 +1,39 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t1_drawing2part",
+ "kind": "part",
+ "family": null,
+ "units": "mm",
+ "synthetic": false,
+ "source": {
+  "repo": "the data pipeline",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/drawing.pdf",
+   "sha256": "b2458164ca01ec91e7f0910c9e4b88efbcc6e660fbdc7e4825386809efa7fb33"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt.step",
+   "sha256": "c7072e835bca45fa40e4e04eec7bd73ea3ae279b7c318a564f7bcbd4182caadf"
+  }
+ ],
+ "generator": {
+  "tool": "tools/migrate_case.py",
+  "dev_sample": {
+   "tool": "tools/make_dev_samples.py",
+   "from": "t1_drawing2part",
+   "note": "A copy of a real case with provenance/ (and, for the ECAD cases, alignment/) left out, and every PDF Info dictionary cleared. References to provenance/... in `notes` or `redaction.note` are the source case's own words and point at files that are deliberately not shipped. expected.json holds the scores this sample must reproduce."
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "placeholder_title_block",
+  "note": "BenchCAD Pro title block with <PART TITLE>/<CASE ID> placeholders; no source drawing numbers; PDF Info dictionary cleared in this copy; page content untouched. Full note: provenance/case.source.json."
+ },
+ "notes": "Camera mounting bracket. See provenance/README.md and provenance/SOURCE_CAVEAT.txt; drawing-to-STEP agreement not certified."
+}

@@ -1,0 +1,26 @@
+[project]
+name = "this repository"
+version = "0.1.0"
+description = "Six CAD reconstruction agent environments: drawing to part, rendered views to part, parts plus drawing to assembly, parts plus views to assembly, drawings to assembly, and PCB renders to schematic netlist"
+requires-python = ">=3.11"
+dependencies = [
+    "cadquery>=2.5",
+    "numpy",
+    "pillow",
+    "pymupdf",
+    "scipy",
+    "trimesh",
+]
+
+[dependency-groups]
+harness = [
+    "anthropic",
+    "openai==2.35.1",
+    "google-genai>=2.23",    # harness/run.py gemini/ provider
+]
+dev = [
+    "pytest",                # tests/ import the harness group too: uv sync --group harness --group dev
+]
+
+[tool.uv]
+package = false

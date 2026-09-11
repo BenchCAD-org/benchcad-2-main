@@ -1,0 +1,67 @@
+{
+ "format": "benchcad-case/1",
+ "id": "case1",
+ "env": "t6_pcb2schematic",
+ "kind": "ecad",
+ "family": null,
+ "units": "mm",
+ "synthetic": false,
+ "source": {
+  "repo": "the ECAD source repository",
+  "split": "example"
+ },
+ "input": [
+  {
+   "path": "input/README.md",
+   "sha256": "c2690714d93ee1c6ec4efef7d8daf9feb4dba117b3d6257e0b44c4a175f6ab20"
+  },
+  {
+   "path": "input/views/view_bottom.png",
+   "sha256": "322a3982f1cc36a43e3562f62a5990f1fea8fc7a205bfa2327d52e72554ecd07"
+  },
+  {
+   "path": "input/views/view_bottom_obl_a.png",
+   "sha256": "1813f11c4429f8585d9208436839da64f62c1369c9176c9e243392ed85eeba36"
+  },
+  {
+   "path": "input/views/view_bottom_obl_b.png",
+   "sha256": "a618612158ef11517f0c925da9b04b20a15d10d9c96f764a8cbb1de46fd5bae1"
+  },
+  {
+   "path": "input/views/view_top.png",
+   "sha256": "5eb7635a8c81a72df05951d9730f9ee280b0ca036e3ecad619899fe6e989e1c7"
+  },
+  {
+   "path": "input/views/view_top_obl_a.png",
+   "sha256": "95f62bde94640a60207cefca55dccdbf41e124da034c0b56f47e0a726e7b240b"
+  },
+  {
+   "path": "input/views/view_top_obl_b.png",
+   "sha256": "aa54ed61451bfbfb628227ae4b6f0eb19ffd470baf780bddb4af0f979ec50039"
+  }
+ ],
+ "gt": [
+  {
+   "path": "gt/gt_graph.json",
+   "sha256": "8e7698dd5a049461d344e501869846541adef2c3ade82b17e4744dcef34201b8"
+  },
+  {
+   "path": "gt/observability.json",
+   "sha256": "e5acff4210e03801e71c59f32ea9d1a3fb4eacb56eeb29823aca47599d410bef"
+  }
+ ],
+ "generator": {
+  "tool": "tools/ingest_ecad_case.py",
+  "dev_sample": {
+   "tool": "tools/make_dev_samples.py",
+   "from": "t6_pcb2schematic",
+   "note": "A copy of a real case with provenance/ (and, for the ECAD cases, alignment/) left out, and every PDF Info dictionary cleared. References to provenance/... in `notes` or `redaction.note` are the source case's own words and point at files that are deliberately not shipped. expected.json holds the scores this sample must reproduce."
+  }
+ },
+ "gates": {},
+ "redaction": {
+  "status": "unknown",
+  "note": "renders are of a real board; component silkscreen is visible by design"
+ },
+ "notes": "Recover implementation-level schematic connectivity for a 2-layer assembled PCB from six standardized renders and nothing else \u2014 the inverse of pcba-placement."
+}

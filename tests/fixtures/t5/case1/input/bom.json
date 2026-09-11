@@ -1,0 +1,25 @@
+{
+ "note": "quantities are the ground truth for the listed part types",
+ "n_part_types": 3,
+ "n_instances": 3,
+ "items": [
+  {
+   "part_id": "base",
+   "quantity": 1,
+   "source": "drawing",
+   "file": "part_drawings/base.pdf"
+  },
+  {
+   "part_id": "post_1",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/post_1.step"
+  },
+  {
+   "part_id": "post_2",
+   "quantity": 1,
+   "source": "step",
+   "file": "step_files/post_2.step"
+  }
+ ]
+}

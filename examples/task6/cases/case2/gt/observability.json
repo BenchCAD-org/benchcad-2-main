@@ -1,0 +1,250 @@
+{
+  "_status": "Written from the FOUR standardized renders that were the contract before 2026-09-01. The contract is now six views (two bottom obliques added), so every call in this file is provisional: a `false` here may be visible in a bottom oblique and has not been re-checked. Pending a render-grounded re-pass under the six-view contract — see an earlier change.",
+  "_rule": "Anything absent defaults to NOT observable. Marking may only ever weaken the target. See docs/METRIC.md.",
+  "_render": "view_top, view_bottom, view_top_obl_a, view_top_obl_b, view_bottom_obl_a, view_bottom_obl_b — the current six-view contract, which is NOT what the calls below were read from",
+  "_values_note": "NO component value is printed anywhere on this board. The silkscreen carries reference designators (C1..C10, R1..R14, U1..U3, SW1), header net labels (P00..P46, +5V, 3V3, GND, TX, RX), function labels (POWER, RESET) and the MCU part number STC89C52RC — but no resistances or capacitances. So `value` is false for all 40 components. This is the opposite of case1, where the values were on the silk, and it is why observability is decided per case from the renders.",
+  "_terminal_identity_note": "Only the through-hole headers get terminal_identity:true, and on two pieces of evidence together: view_bottom shows a SQUARE pad at one end of each header row against round pads elsewhere, which is the pin-1 convention and fixes the numbering; and view_top prints a per-pin silkscreen label along each row, which fixes the order. Everything else is false. U2 is the case that matters most: the LQFP-44 body renders as a plain rounded rectangle with symmetric L-marks at all four corners and NO pin-1 dot, so its 44 pins cannot be numbered from these views. That costs less than it sounds — nearly every U2 pin sits on its own net, so the net structure forces the assignment anyway — but it must not be asserted from the datasheet when the render does not show it.",
+  "components": {
+    "H1": {
+      "value": false,
+      "terminal_identity": true,
+      "why": "view_bottom: square pin-1 pad; view_top: per-pin labels P00..P27 along the row",
+      "refdes": false
+    },
+    "H2": {
+      "value": false,
+      "terminal_identity": true,
+      "why": "view_bottom: square pin-1 pad; view_top: per-pin labels P10..P37",
+      "refdes": false
+    },
+    "H3": {
+      "value": false,
+      "terminal_identity": true,
+      "why": "view_bottom: square pin-1 pad; view_top: per-pin labels P40..P46",
+      "refdes": false
+    },
+    "H4": {
+      "value": false,
+      "terminal_identity": true,
+      "why": "view_bottom: square pin-1 pad; view_top: +5V +5V 3V3 3V3 GND GND GND in row order. Repeated labels are on the same net, so the repetition costs nothing.",
+      "refdes": false
+    },
+    "H5": {
+      "value": false,
+      "terminal_identity": true,
+      "why": "view_bottom: square pin-1 pad; view_top: TX RX +5V GND",
+      "refdes": false
+    },
+    "U2": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "LQFP-44 renders as a plain rounded rectangle, symmetric corner marks, NO pin-1 dot. Pins cannot be numbered from the views.",
+      "refdes": true
+    },
+    "U1": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "SOT-223 regulator. Tab orientation not confirmed legible at this resolution; defaulting to not observable rather than asserting it.",
+      "refdes": true
+    },
+    "U3": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "2-pin crystal, terminals interchangeable.",
+      "refdes": true
+    },
+    "USB1": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "Type-C is reversible by design; no pin-1 cue.",
+      "refdes": false
+    },
+    "SW1": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "slide switch, no orientation mark confirmed in the renders.",
+      "refdes": true
+    },
+    "SW2": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "2-pin tactile switch, symmetric.",
+      "refdes": false
+    },
+    "SW3": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "2-pin tactile switch, symmetric.",
+      "refdes": false
+    },
+    "SW4": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "2-pin tactile switch, symmetric.",
+      "refdes": false
+    },
+    "LED1": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "no cathode band or polarity mark legible in the renders.",
+      "refdes": false
+    },
+    "LED2": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "no cathode band or polarity mark legible in the renders.",
+      "refdes": false
+    },
+    "LED3": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "no cathode band or polarity mark legible in the renders.",
+      "refdes": false
+    },
+    "C1": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C2": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C3": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C4": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C5": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C6": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C7": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C8": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C9": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "C10": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "C0805 ceramic, non-polarised.",
+      "refdes": true
+    },
+    "R1": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805, terminals interchangeable.",
+      "refdes": true
+    },
+    "R2": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805, terminals interchangeable.",
+      "refdes": true
+    },
+    "R3": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805, terminals interchangeable.",
+      "refdes": true
+    },
+    "R4": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805, terminals interchangeable.",
+      "refdes": true
+    },
+    "R5": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805, terminals interchangeable.",
+      "refdes": true
+    },
+    "R6": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805, terminals interchangeable.",
+      "refdes": true
+    },
+    "R7": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R8": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R9": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R10": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R11": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R12": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R13": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    },
+    "R14": {
+      "value": false,
+      "terminal_identity": false,
+      "why": "R0805 on the bottom side, terminals interchangeable.",
+      "refdes": true
+    }
+  },
+  "_refdes_note": "28 of the 40 reference designators are printed on the silkscreen and legible in view_top / view_bottom. Those anchor: the model must read and use them. The twelve that are NOT printed — H1-H5, LED1-LED3, SW2-SW4, USB1 — keep full rename tolerance, and a model may call them anything. Net names are never anchored; the board prints P00 where the netlist says P0.0, and TX/RX for nets called P3.0/P3.1, so requiring the netlist name would mark a correct reading wrong."
+}

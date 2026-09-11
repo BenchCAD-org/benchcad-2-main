@@ -1,0 +1,73 @@
+# T1 -- one part engineering drawing -> the 3-D geometry of that part
+#
+# The task type must be **declared**, not sniffed. is_assembly() in score_case.py used to
+# look for a parts/ directory and then dispatch the scorer with an if/else -- adding a
+# fifth kind of verification meant adding yet another sniffing branch, and one folder too
+# many or too few in a case directory got the case judged as a different task type.
+[task]
+id = "t1_drawing2part"
+kind = "part"                      # decides which verifier is used
+submission = "cadquery_program"
+# given -- how much **3-D geometry** the model has in hand. It decides what the score
+# means, and `inputs` alone cannot distinguish T2 from T5:
+#   nothing_3d            everything is modelled from the drawings
+#   purchased_parts_step  purchased parts come as 3-D, in-house parts are modelled from
+#                         the drawings
+#   all_parts_step        all part geometry is handed over; only placement is tested
+given = "nothing_3d"
+inputs = ["drawing.pdf", "drawing.png"]
+
+[tools]
+# The reference renderer is NOT injected. bench_views.py is the module that
+# produced the prompt images (same cameras, same pinned PARALLEL_SCALE), so
+# supplying it made the model's render pixel-comparable to the target for free
+# and turned much of the task into optimising against the function that
+# generated the answer. Upstream measurement: 72% of programs compute a metric
+# and 57% write a sweep loop against it.
+#
+# Task-design rule: do not supply what can be derived; do supply what cannot
+# exist. A projection is derivable -- cadquery and vtk are both in the
+# container -- so recovering the camera is part of the task.
+renderer = "none"
+# What the sandbox injects, declaratively. This used to be a startswith("t5_") hard-coded
+# in sandbox.py, which stopped working the moment a directory was renamed.
+inject = []
+
+[verify]
+entry = "envs.verifiers.part:score"
+# Orientation: an engineering drawing does not define a world coordinate system, so GT's
+# orientation is an accident of how the CAD file happened to be saved.
+# Measured, models get the orientation right on 34% of tasks unaided (chance is 4%), so it
+# is a measurable ability -- but failure is a cliff (geometry entirely correct, merely
+# rotated about an axis -> 0.99 drops to 0.02). Report both columns, never just one.
+orientation = "free"
+# Headline metric (docs/METRICS.md, #26): part_v1 = 0.40 iou24_norm + 0.35 surf_f1
+# + 0.25 pix_fg. The raw 64^3 IoU stays in the record as `iou`, a diagnostic.
+# Omitting the field means "legacy" (raw IoU is the headline).
+metric = "part_v1"
+# A T1 candidate is a CadQuery program built in its own axis-aligned frame and
+# the drawing fixes no world frame, so the best-of-24 proper rotation iou24
+# finds is applied to the candidate before surf_f1 / pix_fg. "lab" would score
+# those two at the delivered pose (the lab's reference behaviour).
+pose_mode = "iou24_aligned"
+oracle = "data/t1_drawing2part/_oracle"
+
+[data]
+# ⚠️ **The source corpus must be written down in the task declaration; it must never be
+# inferred from a directory name or a runtime argument.**
+# The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
+# `the heldout corpus` and is **a different set of families**.
+# Family names overlap between the two (one part family has a copy in each corpus), so
+# the case name alone cannot tell them apart -- and once a held-out case is mixed into a
+# batch of results, the held-out set is contaminated, irreversibly: a question that has
+# appeared on a public leaderboard is spent.
+# To produce a held-out variant: copy this task.toml and change `id` (append a _heldout
+# suffix), `source_repo` and `split`. The authoring script picks families by
+# `source_repo`, and the result file names carry `split` too.
+source_repo = "the data pipeline"
+split = "open"
+# Case data is not in git. Cases are produced by the data-gathering line
+# (the data pipeline) and brought into the case format with tools/migrate_case.py.
+root = "data/t1_drawing2part"
+default_dataset = "v3"
+generator = "tools/migrate_case.py or the data-gathering line"

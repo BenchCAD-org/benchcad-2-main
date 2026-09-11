@@ -1,0 +1,56 @@
+{
+ "case": "case2",
+ "computed_on": "a5507dbca82aa6efc077758887508746861e1eed",
+ "computed_with": {
+  "metric": "asm_v1",
+  "verifier": "envs.verifiers.assembly:score",
+  "worktree_dirty": false
+ },
+ "env": "t2_realparts2assembly",
+ "kind": "assembly",
+ "metric": "asm_v1",
+ "score_key": "score",
+ "orientation": "free",
+ "pose_mode": "iou24_aligned",
+ "verifier": "envs.verifiers.assembly:score",
+ "metric_reference": "docs/METRICS.md",
+ "tolerance": 0.0001,
+ "oracle": {
+  "submission": "gt/gt.step",
+  "score": 1.0,
+  "columns": {
+   "iou": 1.0,
+   "hit": 1.0,
+   "avg_part": 1.0,
+   "asm_v1": 1.0
+  },
+  "seconds": 55.5,
+  "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
+ },
+ "round_trip": {
+  "submission": "gt/gt.step imported and re-exported with cadquery -- what a submitted program necessarily produces",
+  "score": 1.0,
+  "columns": {
+   "iou": 1.0,
+   "hit": 1.0,
+   "avg_part": 1.0,
+   "asm_v1": 1.0
+  },
+  "seconds": 55.0,
+  "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
+ },
+ "baseline": {
+  "submission": "a solid block of the whole assembly's bounding box, exported with cadquery",
+  "score": 0.0,
+  "columns": {
+   "iou": 0.1301,
+   "hit": 0.0,
+   "avg_part": 0.0,
+   "asm_v1": 0.0
+  },
+  "seconds": 18.9,
+  "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. It is 0.0 because a single block places no part types at all, and asm_v1 scores per part type. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
+ },
+ "gt_sha256": "75ff46890d25229ec33c4b3546e8e3c2b0b45795c6c31b135adcb4a8994ec50d",
+ "how_to_check": "uv run python tools/verify_case.py examples/task2/cases/case2 <your.step>"
+}

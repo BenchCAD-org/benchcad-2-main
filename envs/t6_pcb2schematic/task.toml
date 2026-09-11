@@ -1,0 +1,33 @@
+# t6_pcb2schematic -- six renders of an assembled 2-layer PCB -> terminal-net graph
+[task]
+id = "t6_pcb2schematic"
+kind = "ecad"
+submission = "graph_json"
+inputs = ["views/view_*.png", "README.md"]
+given = "renders_only"
+
+[tools]
+renderer = "none"
+inject = []
+
+[verify]
+entry = "envs.verifiers.ecad:score"
+# The headline is the graph metric itself, not one of the geometry metrics; naming
+# it here keeps the record and the shipped expected.json from reading "legacy".
+metric = "ecad_v2"
+# Metric V2 on the named terminal-net graph: S_C * S_T * S_N * P_short * P_open.
+# 0 for an unparseable graph or a fatal power-rail short. V1 reported as diagnostic.
+orientation = "n/a"
+# The oracle for this scorer is the fixture set itself: tests/test_t6_ecad.py pins
+# a perfect, a partial and a dumb tier on tests/fixtures/t6 (0.47619 / 0.0 on the
+# mutated graphs). A scorer change that moves those numbers is a different ruler.
+oracle = "tests/fixtures/t6"
+
+[data]
+# Cases come from BenchCAD-org/the ECAD source repository (tasks/pcb2schematic-*) through
+# tools/ingest_ecad_case.py; the source bundles and truth-building scripts stay there.
+source_repo = "the ECAD source repository"
+split = "open"
+root = "data/t6_pcb2schematic"
+default_dataset = "v1"
+generator = "tools/ingest_ecad_case.py"
