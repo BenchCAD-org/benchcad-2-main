@@ -174,6 +174,14 @@ def _b64(path: Path, max_px: int | None = None) -> str:
     return base64.standard_b64encode(Path(path).read_bytes()).decode()
 
 
+def image_label(path) -> str:
+    """The text that precedes every image: its file name. A round-one turn
+    can carry twenty images (a sheet, its tiles, five part drawings and
+    theirs); without a label the model cannot tell drawing_tile_r2c3.png
+    from r3c4, and the prompt names files, not pictures."""
+    return f"[{Path(path).name}]"
+
+
 def bound_images(turns: list) -> tuple[list, int | None]:
     """The turns as a request should carry them: the first user turn keeps its
     images (the case's inputs), the last KEEP_OBS_ROUNDS user turns keep
@@ -338,6 +346,7 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         for t in turns:
             content = [{"type": "text", "text": t["text"]}] if t.get("text") else []
             for img in ([] if drop_images else (t.get("images") or [])):
+                content.append({"type": "text", "text": image_label(img)})
                 content.append({"type": "image", "source": {
                     "type": "base64", "media_type": "image/png", "data": _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
@@ -462,6 +471,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         for t in turns:
             parts = [{"type": "text", "text": t["text"]}] if t.get("text") else []
             for img in ([] if drop_images else (t.get("images") or [])):
+                parts.append({"type": "text", "text": image_label(img)})
                 parts.append({"type": "image_url", "image_url": {
                     "url": "data:image/png;base64," + _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
@@ -578,6 +588,7 @@ def gemini_call(model: str, max_tokens: int, usage: list, api_key: str):
         for t in turns:
             parts = [types.Part.from_text(text=t["text"])] if t.get("text") else []
             for img in ([] if drop_images else (t.get("images") or [])):
+                parts.append(types.Part.from_text(text=image_label(img)))
                 parts.append(types.Part.from_bytes(
                     data=base64.b64decode(_b64(img, max_px)), mime_type="image/png"))
             if not parts:

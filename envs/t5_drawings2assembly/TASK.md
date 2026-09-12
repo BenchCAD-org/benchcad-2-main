@@ -8,7 +8,7 @@ lettering is legible; a tile that would be blank paper is not written.
 millimetres, each with its tiles beside it.
 `step_files/part_NN.step`
 are the purchased parts, each centred on its bounding box and given a random
-axis-aligned 90-degree rotation. `bom.json` gives each part's `source`
+axis-aligned 90-degree rotation. `bom.json` gives each part's id, name, `source`
 (`drawing` or `step`) and count; part ids need not match the drawing's item
 numbers, and hardware on the drawing that is not in it is not part of the
 answer.
