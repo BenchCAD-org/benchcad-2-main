@@ -15,7 +15,7 @@ submission = "cadquery_program"
 #                         the drawings
 #   all_parts_step        all part geometry is handed over; only placement is tested
 given = "nothing_3d"
-inputs = ["drawing.pdf", "drawing.png"]
+inputs = ["drawing.png", "drawing_tile_*.png"]
 
 [tools]
 # The reference renderer is NOT injected. bench_views.py is the module that

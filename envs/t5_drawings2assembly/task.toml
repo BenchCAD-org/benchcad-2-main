@@ -4,7 +4,7 @@
 id = "t5_drawings2assembly"
 kind = "assembly"
 submission = "cadquery_program"
-inputs = ["drawing.pdf", "bom.json", "part_drawings/*.pdf", "step_files/*.step"]
+inputs = ["drawing.png", "drawing_tile_*.png", "bom.json", "part_drawings/*.png", "step_files/*.step"]
 given = "purchased_parts_step"
 
 # STALE (superseded by the [tools] note below: nothing is injected any more, and

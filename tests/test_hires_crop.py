@@ -23,7 +23,7 @@ PDF = ROOT / "tests/fixtures/t1/case1/input/drawing.pdf"
 def test_master_is_exactly_twice_the_sheet(tmp_path):
     pdf = tmp_path / "drawing.pdf"
     shutil.copy(PDF, pdf)
-    (sheet,) = _rasterize_pdf(pdf)
+    sheet = _rasterize_pdf(pdf)[0]                 # the sheet, then its four tiles
     master = tmp_path / HIRES_DIR / "drawing.png"
     assert master.exists()
     with Image.open(sheet) as a, Image.open(master) as b:
@@ -33,7 +33,7 @@ def test_master_is_exactly_twice_the_sheet(tmp_path):
 def test_crop_reads_the_master_in_sheet_coordinates(tmp_path):
     pdf = tmp_path / "drawing.pdf"
     shutil.copy(PDF, pdf)
-    (sheet,) = _rasterize_pdf(pdf)
+    sheet = _rasterize_pdf(pdf)[0]
     (tmp_path / "tools.py").write_text(TOOLS_PY)
     box = (100, 80, 400, 260)                       # in the sheet's pixels
     r = subprocess.run([sys.executable, "-c",
@@ -57,3 +57,58 @@ def test_crop_without_a_master_is_unchanged(tmp_path):
 def test_master_is_hidden_from_the_prompt():
     from envs.common.episode import _visible
     assert not _visible(Path(HIRES_DIR))
+
+
+def test_staged_drawings_are_png_only_with_tiles(tmp_path):
+    """The sandbox holds one form of every drawing: the sheet, its four tiles
+    and the hidden master. The PDF is rendered and removed."""
+    import os
+    from envs.common.sandbox import Sandbox, tile_grid
+    os.environ["CADENV_LOCAL"] = "1"
+    case = ROOT / "tests/fixtures/t1/case1"
+    wd = tmp_path / "wd"
+    Sandbox(case, wd)
+    names = sorted(str(p.relative_to(wd)) for p in wd.rglob("*") if p.is_file())
+    assert not any(n.endswith(".pdf") for n in names), names
+    assert "drawing.png" in names
+    assert tile_grid(297, 210) == (1, 1)                              # the fixture is an A4 sheet: no tiles
+    assert not [n for n in names if n.startswith("drawing_tile_")]
+    assert "_hires/drawing.png" in names
+
+
+def test_tiles_of_a_large_sheet(tmp_path):
+    """An A0 sheet (a T2 assembly drawing) is 3 x 4 overlapping tiles, each
+    rendered with its long edge at TILE_PX."""
+    from envs.common.sandbox import TILE_PX, _rasterize_pdf
+    import pymupdf
+    pdf = tmp_path / "drawing.pdf"
+    doc = pymupdf.open(); page = doc.new_page(width=1189 / 25.4 * 72, height=841 / 25.4 * 72)
+    page.draw_rect(pymupdf.Rect(150, 150, 400, 400), fill=(0, 0, 0)); doc.save(str(pdf)); doc.close()
+    files = _rasterize_pdf(pdf)
+    tiles = [f for f in files if "_tile_" in f.name]
+    # one drawn shape at the top-left: only r1c1 has ink inside the margin;
+    # the other eleven are blank paper and are not written
+    assert [t.name for t in tiles] == ["drawing_tile_r1c1.png"]
+    with Image.open(tiles[0]) as t, Image.open(files[0]) as sheet:
+        assert max(t.size) == TILE_PX
+        assert t.width / sheet.width > 1.0 / 4                          # more than a bare quarter: the overlap
+
+
+def test_blank_tiles_are_skipped_but_content_tiles_kept(tmp_path):
+    from envs.common.sandbox import _rasterize_pdf
+    import pymupdf
+    pdf = tmp_path / "drawing.pdf"
+    doc = pymupdf.open(); page = doc.new_page(width=1189 / 25.4 * 72, height=841 / 25.4 * 72)
+    for x, y in ((150, 150), (1950, 1100), (2900, 2000)):               # r1c1, r2c3, r3c4 in page points
+        page.draw_rect(pymupdf.Rect(x, y, x + 200, y + 200), fill=(0, 0, 0))
+    doc.save(str(pdf)); doc.close()
+    tiles = sorted(f.name for f in _rasterize_pdf(pdf) if "_tile_" in f.name)
+    assert tiles == ["drawing_tile_r1c1.png", "drawing_tile_r2c3.png", "drawing_tile_r3c4.png"], tiles
+
+
+def test_tile_grid_follows_the_sheet_size():
+    from envs.common.sandbox import tile_grid
+    assert tile_grid(420, 297) == (1, 2)          # A3
+    assert tile_grid(594, 420) == (2, 2)          # A2
+    assert tile_grid(1189, 841) == (3, 4)         # A0
+    assert tile_grid(210, 297) == (1, 1)          # A4: no tiles

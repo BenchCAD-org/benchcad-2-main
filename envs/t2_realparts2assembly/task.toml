@@ -4,7 +4,7 @@
 id = "t2_realparts2assembly"
 kind = "assembly"
 submission = "cadquery_program"
-inputs = ["drawing.pdf", "bom.json", "step_files/*.step"]
+inputs = ["drawing.png", "drawing_tile_*.png", "bom.json", "step_files/*.step"]
 given = "all_parts_step"
 
 [tools]

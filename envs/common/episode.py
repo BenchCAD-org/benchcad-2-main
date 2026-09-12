@@ -82,10 +82,12 @@ narration, no plan, no prose before or after it. Start the reply with ```.
 """
 
 
-# Cap on prompt images. Round-one images are resent throughout the episode
-# (they hit the prompt cache), so this number is the per-call image tax. T5
-# needs 7; leave 2x headroom.
-SEED_IMG_CAP = 12
+# Every input image is a seed image; there is no cap. A case's inputs are the
+# task, and a model that has to fetch the 13th drawing itself is being handed
+# a different task from one that gets all twelve. What bounds a request's
+# image count is the harness (harness.run: observation images older than a
+# few rounds leave the request, and a request over the API's many-image
+# threshold is downscaled to its per-image limit), not the case.
 _HIDDEN = ("tools.py", "_render.py", "sitecustomize.py")
 # The standard-parts library has 269 files; listing them individually drowns
 # the file listing. Report the directory and a count instead.
@@ -312,11 +314,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     # part drawing -- it received one assembly drawing and the reference views,
     # and the premise of the task disappeared. Subdirectory images are part of
     # the prompt too.
-    # Cap raised from 4 to SEED_IMG_CAP: a single T5 case needs 2+5=7 images,
-    # so a cap of 4 amounted to dropping the part drawings.
     seed_imgs = _seed_images(box.dir)
-    if len(seed_imgs) > SEED_IMG_CAP:
-        seed_imgs = seed_imgs[:SEED_IMG_CAP]
     turns = [{"role": "user", "text": "Begin.", "images": seed_imgs}]
 
     rounds, submitted = [], ""

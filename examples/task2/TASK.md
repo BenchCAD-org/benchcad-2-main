@@ -1,8 +1,11 @@
 # T2 - part STEPs + assembly drawing -> assembly
 
 `step_files/part_NN.step` are the parts, each centred on its bounding box and
-given a random axis-aligned 90-degree rotation. `drawing.pdf` (raster
-`drawing.png`, `drawing_p2.png` ... per page) is the assembly drawing.
+given a random axis-aligned 90-degree rotation. `drawing.png` is the
+assembly drawing (`drawing_p2.png` ... per further page);
+`drawing_tile_r<i>c<j>.png` are overlapping pieces of the same sheet (rows
+top to bottom, columns left to right) at a resolution where the lettering
+is legible; a tile that would be blank paper is not written.
 `bom.json` gives the count of each part; hardware on the drawing that is not
 in it is not part of the answer.
 

@@ -373,6 +373,27 @@ STAGE_MAX_EDGE = 4200    # px; an A0 sheet at 300 dpi is ~14000 px, far beyond w
 # 300 dpi sheet cannot add detail, a crop of the 600 dpi master can.
 HIRES_DIR = "_hires"
 HIRES_FACTOR = 2
+# Tiles: the sheet cut into a grid of overlapping pieces, each rendered from
+# the PDF at whatever resolution puts its long edge at TILE_PX -- the size
+# the API keeps (2576 px long edge, 4784 28-px patches on the
+# high-resolution tier), so a tile is shown as rendered, not downscaled. The
+# grid is chosen from the sheet's physical size: one column or row per
+# TILE_MM of paper, so an A3 sheet is 2 x 1 tiles at ~250 dpi, an A2 2 x 2
+# at ~180 dpi and an A0 4 x 3 at ~180 dpi, and 5 mm lettering is 35+ px
+# in every tile whatever the sheet. The whole sheet (STAGE_DPI, capped at
+# STAGE_MAX_EDGE, then downscaled by the API) is for layout and for the
+# pixel coordinates tools.crop takes; the tiles are for reading.
+TILE_MM = 300.0
+TILE_PX = 2300
+TILE_OVERLAP = 0.10
+# A tile that is blank paper is not written. Blank means: inside the sheet's
+# BLANK_MARGIN_MM border (the frame, the zone letters, the title block's
+# edge all live there) fewer than BLANK_INK of the tile's pixels are ink.
+# Measured on an A0 assembly sheet: the one empty tile is 0.00 %, the
+# sparsest tile with content 0.61 %. The grid names (r<i>c<j>) still say
+# where the remaining tiles sit, so a gap is a blank, not a missing file.
+BLANK_MARGIN_MM = 15.0
+BLANK_INK = 0.003
 
 
 def _rasterize_pdf(pdf: Path) -> list[Path]:
@@ -396,6 +417,7 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
             pix.save(str(dst))
             pix_w, pix_h = pix.width, pix.height
             out.append(dst)
+            out += _tiles(page, dst, fitz)
             # The master for tools.crop: exactly HIRES_FACTOR x the sheet, so
             # a box in the sheet's pixels maps onto it by one factor.
             hires_dir.mkdir(exist_ok=True)
@@ -414,6 +436,61 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
     return out
 
 
+def tile_grid(width_mm: float, height_mm: float) -> tuple[int, int]:
+    """(rows, cols) for a sheet of this size: one per TILE_MM of paper."""
+    import math
+    return max(1, math.ceil(height_mm / TILE_MM)), max(1, math.ceil(width_mm / TILE_MM))
+
+
+def _tiles(page, sheet: Path, fitz) -> list[Path]:
+    """<stem>_tile_r<i>c<j>.png (rows top to bottom, columns left to right):
+    overlapping pieces of `page`, each rendered from the PDF so that its
+    long edge is TILE_PX."""
+    rect = page.rect
+    w_mm, h_mm = rect.width / 72 * 25.4, rect.height / 72 * 25.4
+    rows, cols = tile_grid(w_mm, h_mm)
+    if rows * cols == 1:
+        return []
+    cw, ch = rect.width / cols, rect.height / rows
+    ox, oy = cw * TILE_OVERLAP, ch * TILE_OVERLAP
+    out = []
+    for i in range(rows):
+        for j in range(cols):
+            x0 = max(rect.x0, rect.x0 + j * cw - (ox if j else 0))
+            x1 = min(rect.x1, rect.x0 + (j + 1) * cw + (ox if j < cols - 1 else 0))
+            y0 = max(rect.y0, rect.y0 + i * ch - (oy if i else 0))
+            y1 = min(rect.y1, rect.y0 + (i + 1) * ch + (oy if i < rows - 1 else 0))
+            clip = fitz.Rect(x0, y0, x1, y1)
+            k = TILE_PX / max(clip.width, clip.height)
+            pix = page.get_pixmap(matrix=fitz.Matrix(k, k), clip=clip, alpha=False)
+            if _blank(pix, clip, rect, k):
+                continue
+            dst = sheet.with_name(f"{sheet.stem}_tile_r{i + 1}c{j + 1}.png")
+            pix.save(str(dst))
+            out.append(dst)
+    return out
+
+
+def _blank(pix, clip, page_rect, k: float) -> bool:
+    """Is this tile blank paper once the sheet's border zone is ignored?"""
+    import numpy as np
+    m = BLANK_MARGIN_MM / 25.4 * 72
+    inner = fitz_rect_intersection(clip, (page_rect.x0 + m, page_rect.y0 + m, page_rect.x1 - m, page_rect.y1 - m))
+    if inner is None:
+        return True
+    a = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, :3].min(axis=2)
+    x0, y0 = round((inner[0] - clip.x0) * k), round((inner[1] - clip.y0) * k)
+    x1, y1 = round((inner[2] - clip.x0) * k), round((inner[3] - clip.y0) * k)
+    region = a[max(0, y0):max(0, y1), max(0, x0):max(0, x1)]
+    return region.size == 0 or float((region < 160).mean()) < BLANK_INK
+
+
+def fitz_rect_intersection(clip, box):
+    x0, y0 = max(clip.x0, box[0]), max(clip.y0, box[1])
+    x1, y1 = min(clip.x1, box[2]), min(clip.y1, box[3])
+    return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
+
+
 class Sandbox:
     """Seed the case's inputs into the working directory (excluding gt/) and execute
     the model's code."""
@@ -428,8 +505,13 @@ class Sandbox:
             # is rendered here, next to itself, so the prompt and `tools.crop`
             # have PNGs to work with. gt/ and case.json never come across.
             shutil.copytree(self.case / "input", self.dir, dirs_exist_ok=True)
+            # The model sees a drawing as PNG only: the sheet, its four tiles,
+            # and (hidden) the master tools.crop cuts from. The PDF is the
+            # case's storage format, not an input; it is rendered and removed,
+            # so there is exactly one form of every drawing in the directory.
             for pdf in sorted(self.dir.rglob("*.pdf")):
                 _rasterize_pdf(pdf)
+                pdf.unlink()
         else:
             # Legacy layout: everything except gt/ and meta.json.
             for p in sorted(self.case.iterdir()):

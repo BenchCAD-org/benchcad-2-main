@@ -1,8 +1,12 @@
 # T5 - drawing set + assembly drawing -> assembly
 
-`drawing.pdf` (raster `drawing.png`, `drawing_p2.png` ... per page) is the
-assembly drawing. `part_drawings/part_NN.pdf` (raster beside it) are the
-drawings of the parts to model, in millimetres. `step_files/part_NN.step`
+`drawing.png` is the assembly drawing (`drawing_p2.png` ... per further
+page); `drawing_tile_r<i>c<j>.png` are overlapping pieces of the same sheet
+(rows top to bottom, columns left to right) at a resolution where the
+lettering is legible; a tile that would be blank paper is not written.
+`part_drawings/part_NN.png` are the drawings of the parts to model, in
+millimetres, each with its tiles beside it.
+`step_files/part_NN.step`
 are the purchased parts, each centred on its bounding box and given a random
 axis-aligned 90-degree rotation. `bom.json` gives each part's `source`
 (`drawing` or `step`) and count; part ids need not match the drawing's item
