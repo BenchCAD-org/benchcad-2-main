@@ -174,12 +174,21 @@ def _b64(path: Path, max_px: int | None = None) -> str:
     return base64.standard_b64encode(Path(path).read_bytes()).decode()
 
 
-def image_label(path) -> str:
-    """The text that precedes every image: its file name. A round-one turn
-    can carry twenty images (a sheet, its tiles, five part drawings and
-    theirs); without a label the model cannot tell drawing_tile_r2c3.png
-    from r3c4, and the prompt names files, not pictures."""
-    return f"[{Path(path).name}]"
+def image_label(path, label: str | None = None) -> str:
+    """The text that precedes every image: its path in the working directory
+    when the episode says it (`image_labels`, round one), else its file
+    name. A round-one turn can carry twenty images; without a label the
+    model cannot tell drawing_tile_r2c3.png from r3c4, and the prompt names
+    files, not pictures. A label is the path the model must pass to
+    tools.crop, so part_drawings/part_03.png, not part_03.png."""
+    return f"[{label or Path(path).name}]"
+
+
+def labelled(t: dict):
+    """(path, label) per image of a turn."""
+    imgs = t.get("images") or []
+    labels = t.get("image_labels") or [None] * len(imgs)
+    return list(zip(imgs, labels))
 
 
 def bound_images(turns: list) -> tuple[list, int | None]:
@@ -190,7 +199,8 @@ def bound_images(turns: list) -> tuple[list, int | None]:
     request is under the many-image threshold)."""
     user_idx = [i for i, t in enumerate(turns) if t.get("role") != "assistant"]
     keep = set(user_idx[:1]) | set(user_idx[-KEEP_OBS_ROUNDS:])
-    out = [dict(t, images=(t.get("images") or []) if i in keep else []) for i, t in enumerate(turns)]
+    out = [dict(t, images=(t.get("images") or []) if i in keep else [],
+                image_labels=(t.get("image_labels") or []) if i in keep else []) for i, t in enumerate(turns)]
     n = sum(len(t["images"]) for t in out)
     return out, (MANY_IMAGE_PX if n > MANY_IMAGES else None)
 
@@ -345,8 +355,8 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         messages = []
         for t in turns:
             content = [{"type": "text", "text": t["text"]}] if t.get("text") else []
-            for img in ([] if drop_images else (t.get("images") or [])):
-                content.append({"type": "text", "text": image_label(img)})
+            for img, lab in ([] if drop_images else labelled(t)):
+                content.append({"type": "text", "text": image_label(img, lab)})
                 content.append({"type": "image", "source": {
                     "type": "base64", "media_type": "image/png", "data": _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
@@ -470,8 +480,8 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         messages: list = [{"role": "system", "content": system}]
         for t in turns:
             parts = [{"type": "text", "text": t["text"]}] if t.get("text") else []
-            for img in ([] if drop_images else (t.get("images") or [])):
-                parts.append({"type": "text", "text": image_label(img)})
+            for img, lab in ([] if drop_images else labelled(t)):
+                parts.append({"type": "text", "text": image_label(img, lab)})
                 parts.append({"type": "image_url", "image_url": {
                     "url": "data:image/png;base64," + _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
@@ -587,8 +597,8 @@ def gemini_call(model: str, max_tokens: int, usage: list, api_key: str):
         contents = []
         for t in turns:
             parts = [types.Part.from_text(text=t["text"])] if t.get("text") else []
-            for img in ([] if drop_images else (t.get("images") or [])):
-                parts.append(types.Part.from_text(text=image_label(img)))
+            for img, lab in ([] if drop_images else labelled(t)):
+                parts.append(types.Part.from_text(text=image_label(img, lab)))
                 parts.append(types.Part.from_bytes(
                     data=base64.b64decode(_b64(img, max_px)), mime_type="image/png"))
             if not parts:

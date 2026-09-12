@@ -47,7 +47,11 @@ def export(result, step_path="my_part.step"):
     if hasattr(result, "save") and hasattr(result, "children"):   # cq.Assembly
         result.save(str(out), "STEP")
         return out
-    obj = result.val() if hasattr(result, "val") else result
+    if hasattr(result, "vals"):                                    # a Workplane: EVERY object on
+        vals = result.vals()                                        # its stack, not the first only
+        obj = vals[0] if len(vals) == 1 else _compound(vals)
+    else:
+        obj = result
     # Check for actual solids before exporting. A surface or unclosed shell
     # still writes a few-hundred-KB STEP, but scoring needs solids -- without
     # them the score is silently 0 and the model never learns it submitted a
@@ -143,6 +147,22 @@ def _rows4x4(t):
     return out
 
 
+def _rigid_or_raise(T, part_id, k):
+    """A transform must be a proper rotation plus a translation. The scorer
+    drops any instance whose transform is not, so say so here, now."""
+    R = [row[:3] for row in T[:3]]
+    det = (R[0][0] * (R[1][1] * R[2][2] - R[1][2] * R[2][1])
+           - R[0][1] * (R[1][0] * R[2][2] - R[1][2] * R[2][0])
+           + R[0][2] * (R[1][0] * R[2][1] - R[1][1] * R[2][0]))
+    dots = [sum(R[i][m] * R[j][m] for m in range(3)) for i in range(3) for j in range(3)]
+    ortho = max(abs(d - (1.0 if i == j else 0.0)) for (i, j), d in zip([(i, j) for i in range(3) for j in range(3)], dots))
+    if ortho > 1e-3 or abs(det - 1.0) > 1e-3 or [round(x, 6) for x in T[3]] != [0, 0, 0, 1]:
+        raise ValueError(
+            f"instance {k} ({part_id}): transform is not rigid (det = {det:.4f}, "
+            f"orthonormality error {ortho:.2e}). T must be a proper rotation (det +1, no "
+            f"mirror, no scale) plus a translation; scale or mirror the geometry itself, not T.")
+
+
 def submit_assembly(instances, assembly=None):
     """Write submission/assembly/instances.json: where every instance goes.
 
@@ -163,6 +183,7 @@ def submit_assembly(instances, assembly=None):
                          "{part_id, transform} dicts")
     recs, n = [], {}
     for k, rec in enumerate(instances, 1):
+        _rigid_or_raise(_rows4x4(rec["transform"]), rec.get("part_id"), k)
         if not isinstance(rec, dict):
             raise ValueError(f"instance {k} is {type(rec).__name__}, not a dict "
                              f"with part_id and transform")
@@ -214,12 +235,19 @@ def finish(ns=None):
 
 
 
+def _compound(shapes):
+    import cadquery as cq
+    return cq.Compound.makeCompound([x if isinstance(x, cq.Shape) else x.val() for x in shapes])
+
+
 def crop(image_path, box, out_png=None):
-    """Crop box=(left, top, right, bottom), in image_path's own pixel
-    coordinates, and write it as a new PNG. A drawing sheet has a sharper
-    master behind it (the same page rendered at twice the resolution), and the
-    crop is taken from that, so a zoomed region shows more detail than the
-    sheet you were shown."""
+    """Write the region box=(left, top, right, bottom) of image_path as a new
+    PNG and return its path. The box is in the FILE's pixel coordinates (a
+    drawing sheet is 4200 px wide; the copy you were shown is smaller) --
+    read the size with PIL first. out_png names the output; the default
+    crop_<stem>.png is overwritten by the next crop of the same image. A
+    drawing sheet has a sharper master behind it (the same page at twice the
+    resolution), and the crop is taken from that."""
     from PIL import Image
     src = Path(image_path)
     out = Path(out_png or ("crop_" + src.stem + ".png"))
@@ -491,6 +519,48 @@ def fitz_rect_intersection(clip, box):
     return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
 
 
+def _point_bom_at_pngs(bom: Path) -> None:
+    """The case's bom.json names a drawing part's input as its PDF (the
+    storage format); in the sandbox that drawing is the PNG rendered from it,
+    so the staged copy says so. The case file is untouched."""
+    import json
+    if not bom.exists():
+        return
+    try:
+        m = json.loads(bom.read_text())
+    except ValueError:
+        return
+    changed = False
+    for it in m.get("items", []):
+        f = it.get("file")
+        if isinstance(f, str) and f.lower().endswith(".pdf"):
+            it["file"] = f[:-4] + ".png"
+            changed = True
+    if changed:
+        bom.write_text(json.dumps(m, indent=1) + "\n")
+
+
+def _add_bom_items(bom: Path, case_json: Path) -> None:
+    """The case's own statement of how the assembly drawing's parts list maps
+    to the part ids (case.json parts_list.note, docs/CASE_FORMAT.md) goes into
+    the staged bom.json's note. It differs per case -- on one the balloon
+    numbers are the ids' numbers, on another the parts list carries a STEP
+    FILE column and the balloons are unrelated to the ids -- and the model
+    cannot know which without being told."""
+    import json
+    if not (bom.exists() and case_json.exists()):
+        return
+    try:
+        m = json.loads(bom.read_text()); pl = json.loads(case_json.read_text()).get("parts_list") or {}
+    except ValueError:
+        return
+    note = (pl.get("note") or "").strip()
+    if not note:
+        return
+    m["parts_list"] = note
+    bom.write_text(json.dumps(m, indent=1) + "\n")
+
+
 class Sandbox:
     """Seed the case's inputs into the working directory (excluding gt/) and execute
     the model's code."""
@@ -512,6 +582,8 @@ class Sandbox:
             for pdf in sorted(self.dir.rglob("*.pdf")):
                 _rasterize_pdf(pdf)
                 pdf.unlink()
+            _point_bom_at_pngs(self.dir / "bom.json")
+            _add_bom_items(self.dir / "bom.json", self.case / "case.json")
         else:
             # Legacy layout: everything except gt/ and meta.json.
             for p in sorted(self.case.iterdir()):

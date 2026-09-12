@@ -67,14 +67,22 @@ Files in your directory:
 
 Python 3.12 with cadquery {cq_version} (cadquery-ocp 7.9), numpy, scipy, PIL,
 trimesh, vtk, matplotlib and ezdxf. There is no network. Stick to APIs that
-exist in those versions -- a call that does not exist raises at submit time.
+exist in those versions -- a call that does not exist raises.
 
-```python    runs in the directory; you get back stdout, stderr, and up to
-             three images it wrote (every image is sent with its file name)
+```python    runs in the directory as a fresh process (nothing from earlier
+             rounds is in memory; files are); you get back the last 4000
+             characters of stdout and of stderr, and up to three PNGs it
+             wrote at the top level of the directory (the first three by
+             name; every image is sent with its file name). 600 s, 2 GB,
+             1 CPU per round.
 ```submit    your final answer: {submit_what}
              It ends the episode and is what gets scored.
 
-The directory persists across rounds. You have {rounds} rounds.
+The directory persists across rounds. You have {rounds} rounds. You can
+render your own geometry to check it (vtk, matplotlib) -- no renderer is
+supplied. An image file can be larger than the copy you were shown (a
+drawing sheet is 4200 px wide): read its size with PIL and crop by the
+file's pixel coordinates, not by what you see.
 
 Your entire reply must be exactly one fenced block and nothing else -- no
 narration, no plan, no prose before or after it. Start the reply with ```.
@@ -206,8 +214,15 @@ def _artifact(box: Sandbox):
     sub = box.dir / SUB_ROOT
     if is_ready(sub):
         return sub
-    f = box.dir / "final.step"
-    return f if f.exists() else None
+    # Then the exported STEP; then the graph an ECAD answer writes
+    # (tools.export turns a dict into pred_graph.json). The T6 oracle used to
+    # come back as "failed to execute" and burn its retry because only
+    # final.step was looked for here.
+    for name in ("final.step", "pred_graph.json"):
+        f = box.dir / name
+        if f.exists():
+            return f
+    return None
 
 
 def _observation(rnd, res, max_rounds):
@@ -265,8 +280,10 @@ def tools_help(case_dir: Path) -> str:
                   "                                    and angles as the reference image"]
     has_sheets = any(str(i).endswith(".pdf") or "drawing" in str(i)
                      for i in (task.get("task") or {}).get("inputs", []))
-    lines.append("               crop(png, box)    -> writes the box as a new PNG and returns its PATH\n"
-                 "                                    (not an image); you see it next round")
+    lines.append("               crop(png, (left, top, right, bottom)[, out_png])\n"
+                 "                                 -> writes the box (file pixel coordinates) as a new\n"
+                 "                                    PNG and returns its PATH (not an image); you see\n"
+                 "                                    it next round; default name crop_<stem>.png")
     if has_sheets:
         lines.append("                                    (a drawing sheet is cut from a 2x-resolution master)")
     return "\n".join(lines)
@@ -282,6 +299,8 @@ SUBMIT_WHAT = {
     "part": "a complete CadQuery program that leaves the solid in `result`.",
     "assembly": "a complete program that writes submission/ with the tools\n"
                 "             (export_part / use_part, then submit_assembly).",
+    "assembly_nothing_3d": "a complete program that writes submission/ with the tools\n"
+                           "             (export_part for every part, then submit_assembly).",
     "ecad": "a complete program that leaves the graph dict in `result`.",
 }
 ANSWER = {
@@ -295,6 +314,15 @@ def _kind(case_dir: Path) -> str:
     from envs.common.score_case import load_task
     task = load_task(Path(case_dir)) or {}
     return (task.get("task") or {}).get("kind", "part")
+
+
+def _submit_what(case_dir: Path) -> str:
+    from envs.common.score_case import load_task
+    t = (load_task(Path(case_dir)) or {}).get("task") or {}
+    kind = t.get("kind", "part")
+    if kind == "assembly" and t.get("given") == "nothing_3d":
+        return SUBMIT_WHAT["assembly_nothing_3d"]
+    return SUBMIT_WHAT[kind]
 
 
 def _task_brief(case_dir: Path) -> str:
@@ -348,7 +376,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     system = SYSTEM.format(task_brief=task_brief.strip(),
                            file_list="\n".join(f"  {n}" for n in files),
                            tools_help=tools_help(case_dir),
-                           submit_what=SUBMIT_WHAT[kind],
+                           submit_what=_submit_what(case_dir),
                            rounds=max_rounds, cq_version=SANDBOX_CQ_VERSION)
     answer = ANSWER[kind]
     # Images must be collected RECURSIVELY. T5's part drawings live in the
@@ -358,7 +386,8 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     # and the premise of the task disappeared. Subdirectory images are part of
     # the prompt too.
     seed_imgs = _seed_images(box.dir)
-    turns = [{"role": "user", "text": "Begin.", "images": seed_imgs}]
+    turns = [{"role": "user", "text": "Begin.", "images": seed_imgs,
+              "image_labels": [p.relative_to(box.dir).as_posix() for p in seed_imgs]}]
 
     rounds, submitted = [], ""
     dead = 0

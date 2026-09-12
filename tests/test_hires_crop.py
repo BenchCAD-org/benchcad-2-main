@@ -112,3 +112,36 @@ def test_tile_grid_follows_the_sheet_size():
     assert tile_grid(594, 420) == (2, 2)          # A2
     assert tile_grid(1189, 841) == (3, 4)         # A0
     assert tile_grid(210, 297) == (1, 1)          # A4: no tiles
+
+
+def test_staged_bom_names_the_png_not_the_pdf(tmp_path):
+    """bom.json in the sandbox points at what is there: the drawing part's
+    PNG, not the PDF the case stores (T5)."""
+    import json, os
+    from envs.common.sandbox import Sandbox
+    os.environ["CADENV_LOCAL"] = "1"
+    case = ROOT / "tests/fixtures/t5/case1"
+    wd = tmp_path / "wd"
+    Sandbox(case, wd)
+    files = [it["file"] for it in json.loads((wd / "bom.json").read_text())["items"]]
+    assert files and not any(f.endswith(".pdf") for f in files), files
+    for f in files:
+        assert (wd / f).exists(), f
+    # the case's own bom.json is untouched
+    assert any(it["file"].endswith(".pdf") for it in json.loads((case / "input/bom.json").read_text())["items"])
+
+
+def test_staged_bom_carries_the_parts_list_mapping(tmp_path):
+    """bom.json in the sandbox says how the drawing's parts list maps to the
+    ids (case.json parts_list.note) -- it differs per case."""
+    import json, os
+    from envs.common.sandbox import Sandbox
+    os.environ["CADENV_LOCAL"] = "1"
+    case = ROOT / "examples/task2/cases/case1"
+    if not case.exists():
+        return
+    wd = tmp_path / "wd"
+    Sandbox(case, wd)
+    staged = json.loads((wd / "bom.json").read_text())
+    want = json.loads((case / "case.json").read_text())["parts_list"]["note"]
+    assert staged["parts_list"] == want
