@@ -215,10 +215,23 @@ def finish(ns=None):
 
 
 def crop(image_path, box, out_png=None):
-    """Crop box=(left, top, right, bottom) out of image_path."""
+    """Crop box=(left, top, right, bottom), in image_path's own pixel
+    coordinates, and write it as a new PNG. A drawing sheet has a sharper
+    master behind it (the same page rendered at twice the resolution), and the
+    crop is taken from that, so a zoomed region shows more detail than the
+    sheet you were shown."""
     from PIL import Image
-    out = Path(out_png or ("crop_" + Path(image_path).stem + ".png"))
-    Image.open(image_path).crop(tuple(box)).save(out)
+    src = Path(image_path)
+    out = Path(out_png or ("crop_" + src.stem + ".png"))
+    l, t, r, b = (float(x) for x in box)
+    hires = src.parent / "_hires" / src.name
+    if hires.exists():
+        with Image.open(src) as shown, Image.open(hires) as master:
+            k = master.width / shown.width
+            master.crop((round(l * k), round(t * k), round(r * k), round(b * k))).save(out)
+        return out
+    with Image.open(src) as im:
+        im.crop((round(l), round(t), round(r), round(b))).save(out)
     return out
 '''
 
@@ -351,6 +364,15 @@ def _docker_ready() -> bool:
 
 STAGE_DPI = 300          # matches the 300 dpi sheets the legacy cases shipped
 STAGE_MAX_EDGE = 4200    # px; an A0 sheet at 300 dpi is ~14000 px, far beyond what a prompt can carry
+# The master `tools.crop` cuts from: the same page at twice the resolution,
+# under _hires/ beside the sheet (an underscore name: never listed in the
+# prompt, never a seed image). The sheet itself is what the model is shown
+# and what it measures on -- the API downscales a 4200 px sheet to ~2300 px
+# before the model sees it, so 2-3 mm lettering on a crowded assembly
+# drawing lands at 13-20 px and is at the edge of legibility; a crop of the
+# 300 dpi sheet cannot add detail, a crop of the 600 dpi master can.
+HIRES_DIR = "_hires"
+HIRES_FACTOR = 2
 
 
 def _rasterize_pdf(pdf: Path) -> list[Path]:
@@ -361,6 +383,7 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
     except ImportError:                                  # pragma: no cover
         import fitz                                      # type: ignore
     out = []
+    hires_dir = pdf.parent / HIRES_DIR
     with fitz.open(str(pdf)) as doc:
         for i, page in enumerate(doc):
             rect = page.rect
@@ -368,10 +391,26 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
             long_edge = max(rect.width, rect.height) * scale
             if long_edge > STAGE_MAX_EDGE:
                 scale *= STAGE_MAX_EDGE / long_edge
-            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
             dst = pdf.with_suffix(".png") if i == 0 else pdf.with_name(f"{pdf.stem}_p{i + 1}.png")
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
             pix.save(str(dst))
+            pix_w, pix_h = pix.width, pix.height
             out.append(dst)
+            # The master for tools.crop: exactly HIRES_FACTOR x the sheet, so
+            # a box in the sheet's pixels maps onto it by one factor.
+            hires_dir.mkdir(exist_ok=True)
+            k = scale * HIRES_FACTOR
+            master = page.get_pixmap(matrix=fitz.Matrix(k, k), alpha=False)
+            want = (pix_w * HIRES_FACTOR, pix_h * HIRES_FACTOR)
+            if (master.width, master.height) != want:
+                # pymupdf rounds each render's size on its own, so the master
+                # can come out a pixel short of 2x; the factor has to be exact
+                # for crop's box mapping, so trim/pad by resampling (<= 1 px).
+                from PIL import Image
+                im = Image.frombytes("RGB", (master.width, master.height), master.samples)
+                im.resize(want, Image.LANCZOS).save(str(hires_dir / dst.name))
+            else:
+                master.save(str(hires_dir / dst.name))
     return out
 
 

@@ -249,8 +249,9 @@ def tools_help(case_dir: Path) -> str:
         lines += ["               render(step, png) -> isometric hidden-line view",
                   "               views(step, png)  -> four-orientation 2x2 sheet, same renderer",
                   "                                    and angles as the reference image"]
-    lines.append("               crop(png, box)    -> writes the cropped region as a new PNG and\n"
-                 "                                    returns its PATH (not an image); you see it next round")
+    lines.append("               crop(png, box)    -> writes the cropped region as a new PNG, cut from a\n"
+                 "                                    2x-resolution master of a drawing sheet, and returns\n"
+                 "                                    its PATH (not an image); you see it next round")
     return "\n".join(lines)
 
 
