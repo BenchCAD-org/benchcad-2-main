@@ -9,7 +9,8 @@ One layout, five tasks:
         bom.json        assembly tasks: part types and quantities
         step_files/<id>.step  T2/T5: supplied parts, de-posed (never T4: it supplies no 3-D)
         part_drawings/<id>.pdf  T5: sheets of the made-to-print parts
-        views.png, parts_views.png  T3/T4 renders; views/view_*.png + README.md for T6
+        views.png       T3/T4: the 2x2 reference render; views/view_*.png + README.md for T6
+        parts/<id>_alone.png, parts/<id>_in_assembly.png  T4: one 2x2 pair per part type
       gt/               never staged
         gt.step         the scored answer (a part for T1/T3, an assembly for T2/T4/T5)
         parts/<id>.step the part types that had to be modelled (all of T4's, T5's
@@ -66,9 +67,12 @@ CJK = re.compile("[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")  # CJK ideographs,
 # What each task's input/ may and must contain. One vocabulary across tasks:
 # the sheet is `drawing.pdf` (T1's part drawing, T2/T5's assembly drawing),
 # supplied part geometry is `step_files/<part_id>.step` (T2, T5), the bill
-# of materials is `bom.json`, renders are `views.png` (+ `parts_views.png` for
-# T4), T5's per-part sheets are `part_drawings/<part_id>.pdf`. Earlier
-# spellings of these names are errors, not aliases: one name per thing.
+# of materials is `bom.json`, renders are `views.png` (+ one 2x2 pair per part
+# type under `parts/` for T4), T5's per-part sheets are
+# `part_drawings/<part_id>.pdf`. Earlier spellings of these names are errors,
+# not aliases: one name per thing -- T4's old single strip `parts_views.png`
+# (1630 x 4960 px for seven types, downscaled past legibility by the API's
+# 2576 px long-edge cap) is rejected, not carried along.
 # Rasters are derived at stage time from the PDFs and are never stored; only
 # T3/T4 ship PNGs because their inputs are renders that have no PDF source.
 #
@@ -79,20 +83,25 @@ CJK = re.compile("[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")  # CJK ideographs,
 # per-part geometry score: hand the parts over and avg_part is free, because a
 # submission need only re-export what it was given. So T4's part geometry is
 # the ANSWER and lives under gt/parts/ (`resolve_part` already prefers it),
-# with input/ carrying only the two renders and the BOM. T2 (every part
+# with input/ carrying only the renders and the BOM. T2 (every part
 # supplied, placement only) and T5 (the purchased types supplied, the rest
 # modelled from their drawings) keep theirs.
 DRAWING = "drawing.pdf"
 STEP_DIR = "step_files"
 PART_DRAWINGS_DIR = "part_drawings"
 _STEP_FILE = STEP_DIR + r"/[a-z][a-z0-9_]*\.step"
+PART_SHEETS_DIR = "parts"                     # T4: input/parts/<part_id>_{alone,in_assembly}.png
+PART_SHEET_KINDS = ("alone", "in_assembly")
+PART_SHEET = re.compile(PART_SHEETS_DIR + r"/(?P<part_id>[a-z][a-z0-9_]*)_(?P<kind>alone|in_assembly)\.png")
 INPUT_POLICY = {
     "t1": {"required": [DRAWING], "allowed": [r"drawing\.pdf"], "png": False},
     "t2": {"required": [DRAWING, "bom.json"],
            "allowed": [r"drawing\.pdf", r"bom\.json", _STEP_FILE], "png": False},
     "t3": {"required": ["views.png"], "allowed": [r"views\.png"], "png": True},
-    "t4": {"required": ["views.png", "parts_views.png", "bom.json"],
-           "allowed": [r"views\.png", r"parts_views\.png", r"bom\.json"], "png": True},
+    # T4's per-part sheets are required PER PART TYPE, which a static list
+    # cannot say: check_case asks for both sheets of every type in the manifest.
+    "t4": {"required": ["views.png", "bom.json"],
+           "allowed": [r"views\.png", r"bom\.json", PART_SHEET.pattern], "png": True},
     "t5": {"required": [DRAWING, "bom.json"],
            "allowed": [r"drawing\.pdf", r"bom\.json", PART_DRAWINGS_DIR + r"/[a-z][a-z0-9_]*\.pdf",
                        _STEP_FILE], "png": False},
@@ -297,6 +306,33 @@ def pdf_raw_identity(path: Path) -> list[str]:
                 v = re.sub(r"<[^>]+>", "", hit.group(1)).strip()[:60]
                 if v:
                     out.append(f"XMP {tag}: {v!r}")
+    return out
+
+
+def sheet_parts_list(pdf: Path) -> dict[str, str]:
+    """{item number: part id} as printed on an assembly sheet's parts list:
+    every `part_NN.step` word paired with the nearest integer word to its left
+    on the same row. Measured on the two T2 sheets against an independent
+    extraction: 21/21 and 20/20 pairs agree. Empty when the sheet has no text
+    layer or no STEP FILE column."""
+    try:
+        import pymupdf
+    except ImportError:                                  # pragma: no cover
+        import fitz as pymupdf                           # type: ignore
+    out: dict[str, str] = {}
+    try:
+        doc = pymupdf.open(str(pdf))
+    except Exception:                                    # noqa: BLE001
+        return out
+    words = [w for pg in doc for w in pg.get_text("words")]
+    files = [w for w in words if re.fullmatch(r"part_\d\d\.step", w[4])]
+    items = [w for w in words if re.fullmatch(r"\d{1,2}", w[4])]
+    for f in files:
+        cy = (f[1] + f[3]) / 2
+        cands = [w for w in items if abs((w[1] + w[3]) / 2 - cy) < 4 and w[2] <= f[0]]
+        if cands:
+            it = min(cands, key=lambda w: f[0] - w[2])
+            out[it[4]] = f[4][:-5]
     return out
 
 
@@ -544,12 +580,26 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
             E(f"input/{rel} not allowed for {tp}")
         if rel.endswith(".png") and not pol["png"]:
             E(f"input/{rel}: rasters are derived at stage time, not stored")
+    if tp == "t4":
+        # One pair of sheets per part type (envs/common/views.py): a type
+        # without its sheets cannot be modelled, and a sheet for a type the
+        # case does not have is a stale render of some other case.
+        types = [p["part_id"] for p in m.get("parts", [])]
+        for pid in types:
+            for k in PART_SHEET_KINDS:
+                want = f"{PART_SHEETS_DIR}/{pid}_{k}.png"
+                if want not in rel_inputs:
+                    (W if m.get("synthetic") else E)(f"input/{want} required for {tp}: part type {pid!r}")
+        for rel in rel_inputs:
+            hit = PART_SHEET.fullmatch(rel)
+            if hit and hit.group("part_id") not in types:
+                E(f"input/{rel}: no part type {hit.group('part_id')!r} in this case")
     gt_hashes = {e["sha256"] for e in m.get("gt", [])}
     for e in m.get("input", []):
         if e["sha256"] in gt_hashes:
             E(f"{e['path']} is byte-identical to a gt/ file: answer leaks into input")
 
-    # R2b drawings : this repo keeps only the PDFs the model sees. A PDF must
+    # R2b drawings: this repo keeps only the PDFs the model sees. A PDF must
     # be shown to carry no CJK and no identity: extractable text, embedded font
     # names (a CJK subset is text even when extraction fails), and the Info
     # dictionary (creator / producer / author / title / subject / keywords).
@@ -669,13 +719,36 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
             if doubled >= 0.9 * len(cnt):
                 W(f"{rel}: every distinct text line appears at least twice ({len(lines)} lines, {len(cnt)} distinct) -- "
                   "likely a duplicated content stream from a PDF rewrite; check page.get_contents()")
-    # R2c  T2/T5: the assembly drawing's parts list must map to the part ids
+    # R2c T2/T5: the assembly drawing's parts list must map to the part ids
     if tp in ("t2", "t5") and not m.get("synthetic"):
         pl = m.get("parts_list")
         if not isinstance(pl, dict) or pl.get("mapping") not in ("item_number", "declared", "none"):
-            E("case.json parts_list.mapping must be item_number | declared | none ")
-        elif pl["mapping"] == "declared" and not isinstance(pl.get("table"), dict):
-            E("parts_list.mapping = declared needs parts_list.table {item: part_id}")
+            E("case.json parts_list.mapping must be item_number | declared | none")
+        elif pl["mapping"] == "declared":
+            table = pl.get("table")
+            if not isinstance(table, dict) or not table:
+                E("parts_list.mapping = declared needs parts_list.table {item: part_id}")
+            else:
+                ids = [p_["part_id"] for p_ in m.get("parts", [])]
+                vals = list(table.values())
+                dup = sorted({v for v in vals if vals.count(v) > 1})
+                if dup:
+                    E(f"parts_list.table maps several items to one part: {dup}")
+                miss = sorted(set(ids) - set(vals))
+                if miss:
+                    E(f"parts_list.table has no item for {miss}")
+                # A declared table is checked against the sheet, not trusted:
+                # each (item, file) pair must sit on one row of the parts list.
+                txt, src = drawing_texts.get(f"input/{DRAWING}", ("", "none"))
+                if src != "none":
+                    rows = sheet_parts_list(d / "input" / DRAWING)
+                    bad = {k: v for k, v in table.items() if rows.get(str(k)) not in (None, v)}
+                    if bad:
+                        E(f"parts_list.table disagrees with the sheet on items {sorted(bad)}: "
+                          f"declared {bad}, sheet {{k: rows[k] for k in bad}}")
+                    unread = [k for k in table if str(k) not in rows]
+                    if unread:
+                        W(f"parts_list.table items not readable off the sheet: {sorted(unread)}")
         elif pl["mapping"] == "none" and not pl.get("note"):
             E("parts_list.mapping = none needs a note (the case is not solvable as posed)")
         elif pl["mapping"] == "item_number":

@@ -16,8 +16,8 @@ REPO = Path(__file__).resolve().parents[1]
 
 # Headline metrics a task may declare under [verify] (docs/METRICS.md).
 #   legacy         raw 64^3 voxel IoU (parts) / orientation-aware IoU + hit + rubric (assemblies)
-#   asm_v1         per-part-type leave-one-TYPE-out IoU gain, normalised by (1 - baseline) (T2, #24)
-#   part_v1        0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg (T1 / T3, #26)
+#   asm_v1         per-part-type leave-one-TYPE-out IoU gain, normalised by (1 - baseline) (T2, change 24)
+#   part_v1        0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg (T1 / T3, change 26)
 #   part_x_asm_v1  avg_part x asm_v1: the per-instance part_v1 inside the aligned
 #                  assembly, averaged per part type, times asm_v1 (T4 / T5)
 #   ecad_v2        the terminal-net graph metric S_C * S_T * S_N * P_short * P_open (T6)
@@ -46,6 +46,31 @@ DEFAULT_POSE_MODE = "lab"
 # entry more or less must not silently change what the mean is over.
 AVG_PART_TYPES = ("all", "modelled")
 DEFAULT_AVG_PART_TYPES = "all"
+# Whether the task charges ABSOLUTE size (docs/METRICS.md, "The scale rule").
+#   fixed  the task hands over 3-D geometry at true size (or dimensioned part
+#          drawings), so the scale IS given and a scale error is a real error.
+#          The assembly frame then normalises both sides by the REFERENCE's
+#          longest edge, and a submission built at the wrong size loses.
+#   free   the task hands over no 3-D geometry at all, so nothing in its input
+#          fixes absolute size: the sheets are rendered from a mesh normalised
+#          into the unit cube and bom.json carries no dimension. The assembly
+#          frame then normalises the submission by ITS OWN longest edge, so a
+#          uniformly scaled answer maps exactly onto the reference and only
+#          PROPORTIONS are judged.
+#
+# The rule, and it is a rule rather than one task's exception: a task is
+# scale-invariant exactly when it supplies no 3-D geometry.
+#   T2, T5  fixed -- parts arrive as STEP at true size (T5's five modelled
+#           types are dimensioned on their drawings), so the scale is given
+#   T4      free  -- four-view sheet + highlight sheet + bom.json, no 3-D
+#
+# Read by the ASSEMBLY verifier, where the two sides share one normaliser and
+# it therefore has to be chosen. A part task (T1 / T3) is scale-invariant by
+# construction -- part_v1 normalises each side on its own longest axis
+# (part_metric, frame="own") -- so nothing there consults this field and its
+# default makes no claim about them.
+SCALES = ("fixed", "free")
+DEFAULT_SCALE = "fixed"
 
 
 @dataclass(frozen=True)
@@ -74,7 +99,7 @@ class Task:
     band_exclude_families: list[str]
     band_exclude_cases: list[str]
     band_exclude_reason: str
-    source_repo: str          # benchcad-2 | the heldout corpus | the data pipeline | the ECAD source repository
+    source_repo: str          # benchcad-2 | benchcad-2-heldout | the data pipeline | the ECAD source repository
     split: str                # open | heldout -- mixing them contaminates, irreversibly
     data_root: Path
     default_dataset: str
@@ -85,6 +110,11 @@ class Task:
     pose_mode: str = DEFAULT_POSE_MODE
     # The scope of avg_part's mean over part types. See AVG_PART_TYPES above.
     avg_part_types: str = DEFAULT_AVG_PART_TYPES
+    # Whether absolute size is charged. See SCALES above. Declared, never
+    # sniffed: "does this task's input pin a size" is a property of the task
+    # statement, and a case that happens to ship one file more or less must
+    # not silently change what the score means.
+    scale: str = DEFAULT_SCALE
 
     MEASURES = {
         "nothing_3d": "model the shape from the drawing (+ placement, for an assembly)",
@@ -133,7 +163,8 @@ def load(task_id: str) -> Task:
                 generator=d["data"]["generator"],
                 metric=v.get("metric", DEFAULT_METRIC),
                 pose_mode=v.get("pose_mode", DEFAULT_POSE_MODE),
-                avg_part_types=v.get("avg_part_types", DEFAULT_AVG_PART_TYPES))
+                avg_part_types=v.get("avg_part_types", DEFAULT_AVG_PART_TYPES),
+                scale=v.get("scale", DEFAULT_SCALE))
 
 
 def all_tasks() -> list[Task]:
@@ -144,4 +175,4 @@ if __name__ == "__main__":
     for t in all_tasks():
         print(f"{t.id:24s} kind={t.kind:9s} orient={t.orientation:7s} "
               f"metric={t.metric:7s} avg_part_types={t.avg_part_types:8s} "
-              f"inject={list(t.inject)}  verify={t.verify_entry}")
+              f"scale={t.scale:5s} inject={list(t.inject)}  verify={t.verify_entry}")

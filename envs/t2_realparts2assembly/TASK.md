@@ -6,8 +6,9 @@ assembly drawing (`drawing_p2.png` ... per further page);
 `drawing_tile_r<i>c<j>.png` are overlapping pieces of the same sheet (rows
 top to bottom, columns left to right) at a resolution where the lettering
 is legible; a tile that would be blank paper is not written. `bom.json`
-gives each part's id and `quantity`, and its `parts_list` note says how the
-drawing's parts list maps to the ids. Hardware on the drawing that is not
+gives each part's id, `quantity` and `item` (its balloon number on the
+drawing), and its `parts_list` note says how the drawing's parts list is
+laid out. Hardware on the drawing that is not
 in `bom.json` is not part of the answer; two ids may have identical
 geometry, and either may then go in either place.
 

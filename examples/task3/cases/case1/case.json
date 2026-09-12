@@ -31,7 +31,7 @@
   "family": "minifix_cam_housing",
   "tier": "hard",
   "variant": 0,
-  "geometry": "benchcad-2 main, commit 5d47436 (an earlier change merged 2026-09-10)",
+  "geometry": "benchcad-2 main, commit 5d47436 (PR #224 merged 2026-09-10)",
   "views": {
    "tool": "tools/render_views.py",
    "seed": 4190542303
@@ -46,5 +46,5 @@
  "redaction": {
   "status": "unknown"
  },
- "notes": "Catalogue row 0, hard-tier defaults. One of the three variants shown in the task 3 figure on the 2.0 preview page. Geometry from benchcad-2 main, commit 5d47436 (an earlier change merged 2026-09-10)."
+ "notes": "Catalogue row 0, hard-tier defaults. One of the three variants shown in the task 3 figure on the 2.0 preview page. Geometry from benchcad-2 main, commit 5d47436 (PR #224 merged 2026-09-10)."
 }

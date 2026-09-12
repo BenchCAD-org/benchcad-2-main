@@ -1,5 +1,5 @@
-# The four-view reference renderer, vendored from the upstream harness
-# (the upstream scoring package/scoring/views.py, the renderer behind Vision2Code in an earlier change):
+# The four-view reference renderer, vendored from BenchCAD-main
+# (benchcad_core/scoring/views.py, the renderer behind Vision2Code in an earlier change):
 # four cameras at the corners of a regular tetrahedron, parallel projection,
 # a normalised mesh, a 2x2 composite.
 #
@@ -22,8 +22,8 @@
 # envs/common/views.py); the model is told in the prompt that three views are
 # slightly off their nominal directions, and no renderer is supplied in the
 # sandbox. To carry that, `_render_one_view` also takes an explicit `view_up`
-# and a list of styled `actors` (the T4 parts sheet draws several parts in one
-# scene), and the mesh loader is split into a raw and a normalising half. The
+# and a list of styled `actors` (the T4 per-part sheets draw several parts in
+# one scene), and the mesh loader is split into a raw and a normalising half. The
 # pipeline itself -- tessellation, normalisation, cameras, projection,
 # PARALLEL_SCALE, edge overlay, composite -- is upstream's, and the classic
 # single-mesh call with the nominal cameras renders byte-identically to it.
@@ -161,8 +161,8 @@ def style(color_rgb01, *, opacity: float = 1.0, edge_rgb01=None, edge_width: flo
     although upstream asks the property for near-black -- the composite and
     the part metric's pixel term both depend on that look, so it stays. An
     explicit edge colour switches the scalar colouring off and is honoured
-    (the T4 parts sheet: dark edges on teal, dark red on the highlight, faint
-    grey on the ghosts -- envs/common/views.py)."""
+    (the T4 per-part sheets: dark edges on teal, dark red on the highlight,
+    faint grey on the ghosts -- envs/common/views.py)."""
     return {"color": tuple(color_rgb01), "opacity": float(opacity),
             "edge_color": None if edge_rgb01 is None else tuple(edge_rgb01),
             "edge_width": float(edge_width), "ambient": float(ambient), "diffuse": float(diffuse),
@@ -240,7 +240,7 @@ def _render_one_view(verts, tris, front, color_rgb01=TEAL_STYLE["color"], img_si
     The classic call draws one opaque mesh, (verts, tris) in `color_rgb01`.
     `actors` draws several meshes in one scene instead: a list of
     (verts, tris, style) with `style` from `style()`, all in one normalised
-    frame, so the z-buffer resolves occlusion between them (the T4 parts
+    frame, so the z-buffer resolves occlusion between them (a T4 in-assembly
     sheet: one part solid red, the rest translucent grey). With `actors` the
     positional mesh arguments are ignored (pass None).
 

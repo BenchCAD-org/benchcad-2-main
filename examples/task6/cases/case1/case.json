@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "the ECAD source repository",
+  "repo": "benchcad-ecad-tasks",
   "split": "example"
  },
  "input": [

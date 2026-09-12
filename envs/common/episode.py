@@ -261,7 +261,7 @@ def tools_help(case_dir: Path) -> str:
         # the calls that write it come first; export() stays for the model's
         # own checks. use_part copies input/step_files/<part_id>.step, and a
         # task with given = nothing_3d (T4) has no such directory:
-        # advertising it there is exactly the defect closed for
+        # advertising it there is exactly the defect change 15 closed for
         # render/views.
         lines += ["  tools.py     export_part(geometry_or_step_path, part_id)",
                   "                                 -> submission/parts/<part_id>.step (one part TYPE)"]

@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "benchcad-2",
+  "repo": "cad-agent-envs",
   "split": "example"
  },
  "input": [
@@ -268,7 +268,29 @@
   }
  ],
  "parts_list": {
-  "mapping": "item_number",
-  "note": "The STEP FILE column identifies each supplied part; item numbers are assembly balloons."
+  "mapping": "declared",
+  "table": {
+   "1": "part_05",
+   "2": "part_07",
+   "3": "part_01",
+   "4": "part_02",
+   "5": "part_03",
+   "6": "part_11",
+   "7": "part_10",
+   "8": "part_12",
+   "9": "part_20",
+   "10": "part_15",
+   "11": "part_14",
+   "12": "part_16",
+   "13": "part_08",
+   "14": "part_13",
+   "15": "part_18",
+   "16": "part_04",
+   "17": "part_17",
+   "18": "part_06",
+   "19": "part_19",
+   "20": "part_09"
+  },
+  "note": "Item numbers are the sheet's balloons; the STEP FILE column names the supplied part for each item. The table is checked against the sheet's parts list by the validator."
  }
 }

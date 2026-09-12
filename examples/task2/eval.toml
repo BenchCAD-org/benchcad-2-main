@@ -92,6 +92,7 @@ score_key = "score"
 orientation = "free"    # free: the 24 proper rotations are searched (a drawing fixes no world frame). pinned: the given pose (the views fix it)
 pose_mode = "iou24_aligned"    # how part_v1 poses the candidate for surf_f1 / pix_fg
 avg_part_types = "all"    # avg_part averages over every part type of the case
+scale = "fixed"    # the parts are supplied as 3-D at true size, so the scale IS given: both sides are normalised by the reference's longest edge and a size error is charged
 diagnostics = ["iou", "hit", "avg_part", "asm_v1"]    # reported beside the headline in every record; never the score
 command = "uv run python tools/verify_case.py examples/<taskN>/cases/<id> <your submission/ directory, or a single .step for the old layout>"
 expected_scores = "cases/<id>/expected.json"

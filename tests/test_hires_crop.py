@@ -143,5 +143,7 @@ def test_staged_bom_carries_the_parts_list_mapping(tmp_path):
     wd = tmp_path / "wd"
     Sandbox(case, wd)
     staged = json.loads((wd / "bom.json").read_text())
-    want = json.loads((case / "case.json").read_text())["parts_list"]["note"]
-    assert staged["parts_list"] == want
+    pl = json.loads((case / "case.json").read_text())["parts_list"]
+    assert staged["parts_list"].startswith(pl["note"])
+    # the declared, sheet-validated table becomes each part's `item`
+    assert {it["part_id"]: it["item"] for it in staged["items"]} == {v: int(k) for k, v in pl["table"].items()}

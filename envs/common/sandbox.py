@@ -555,6 +555,22 @@ def _add_bom_items(bom: Path, case_json: Path) -> None:
     except ValueError:
         return
     note = (pl.get("note") or "").strip()
+    table = pl.get("table") or {}
+    if pl.get("mapping") == "declared" and table:
+        # The case's validated item -> part table (checked against the sheet's
+        # own parts list): the balloon number is the one thing the model reads
+        # on the drawing and has to turn into a part id.
+        by_id = {v: int(k) for k, v in table.items() if str(k).isdigit()}
+        for it in m.get("items", []):
+            if it.get("part_id") in by_id:
+                it["item"] = by_id[it["part_id"]]
+        note = (note + " `item` is the part's balloon number on the assembly drawing.").strip()
+    elif pl.get("mapping") == "item_number":
+        for it in m.get("items", []):
+            digits = "".join(ch for ch in it.get("part_id", "") if ch.isdigit())
+            if digits:
+                it["item"] = int(digits)
+        note = (note + " `item` is the part's balloon number on the assembly drawing.").strip()
     if not note:
         return
     m["parts_list"] = note

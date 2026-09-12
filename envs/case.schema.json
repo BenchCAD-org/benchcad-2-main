@@ -56,7 +56,7 @@
       "properties": {
         "repo": {
           "type": "string",
-          "description": "Where the geometry came from (the data pipeline, benchcad-2, the heldout corpus, synthetic)."
+          "description": "Where the geometry came from (the data pipeline, benchcad-2, benchcad-2-heldout, synthetic)."
         },
         "split": {
           "enum": [
@@ -171,7 +171,7 @@
     },
     "parts_list": {
       "type": "object",
-      "description": "T2/T5: how the assembly drawing's parts list maps to part ids .",
+      "description": "T2/T5: how the assembly drawing's parts list maps to part ids.",
       "required": [
         "mapping"
       ],
@@ -197,7 +197,7 @@
     },
     "drawings": {
       "type": "object",
-      "description": "Per input drawing (key = path under input/): what the producing line measured on the source .",
+      "description": "Per input drawing (key = path under input/): what the producing line measured on the source.",
       "additionalProperties": {
         "type": "object",
         "properties": {

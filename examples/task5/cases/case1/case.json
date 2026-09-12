@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "the data pipeline",
+  "repo": "cad_data_pipeline",
   "split": "example"
  },
  "input": [

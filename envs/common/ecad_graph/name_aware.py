@@ -101,7 +101,7 @@ class _AnchoredInner(_Inner):
 
 # The node budget bounds nodes, not wall clock, and the inner solve is the
 # expensive part -- a 44-pin single-equivalence-class IC makes every node a
-# 44x44 assignment. Measured (an earlier report): a 15-component board of identical
+# 44x44 assignment. Measured (an earlier change): a 15-component board of identical
 # unanchored 2-pin passives does not finish in 40 s, and three adversarial
 # submissions ran past 60 s. A grader that a submission can hang is a grader
 # that cannot be run on twenty cases.

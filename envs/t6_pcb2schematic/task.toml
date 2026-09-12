@@ -24,7 +24,7 @@ orientation = "n/a"
 oracle = "tests/fixtures/t6"
 
 [data]
-# Cases come from BenchCAD-org/the ECAD source repository (tasks/pcb2schematic-*) through
+# Cases come from the ECAD source repository (tasks/pcb2schematic-*) through
 # tools/ingest_ecad_case.py; the source bundles and truth-building scripts stay there.
 source_repo = "the ECAD source repository"
 split = "open"

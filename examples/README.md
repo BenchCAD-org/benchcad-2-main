@@ -252,7 +252,7 @@ uv run python tools/make_dev_samples.py --scores-only
 ```
 
 **The oracle-exactness fix has landed**, and these files are its
-re-measurement. `part_v1`'s voxel term is now the upstream harness's true solid
+re-measurement. `part_v1`'s voxel term is now BenchCAD-main's true solid
 voxelisation rather than a Monte-Carlo estimate of it, and `avg_part` decides
 instance identity on analytic invariants (`docs/METRICS.md`, "What the iou term
 replaced, and why"). What moved: T5's oracle and round trip 0.999202 → 1.0,

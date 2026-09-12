@@ -31,7 +31,7 @@ entry = "envs.verifiers.part:score"
 # T3/T4 supply rendered four-view images, so the pose is pinned by the task statement and
 # orientation is ability rather than luck -- no orientation correction is applied.
 orientation = "pinned"
-# Headline metric (docs/METRICS.md, #26): part_v1 = 0.40 iou_norm + 0.35 surf_f1
+# Headline metric (docs/METRICS.md, change 26): part_v1 = 0.40 iou_norm + 0.35 surf_f1
 # + 0.25 pix_fg, every term at the given pose -- pinned means no rotation search
 # and nothing to align, so pose_mode is "lab". The raw 64^3 IoU stays as `iou`.
 metric = "part_v1"
@@ -58,7 +58,7 @@ oracle = "data/t3_part2step/_oracle"
 # ⚠️ **The source corpus must be written down in the task declaration; it must never be
 # inferred from a directory name or a runtime argument.**
 # The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `the heldout corpus` and is **a different set of families**.
+# `benchcad-2-heldout` and is **a different set of families**.
 # Family names overlap between the two (one part family has a copy in each corpus), so
 # the case name alone cannot tell them apart -- and once a held-out case is mixed into a
 # batch of results, the held-out set is contaminated, irreversibly: a question that has

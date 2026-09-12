@@ -1,6 +1,7 @@
 # T1 - part drawing -> part
 
-`drawing.png` is the engineering drawing of one part, in millimetres.
+`drawing.png` is the engineering drawing of one part, in millimetres,
+first-angle projection unless its title block says third-angle.
 `drawing_tile_r<i>c<j>.png` are overlapping pieces of the same sheet (rows
 top to bottom, columns left to right) at a resolution where the lettering
 is legible; a tile that would be blank paper is not written. Read

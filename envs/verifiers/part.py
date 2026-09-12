@@ -3,7 +3,7 @@
 The scoring rule is what task.toml `[verify] metric` declares -- never decided
 here and never read off the task id:
   legacy    the 64^3 voxel IoU only (`iou`)
-  part_v1   0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg (envs/common/part_metric.py, #26).
+  part_v1   0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg (envs/common/part_metric.py, change 26).
             `score` is the headline, in [0, 1]; `iou` stays the raw 64^3 IoU as a
             diagnostic column -- downstream readers of the result records key
             on it and it must not be renamed. A candidate without a solid scores 0.0 (the

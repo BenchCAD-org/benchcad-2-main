@@ -29,7 +29,7 @@ import cadquery as cq  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
-# t6 is pcb2schematic (BenchCAD-org/the ECAD source repository): the fixture is a
+# t6 is pcb2schematic (BenchCAD-org/benchcad-ecad-tasks): the fixture is a
 # three-component graph, and the "views" are one blank render so the input
 # policy is exercised without any board imagery.
 SPECS = {
@@ -85,7 +85,8 @@ def _blank_pdf(path: Path):
 # (envs/common/views.py), at the production sizes. The seed is the one
 # tools/render_views.py picks for the case, so running that tool on a fixture
 # reproduces the same images and the same gt/views.json (boxes and cylinders
-# on white: ~10 KB for the composite, ~150 KB for the T4 parts sheet).
+# on white: ~10 KB for the composite, ~10-20 KB for each of T4's per-part
+# sheets, two per part type under input/parts/).
 
 
 def _views(case: Path, env: str) -> dict:
@@ -167,8 +168,9 @@ def write(task: str, spec: dict):
         # input/step_files/ -- the same directory name in every task that supplies
         # parts. T4 supplies NO 3-D at all: every part type is modelled from the
         # reference views, so every part's canonical geometry is the ANSWER under
-        # gt/parts/ and input/ carries only the two renders and the BOM
-        # (caseformat.INPUT_POLICY rejects a step_files/ entry for t4).
+        # gt/parts/ and input/ carries only the renders (views.png and the
+        # per-part sheets) and the BOM (caseformat.INPUT_POLICY rejects a
+        # step_files/ entry for t4).
         drawing_parts = {"base"} if task == "t5" else set()
         modelled_parts = set(parts) if task == "t4" else set()
         in_dir = case / "input" / STEP_DIR

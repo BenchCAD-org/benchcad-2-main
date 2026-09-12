@@ -72,8 +72,9 @@ renders alone would leave ambiguous), never the general input description.
 One vocabulary for every task. The sheet the model reads is `drawing.pdf`
 (T1's part drawing, T2/T5's assembly drawing); supplied part geometry is
 `step_files/<part_id>.step` (T2 and T5 only); the bill of materials is
-`bom.json`; renders are `views.png` (plus `parts_views.png` for T4); T5's
-per-part sheets are `part_drawings/<part_id>.pdf`. A name is the same wherever
+`bom.json`; renders are `views.png` (plus, for T4, one pair of per-part sheets
+`parts/<part_id>_alone.png` and `parts/<part_id>_in_assembly.png` per part
+type); T5's per-part sheets are `part_drawings/<part_id>.pdf`. A name is the same wherever
 the thing occurs, and the validator accepts no second spelling of any of them.
 
 Which part geometry a task supplies is part of its contract, not a per-case
@@ -98,15 +99,22 @@ reference that have no PDF source.
 | T1 | `drawing.pdf` | – |
 | T2 | `drawing.pdf`, `bom.json`, `step_files/<id>.step` (de-posed) | `instances.json` |
 | T3 | `views.png` | `views.json` |
-| T4 | `views.png`, `parts_views.png`, `bom.json` (no 3-D supplied) | `parts/<id>.step` for every part type, `instances.json`, `views.json` |
+| T4 | `views.png`, `parts/<id>_alone.png` + `parts/<id>_in_assembly.png` for every part type, `bom.json` (no 3-D supplied) | `parts/<id>.step` for every part type, `instances.json`, `views.json` |
 | T5 | `drawing.pdf`, `bom.json`, `part_drawings/<id>.pdf`, `step_files/<id>.step` (de-posed) | `parts/<id>.step` for every drawing part, `instances.json` |
 | T6 | `views/view_{top,bottom}[_obl_{a,b}].png`, `README.md` | `gt_graph.json` instead of `gt.step` (kind `ecad`) |
 
 T3/T4 renders follow one rule: of the four views in `views.png` only the
 top-right one, from direction (1,1,1), is exact; the other three are rendered
 from their nominal tetrahedral directions rotated by a random 3-8 degrees
-(`envs.common.bench_views.perturbation`), and T4's `parts_views.png` uses the
-same four cameras. The draw is a function of a seed and is recorded as
+(`envs.common.bench_views.perturbation`), and T4's per-part sheets use the
+same four cameras: each is a 524x524 2x2 composite laid out like `views.png`,
+`_alone` normalised on the part type's own box (its shape), `_in_assembly`
+at assembly scale with the type solid red and the rest ghosted (its size
+and place). One sheet per part at the size of `views.png` is what the model
+can read; the single 1 + 2n-row strip they replace was 1630 x 4960 px for
+seven types and came through the API's 2576 px long-edge cap at about half
+size, the part ~85 px across in each view. The draw is
+a function of a seed and is recorded as
 `gt/views.json` -- under `gt/`, so it is hashed into the manifest's `gt` list
 and never staged; `input/` carries nothing about the cameras. The seed is
 also in `case.json.generator.views` (`{"tool": "tools/render_views.py",
@@ -162,7 +170,7 @@ and the reference can therefore not disagree.
 
 A submission uses the same ids, in the same two files (see "Submission layout"
 below): `submission/parts/<part_id>.step` and one `instances.json` record per
-placed instance. T2's headline metric `asm_v1` (`docs/METRICS.md`, #24) reads
+placed instance. T2's headline metric `asm_v1` (`docs/METRICS.md`, change 24) reads
 the instance names first to attribute instances to part types and falls back to
 geometry (invariants against the supplied part files) when a submission has no
 usable names -- with the fixed layout the names are generated from the part
@@ -170,7 +178,7 @@ file names, so the fallback is only reached by an old single-STEP submission.
 The legacy scorers (`rubric_asm`, `score_asm`) still pair GT and submission
 instances by geometric cost (a Hungarian assignment); there the names are
 used for reporting and, in the T2 integrity path, as a class constraint.
-Name-first pairing in those paths is #21.
+Name-first pairing in those paths is change 21.
 
 `case.json` lists every part type with a `geometry_class` — a hash of
 pose-free invariants (volume, area, face count, principal moments) at four
@@ -321,9 +329,9 @@ the case as not solvable as posed. Missing on a real T2/T5 case is an error.
 - every listed file exists with the listed hash; nothing under `input/` or `gt/` is unlisted
 - no symlinks inside a case; every `.json/.md/.txt` is UTF-8 and contains no CJK text
 - `input/` holds only what the task's policy allows; PDFs for drawings, PNGs only for T3/T4
-- every PDF under `input/`: no CJK in text, fonts or Info dictionary; outline text only with a passing `provenance/redaction_report.json` 
-- T2/T5: `parts_list.mapping` present and, for `item_number`, every part id's number found in the drawing text 
-- drawings: declared `drawings[<pdf>].symbols` match the literal glyph counts in the drawing text; counts always reported 
+- every PDF under `input/`: no CJK in text, fonts or Info dictionary; outline text only with a passing `provenance/redaction_report.json`
+- T2/T5: `parts_list.mapping` present and, for `item_number`, every part id's number found in the drawing text
+- drawings: declared `drawings[<pdf>].symbols` match the literal glyph counts in the drawing text; counts always reported
 - no file under `input/` is byte-identical to a file under `gt/`
 - assemblies: `instances.json` well-formed, every `part_id` resolves, `T` is rigid,
   `case.json` and `bom.json` quantities equal the instance counts, supplied parts

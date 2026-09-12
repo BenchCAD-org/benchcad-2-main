@@ -26,7 +26,7 @@ kind = "assembly"    # part | assembly | ecad -- selects the verifier
 given = "nothing_3d"    # how much 3-D the model is handed; decides what the score means
 submission = "cadquery_program"
 submission_layout = "a directory: submission/parts/<part_id>.step, one file per part TYPE with the ids of input/bom.json, plus submission/assembly/instances.json ([{part_id, instance_id, transform}], transform a row-major 4x4 in mm from the part file's frame to the assembly frame). The scored assembly is REBUILT from parts x instances, so per-part scoring is by file name and the geometry in the assembly is the geometry in the part files; where the case supplies a part, the submitted file must be it (pose-free invariants within 1e-06 relative) or that type scores 0. submission/assembly/assembly.step is optional and never scored. A single STEP whose children are named <part_id>_i<k> is the old layout: still accepted and scored the same way, marked deprecated in the record"    # what the answer looks like on disk when the program has run
-inputs = ["views.png", "parts_views.png", "bom.json"]
+inputs = ["views.png", "parts/*_alone.png", "parts/*_in_assembly.png", "bom.json"]
 
 [episode]
 # One fenced block per reply, text and images only -- never a provider's own
@@ -92,6 +92,7 @@ score_key = "score"
 orientation = "pinned"    # free: the 24 proper rotations are searched (a drawing fixes no world frame). pinned: the given pose (the views fix it)
 pose_mode = "lab"    # how part_v1 poses the candidate for surf_f1 / pix_fg
 avg_part_types = "all"    # avg_part averages over every part type of the case
+scale = "free"    # no 3-D is supplied, so nothing in the input fixes absolute size: asm_v1 normalises the submission by its OWN longest edge and avg_part inherits that one global factor, so only PROPORTIONS are judged. The legacy iou / hit columns keep the reference anchor and the free figures ride along as iou_scale_free / hit_scale_free
 diagnostics = ["iou", "hit", "avg_part", "asm_v1"]    # reported beside the headline in every record; never the score
 command = "uv run python tools/verify_case.py examples/<taskN>/cases/<id> <your submission/ directory, or a single .step for the old layout>"
 expected_scores = "cases/<id>/expected.json"

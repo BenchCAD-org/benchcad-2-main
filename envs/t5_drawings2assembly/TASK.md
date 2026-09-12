@@ -5,12 +5,12 @@ page); `drawing_tile_r<i>c<j>.png` are overlapping pieces of the same sheet
 (rows top to bottom, columns left to right) at a resolution where the
 lettering is legible; a tile that would be blank paper is not written.
 `part_drawings/part_NN.png` are the drawings of the parts to model, in
-millimetres, each with its tiles beside it; each sheet's title block says
-its projection convention. `step_files/part_NN.step` are the supplied
+millimetres, each with its tiles beside it, first-angle projection unless
+the sheet's title block says third-angle. `step_files/part_NN.step` are the supplied
 parts, each centred on its bounding box and given a random axis-aligned
 90-degree rotation. `bom.json` gives each part's id, `name`, `source`
-(`drawing` or `step`) and `quantity`, and its `parts_list` note says how the
-drawing's parts list maps to the ids. Hardware on the drawing that is not in
+(`drawing` or `step`), `quantity` and `item` (its balloon number on the
+assembly drawing). Hardware on the drawing that is not in
 `bom.json` is not part of the answer.
 
 Model the drawing parts at the drawn size and place every instance of every
