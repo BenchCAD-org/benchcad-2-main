@@ -16,9 +16,9 @@ into the sandbox (tests/test_views.py keeps that true).
 
 The per-part sheets, for every part type of `input/bom.json`:
 
-    input/parts/<part_id>_alone.png         every instance of the type by itself,
-                                            teal, normalised on the type's own box
-                                            so it fills the frame: the SHAPE
+    input/parts/<part_id>_alone.png         ONE instance of the type by itself,
+                                            teal, normalised on its own box so it
+                                            fills the frame: the SHAPE
     input/parts/<part_id>_in_assembly.png   the assembly, this type solid red and
                                             everything else translucent grey, at
                                             assembly scale: the SIZE and the PLACE
@@ -127,9 +127,15 @@ def render_part_sheets(case_dir: Path, perturb: dict, out_dir: Path, *, size: in
     written: dict[str, Path] = {}
     for pid in _part_order(case, inst):
         mine = [i for i in inst if i["part_id"] == pid]
-        alone = normalize_verts([i["verts"] for i in mine])             # the type's own box: fills the frame
+        # ONE instance on its own box, so the part fills the frame whatever
+        # its count: three pinions on their joint box were ~45 px each. The
+        # count is in bom.json and every instance is red in _in_assembly.
+        # The instance is the first by instance_id, so the sheet is stable
+        # across re-renders.
+        one = min(mine, key=lambda i: i["instance_id"])
+        alone = normalize_verts([one["verts"]])
         rel_alone, rel_in = sheet_names([pid])
-        written[rel_alone] = sheet([(v, i["tris"], SHEET_TEAL_STYLE) for v, i in zip(alone, mine)],
+        written[rel_alone] = sheet([(alone[0], one["tris"], SHEET_TEAL_STYLE)],
                                    out_dir / Path(rel_alone).name)
         # ghosts first, the highlight last: opaque actors draw before translucent
         # ones anyway, and this keeps the order stable for byte-identical output

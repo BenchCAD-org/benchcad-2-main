@@ -108,7 +108,7 @@ top-right one, from direction (1,1,1), is exact; the other three are rendered
 from their nominal tetrahedral directions rotated by a random 3-8 degrees
 (`envs.common.bench_views.perturbation`), and T4's per-part sheets use the
 same four cameras: each is a 524x524 2x2 composite laid out like `views.png`,
-`_alone` normalised on the part type's own box (its shape), `_in_assembly`
+`_alone` one instance normalised on its own box (its shape), `_in_assembly`
 at assembly scale with the type solid red and the rest ghosted (its size
 and place). One sheet per part at the size of `views.png` is what the model
 can read; the single 1 + 2n-row strip they replace was 1630 x 4960 px for

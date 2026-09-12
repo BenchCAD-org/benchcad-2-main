@@ -11,7 +11,7 @@ image:
 "approx." means that camera (position and up vector together) is rotated
 3 to 8 degrees about the centre off that direction; the rotation is not given.
 `parts/<part_id>_alone.png` and `parts/<part_id>_in_assembly.png` are 2x2
-sheets with the same four cameras, one pair per part: `_alone` shows every
+sheets with the same four cameras, one pair per part: `_alone` shows one
 instance of the part by itself at the part's own scale (its shape), and
 `_in_assembly` shows the part red inside the ghosted assembly at assembly
 scale (its relative size and position). `bom.json` names each
