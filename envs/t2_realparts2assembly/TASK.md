@@ -8,9 +8,9 @@ top to bottom, columns left to right) at a resolution where the lettering
 is legible; a tile that would be blank paper is not written. `bom.json`
 gives each part's id, `quantity` and `item` (its balloon number on the
 drawing), and its `parts_list` note says how the drawing's parts list is
-laid out. Hardware on the drawing that is not
-in `bom.json` is not part of the answer; two ids may have identical
-geometry, and either may then go in either place.
+laid out. Fasteners shown on the drawing but absent from `bom.json` are
+not part of the answer. Two part ids can be the same geometry under two
+names; then either file may take either place.
 
 Place every instance. Submit with the tools: `tools.use_part(part_id)` for
 every part, then `tools.submit_assembly(instances)`, where each instance is

@@ -41,6 +41,7 @@ def export(result, step_path="my_part.step"):
     out = Path(step_path)
     if isinstance(result, (dict, list)):                          # T6: a graph, not geometry
         import json as _json
+        _check_graph(result)
         out = out.with_name("pred_graph.json") if out.suffix != ".json" else out
         out.write_text(_json.dumps(result, indent=1) + "\\n")
         return out
@@ -238,6 +239,53 @@ def finish(ns=None):
 def _compound(shapes):
     import cadquery as cq
     return cq.Compound.makeCompound([x if isinstance(x, cq.Shape) else x.val() for x in shapes])
+
+
+def _check_graph(g):
+    """The scorer rejects a graph that is not well formed -- a terminal or a
+    net an incidence names but nothing declares, a terminal on two nets --
+    and a rejected graph scores 0 with no partial credit. Say so here, with
+    the offending names, before it is written. Measured: a 38-component,
+    130-incidence graph scored 0.0 for one incidence naming a net that was
+    not in `nets`."""
+    problems = []
+    if not isinstance(g, dict):
+        raise ValueError("the graph must be a dict with components, nets and incidences")
+    comps, nets, inc = g.get("components"), g.get("nets"), g.get("incidences")
+    if not isinstance(comps, list) or not isinstance(nets, list) or not isinstance(inc, list):
+        raise ValueError("the graph needs three lists: components, nets, incidences")
+    terminals, seen_c = set(), set()
+    for c in comps:
+        if not isinstance(c, dict) or not c.get("id") or not isinstance(c.get("terminals"), list):
+            problems.append(f"component without id/terminals: {c!r}"[:120]); continue
+        if c["id"] in seen_c:
+            problems.append(f"duplicate component id {c['id']!r}")
+        seen_c.add(c["id"])
+        for t in c["terminals"]:
+            if t in terminals:
+                problems.append(f"duplicate terminal {t!r}")
+            terminals.add(t)
+    net_ids = [n.get("id") if isinstance(n, dict) else None for n in nets]
+    if any(i is None for i in net_ids):
+        problems.append("a net without an id")
+    if len(set(net_ids)) != len(net_ids):
+        problems.append("duplicate net ids")
+    net_set = set(net_ids)
+    on_net = {}
+    for pair in inc:
+        if not (isinstance(pair, (list, tuple)) and len(pair) == 2):
+            problems.append(f"incidence is not [terminal, net]: {pair!r}"[:120]); continue
+        t, n = pair
+        if t not in terminals:
+            problems.append(f"incidence names terminal {t!r}, which no component declares")
+        if n not in net_set:
+            problems.append(f"incidence names net {n!r}, which is not in nets")
+        if t in on_net and on_net[t] != n:
+            problems.append(f"terminal {t!r} is on two nets ({on_net[t]!r} and {n!r})")
+        on_net[t] = n
+    if problems:
+        shown = problems[:12] + ([f"... and {len(problems) - 12} more"] if len(problems) > 12 else [])
+        raise ValueError("graph not submitted -- the scorer would reject it (score 0):\\n  " + "\\n  ".join(shown))
 
 
 def crop(image_path, box, out_png=None):

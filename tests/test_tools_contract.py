@@ -66,3 +66,21 @@ def test_seed_image_labels_are_paths_in_the_working_directory():
     assert [image_label(p, l) for p, l in labelled(out[0])] == ["[part_drawings/part_03.png]", "[drawing.png]"]
     # an observation image (no label given) is named by its file
     assert image_label("/log/round_03/crop_drawing.png") == "[crop_drawing.png]"
+
+
+def test_export_refuses_a_malformed_graph_with_the_reason(tmp_path):
+    r = _run(tmp_path, '''
+        import tools
+        good = {"schema": "pcb2schematic/1.0",
+                "components": [{"id": "C1", "type": "capacitor", "terminals": ["C1.1", "C1.2"]}],
+                "nets": [{"id": "GND"}, {"id": "N1"}],
+                "incidences": [["C1.1", "N1"], ["C1.2", "GND"]]}
+        print(tools.export(good, "pred_graph.json").name)
+        bad = dict(good, incidences=[["C1.1", "POWER.1"], ["C1.2", "GND"], ["C1.2", "N1"], ["R9.1", "GND"]])
+        try:
+            tools.export(bad, "pred_graph.json"); print("accepted")
+        except ValueError as e:
+            msg = str(e); print("refused:", "POWER.1" in msg, "two nets" in msg, "R9.1" in msg)
+    ''')
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split("\n")[:2] == ["pred_graph.json", "refused: True True True"]

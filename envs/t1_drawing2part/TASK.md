@@ -9,5 +9,4 @@ dimensions there, measure on `drawing.png`. A multi-page drawing adds
 `drawing_p2.png` and its tiles.
 
 Write a CadQuery program that builds the part and leaves the solid in
-`result`, axis-aligned to the drawing's views. Which world axis is which
-does not matter, a mirror image does; position and scale are free.
+`result`, axis-aligned to the drawing's views.

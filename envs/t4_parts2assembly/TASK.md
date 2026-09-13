@@ -22,7 +22,5 @@ Model every part and place every instance. Submit with the tools:
 `tools.submit_assembly(instances)`, where each instance is
 `{"part_id": ..., "transform": T}` and `T` is a rigid 4x4 (a proper
 rotation, no mirror or scale, plus a translation) mapping your part's frame
-to the assembly frame. World XYZ of the assembly is world XYZ in the views;
-the global position and the overall scale are free -- the views fix
-proportions, not millimetres, so build in any unit but keep every part to
-the same one.
+to the assembly frame. World XYZ in your code is world XYZ in the views;
+position and scale are free (any unit, the same for every part).
