@@ -178,12 +178,13 @@ def test_equivalence_holds_for_a_wrong_answer_too(task, tmp_path):
 
 @pytest.mark.parametrize("task", ASSEMBLY_TASKS)
 def test_pairing_is_by_name_not_by_geometry(task, tmp_path):
-    """Names come from the part FILE names, so both scorers take their
-    name-first path; nothing is attributed by invariants."""
+    """Names come from the part FILE names, so asm_v1 takes its name-first
+    path and avg_part scores the part files themselves; nothing is attributed
+    by invariants."""
     case = FX / task / "case1"
     r = score_case(case, _oracle(case, tmp_path))
     assert r["asm_v1_detail"]["pairing"] == "names"
-    assert r["avg_part_detail"]["pairing"] == "names"
+    assert r["avg_part_detail"]["pairing"] == "files"
     assert not r["avg_part_detail"]["extra_children"]
 
 
@@ -356,14 +357,11 @@ def test_an_extra_part_type_earns_nothing_and_inflates_the_union(tmp_path):
     codes = {f["code"]: f["id"] for f in r["submission"]["failures"]}
     assert codes.get("extra_part_type") == "widget"
     assert r["asm_v1"] < 1.0                        # it is in the union it should not be in
-    assert r["avg_part_detail"]["extra_children"] == ["widget_i1"]
-    # It is not a reference type, so it earns nothing of its own -- and it is
-    # charged a second time through the alignment: avg_part reuses the
-    # bounding-box centre asm_v1 computed over the WHOLE submission, which a
-    # body outside the assembly's extent moves, so the honest instances are
-    # compared in a shifted frame. Pre-existing avg_part behaviour, recorded
-    # here rather than asserted away (see the PR's follow-up note).
-    assert r["avg_part"] < 1.0
+    assert r["avg_part_detail"]["extra_children"] == ["widget"]      # the part FILE, not an instance
+    # It is not a reference type, so it earns nothing of its own; the honest
+    # parts are still the reference parts, so avg_part (part file against
+    # reference part) stays 1.0 -- the extra body is charged once, by asm_v1.
+    assert r["avg_part"] == 1.0
 
 
 def test_a_part_file_that_is_never_placed_is_a_named_zero(tmp_path):

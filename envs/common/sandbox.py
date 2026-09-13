@@ -368,6 +368,7 @@ def _mount_works(work_dir: Path) -> bool:
             ["docker", "run", "--rm", "--name", probe,
              "--network", "none", "--read-only",
              "--security-opt", "no-new-privileges",
+             "-e", "PYTHONDONTWRITEBYTECODE=1",
              "-v", f"{work_dir}:/work", "-w", "/work",
              DOCKER_IMAGE, "python", "-c",
              "import pathlib,sys;"
@@ -679,6 +680,7 @@ class Sandbox:
                    "--security-opt", "no-new-privileges",
                    "--env-file", "/dev/null",
                    "-e", "PYTHONPATH=/work",     # this is what makes the sitecustomize shim take effect
+                   "-e", "PYTHONDONTWRITEBYTECODE=1",   # no __pycache__ litter in the model's directory
                    # ezdxf (imported by cadquery) wants a cache directory under
                    # $HOME, which is read-only here, and says so on stderr every
                    # round. platformdirs honours XDG_CACHE_HOME; /tmp is the tmpfs.

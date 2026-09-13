@@ -270,23 +270,22 @@ def test_dumb_block_scores_below_one(task, tmp_path):
 # ── 3. T4: one misplaced / one replaced ────────────────────────────────────
 def test_t4_one_misplaced_instance(t4_case, tmp_path):
     """Correct parts, the bracket moved 20 mm along x (clear of everything).
-    Its part_v1 in the reference frame is ~0 (samples outside the reference
-    cube, surface points beyond tau, render shifted), so avg_part is about
-    (n-1)/n over the four types; asm_v1 drops (the bracket clips to 0 and
-    pulls the others down); the product is below both factors."""
+    The bracket is still the right part, so avg_part stays 1.0 for every type
+    -- each part is compared on its own box, and where it sits is not this
+    factor's question. asm_v1 is where the misplacement is charged: the
+    bracket clips to 0 and pulls the others down, and the product equals
+    asm_v1 exactly, so the error is paid once, not twice."""
     sub = _save_named(tmp_path / "moved.step",
                       _placed(_parts(), PLACES, override={"bracket": [(20, -12, 7)]}))
     r = score_case(t4_case, sub)
     ap = r["avg_part_detail"]
     by = {row["part_id"]: row for row in ap["per_type"]}
-    assert by["bracket"]["mean"] < 0.1, by["bracket"]
-    for pid in ("base", "post", "pin"):
+    for pid in ("base", "post", "bracket", "pin"):
         assert by[pid]["mean"] == 1.0, by[pid]
-    assert abs(r["avg_part"] - (3 + by["bracket"]["mean"]) / 4) <= 1e-6
-    assert 0.7 <= r["avg_part"] <= 0.8
+    assert r["avg_part"] == 1.0
     v1 = {row["part_id"]: row for row in r["asm_v1_detail"]["per_type"]}
     assert v1["bracket"]["score"] == 0.0 and 0.0 < r["asm_v1"] < 1.0
-    assert r["score"] == r["part_x_asm_v1"] < min(r["avg_part"], r["asm_v1"])
+    assert r["score"] == r["part_x_asm_v1"] == r["asm_v1"]
     _assert_range(r)
 
 
