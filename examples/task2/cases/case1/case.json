@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "this repository",
+  "repo": "cad-agent-envs",
   "split": "example"
  },
  "input": [
@@ -279,7 +279,30 @@
   }
  ],
  "parts_list": {
-  "mapping": "item_number",
-  "note": "The STEP FILE column identifies each supplied part; item numbers are assembly balloons."
+  "mapping": "declared",
+  "table": {
+   "1": "part_16",
+   "2": "part_17",
+   "3": "part_18",
+   "4": "part_19",
+   "5": "part_04",
+   "6": "part_08",
+   "7": "part_09",
+   "8": "part_10",
+   "9": "part_11",
+   "10": "part_12",
+   "11": "part_13",
+   "12": "part_14",
+   "13": "part_15",
+   "14": "part_03",
+   "15": "part_01",
+   "16": "part_05",
+   "17": "part_06",
+   "18": "part_07",
+   "19": "part_02",
+   "20": "part_21",
+   "21": "part_20"
+  },
+  "note": "Item numbers are the sheet's balloons; the STEP FILE column names the supplied part for each item. The table is checked against the sheet's parts list by the validator."
  }
 }

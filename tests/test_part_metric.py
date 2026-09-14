@@ -1,4 +1,4 @@
-"""part_v1 (envs/common/part_metric.py, #26): the ruler for T1 / T3.
+"""part_v1 (envs/common/part_metric.py, change 26): the ruler for T1 / T3.
 
 Same discipline as test_examples.py -- synthetic geometry in git
 (tests/fixtures/t1/case1, tests/fixtures/t3/case1), no benchmark data -- plus
@@ -11,10 +11,10 @@ loudly, when they are not).
   quarter turn  T1 (free, iou24_aligned) repairs it on all three terms; T3 (pinned) does not
   background    the silhouette samples the frame corner, never assumes white
   coverage      a term that fails drops out with the weights renormalised
-  fixtures      lab mode reproduces the reference implementation's SURFACE and PIXEL numbers;
+  fixtures      lab mode reproduces BenchCAD-Lab's SURFACE and PIXEL numbers;
                 the iou half of those rows is parked until the lab republishes
-                its fixture set against the true voxelisation 
-  noise         the sampler the iou term used until #40 disagrees with itself,
+                its fixture set against the true voxelisation
+  noise         the sampler the iou term used until change 40 disagrees with itself,
                 the voxeliser that replaced it does not -- both on record
 """
 from __future__ import annotations
@@ -327,9 +327,9 @@ def test_unreadable_submission_scores_zero(tmp_path):
 
 
 def test_normalise_iou_is_mains_norm_iou():
-    """the upstream harness's `norm_iou`: clip((x - x0) / (1 - x0), 0, 1), with
+    """BenchCAD-main's `norm_iou`: clip((x - x0) / (1 - x0), 0, 1), with
     x0 >= 1 -- a reference that IS its own primitive -- answered explicitly
-    (1.0 only for a perfect x). #40 dropped the variant that carried 1e-3 on
+    (1.0 only for a perfect x). change 40 dropped the variant that carried 1e-3 on
     both sides of the quotient to dodge the same division by zero: it moved
     every other score by 1e-3 / (1 - x0) and was not what the other repo
     compares against."""
@@ -347,12 +347,12 @@ def test_normalise_iou_is_mains_norm_iou():
 # --------------------------------------------------------------- fixtures ----
 @pytest.mark.parametrize("row", FIXTURE_ROWS or [pytest.param(
     None, marks=pytest.mark.skip(reason=f"lab fixtures not on disk at {FIXTURES} "
-                                        "(six cand.step / ref.step / expected.json rows from the reference implementation)"))],
+                                        "(six cand.step / ref.step / expected.json rows from BenchCAD-Lab)"))],
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
 def test_lab_fixtures(row):
-    """Lab mode reproduces the reference implementation's SURFACE and PIXEL numbers: surf_f1
+    """Lab mode reproduces BenchCAD-Lab's SURFACE and PIXEL numbers: surf_f1
     (every tau) and pix_fg within 0.01, at the delivered pose, which is what
-    the lab computed (pose_mode "lab"). #40 did not touch either term.
+    the lab computed (pose_mode "lab"). change 40 did not touch either term.
 
     The iou half of these rows is in `test_lab_fixtures_iou_pending_republish`:
     the lab's recorded values were produced by the sampled estimator and the
@@ -374,7 +374,7 @@ def test_lab_fixtures(row):
                                           + 0.25 * exp["pix_fg"], abs=0.02)
 
 
-# The movement of the iou half, measured on this machine when #40 replaced the
+# The movement of the iou half, measured on this machine when change 40 replaced the
 # sampled estimator with the true voxelisation. Recorded here, not asserted:
 # the lab's recorded values describe the estimator, and the lab is republishing
 # the set. Left as an xfail so that the day the republished fixtures land the
@@ -390,8 +390,8 @@ LAB_IOU_MOVED = {                    # row: (lab/old iou24, new iou24, lab/old n
 
 
 @pytest.mark.xfail(strict=True, reason="the recorded iou values are the sampled estimator's; "
-                                       "the reference implementation is republishing the fixture set against the "
-                                       "true voxelisation . LAB_IOU_MOVED records the movement.")
+                                       "BenchCAD-Lab is republishing the fixture set against the "
+                                       "true voxelisation. LAB_IOU_MOVED records the movement.")
 @pytest.mark.parametrize("row", FIXTURE_ROWS or [pytest.param(
     None, marks=pytest.mark.skip(reason="lab fixtures not on disk"))],
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
@@ -409,7 +409,7 @@ def test_lab_fixtures_iou_pending_republish(row):
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
 def test_lab_fixtures_iou_is_what_we_recorded(row):
     """What CAN be pinned without the lab: the new iou numbers are the ones
-    #40 measured and wrote down, to 1e-3, so a later change to the term shows
+    change 40 measured and wrote down, to 1e-3, so a later change to the term shows
     up here even while the lab's own values are in flight."""
     want = LAB_IOU_MOVED.get(row.name)
     if want is None:
@@ -429,8 +429,8 @@ def test_reexported_oracle_floor_is_on_record(case, tmp_path):
     three terms are stable under re-tessellation. The iou term used not to be
     -- with the sampled estimator a re-export of a thick part measured 0.998
     on the synthetic block and 0.62 on the former examples/t3/example1 (48k
-    triangles, re-ordered on export; a real case, out of git since #31) -- and
-    since #40 it is: the bound below is kept as it was, and it now passes with
+    triangles, re-ordered on export; a real case, out of git since change 31) -- and
+    since change 40 it is: the bound below is kept as it was, and it now passes with
     a wide margin (the assertion after it is the one with teeth)."""
     orientation, pose_mode = _declared(case)
     re = _export(_gt_shape(case), tmp_path / "reexport.step")
@@ -438,12 +438,12 @@ def test_reexported_oracle_floor_is_on_record(case, tmp_path):
     r = pm.score_part_v1(case / "gt/gt.step", re, orientation=orientation, pose_mode=pose_mode)
     assert r["surf_f1"] >= 0.999 and r["pix_fg"] >= 0.999, r
     assert r["iou_term"] >= 0.5 and r["score"] >= 0.8, r
-    assert r["iou_term"] >= 0.999 and r["score"] >= 0.999, r        # since #40
+    assert r["iou_term"] >= 0.999 and r["score"] >= 0.999, r        # since change 40
 
 
 # ------------------------------------------------------------------ noise ----
 def test_iou_sampling_noise_is_on_record():
-    """WHY the iou term stopped sampling , kept as a measurement where a
+    """WHY the iou term stopped sampling, kept as a measurement where a
     change will be noticed: the estimator it used -- 20,000 area-weighted
     surface samples marked into the grid and filled along Z -- disagrees with
     ITSELF on one mesh at two seeds by more than 0.1, while 200,000 samples

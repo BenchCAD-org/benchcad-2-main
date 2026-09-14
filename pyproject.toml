@@ -1,5 +1,5 @@
 [project]
-name = "this repository"
+name = "benchcad-2"
 version = "0.1.0"
 description = "Six CAD reconstruction agent environments: drawing to part, rendered views to part, parts plus drawing to assembly, parts plus views to assembly, drawings to assembly, and PCB renders to schematic netlist"
 requires-python = ">=3.11"

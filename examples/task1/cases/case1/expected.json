@@ -1,10 +1,10 @@
 {
  "case": "case1",
- "computed_on": "c5f98e5f1c8618b30b335e496dc783b8269f5f5a",
+ "computed_on": "47aceb803dc17a79008401bbdab38d7f1c5e4f2b",
  "computed_with": {
   "metric": "part_v1",
   "verifier": "envs.verifiers.part:score",
-  "worktree_dirty": true
+  "worktree_dirty": false
  },
  "env": "t1_drawing2part",
  "kind": "part",
@@ -21,7 +21,7 @@
   "columns": {
    "iou": 1.0
   },
-  "seconds": 45.4,
+  "seconds": 17.0,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {
@@ -30,7 +30,7 @@
   "columns": {
    "iou": 1.0
   },
-  "seconds": 30.3,
+  "seconds": 14.9,
   "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
  },
  "baseline": {
@@ -39,7 +39,7 @@
   "columns": {
    "iou": 0.147766
   },
-  "seconds": 16.1,
+  "seconds": 11.0,
   "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
  },
  "gt_sha256": "c7072e835bca45fa40e4e04eec7bd73ea3ae279b7c318a564f7bcbd4182caadf",

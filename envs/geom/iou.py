@@ -15,7 +15,7 @@ def grid_iou(a, b) -> float:
 def iou_step_vs_step(a: Path, b: Path, res: int, origin: str = "world") -> float:
     """Voxel IoU of two STEP files: `a` the reference, `b` the submission.
 
-    Two different facts must not be the same number . The reference and
+    Two different facts must not be the same number. The reference and
     the voxelizer must work: a failure there RAISES -- a broken environment
     (missing trimesh/scipy, an unreadable reference) is not a score. A
     failure on the submission is the submission's fault and scores 0.0, with

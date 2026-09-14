@@ -57,7 +57,7 @@ _CODEISH = re.compile(
 # never reaches `text` at all (measured: 50-token completions, four consecutive
 # retries the same way, none of 10 cases able to start). With it, they emit a
 # well-formed fenced block immediately.
-SYSTEM = """You are solving a CAD reconstruction task in a working directory.
+SYSTEM = """You are solving a CAD task in a working directory.
 
 {task_brief}
 
@@ -65,27 +65,36 @@ Files in your directory:
 {file_list}
 {tools_help}
 
-cadquery {cq_version}, numpy and PIL are available. There is no network.
-Stick to APIs that exist in that version -- a call that does not exist
-raises at submit time and scores zero.
+Python 3.12 with cadquery {cq_version} (cadquery-ocp 7.9), numpy, scipy, PIL,
+trimesh, vtk, matplotlib and ezdxf. There is no network. Stick to APIs that
+exist in those versions -- a call that does not exist raises.
 
-```python    runs in the directory; you get back stdout, stderr, and any
-             images it wrote
-```submit    your final answer -- a complete program that leaves the answer
-             in a variable named `result`, or writes it with the submission
-             tools. It ends the episode and is what gets scored.
+```python    runs in the directory as a fresh process (nothing from earlier
+             rounds is in memory; files are); you get back the last 4000
+             characters of stdout and of stderr, and up to three PNGs it
+             wrote at the top level of the directory (the first three by
+             name; every image is sent with its file name). 600 s, 2 GB,
+             1 CPU per round.
+```submit    your final answer: {submit_what}
+             It ends the episode and is what gets scored.
 
-The directory persists across rounds. You have {rounds} rounds.
+The directory persists across rounds. You have {rounds} rounds. You can
+render your own geometry to check it (vtk, matplotlib) -- no renderer is
+supplied. An image file can be larger than the copy you were shown (a
+drawing sheet is 4200 px wide): read its size with PIL and crop by the
+file's pixel coordinates, not by what you see.
 
 Your entire reply must be exactly one fenced block and nothing else -- no
 narration, no plan, no prose before or after it. Start the reply with ```.
 """
 
 
-# Cap on prompt images. Round-one images are resent throughout the episode
-# (they hit the prompt cache), so this number is the per-call image tax. T5
-# needs 7; leave 2x headroom.
-SEED_IMG_CAP = 12
+# Every input image is a seed image; there is no cap. A case's inputs are the
+# task, and a model that has to fetch the 13th drawing itself is being handed
+# a different task from one that gets all twelve. What bounds a request's
+# image count is the harness (harness.run: observation images older than a
+# few rounds leave the request, and a request over the API's many-image
+# threshold is downscaled to its per-image limit), not the case.
 _HIDDEN = ("tools.py", "_render.py", "sitecustomize.py")
 # The standard-parts library has 269 files; listing them individually drowns
 # the file listing. Report the directory and a count instead.
@@ -205,8 +214,15 @@ def _artifact(box: Sandbox):
     sub = box.dir / SUB_ROOT
     if is_ready(sub):
         return sub
-    f = box.dir / "final.step"
-    return f if f.exists() else None
+    # Then the exported STEP; then the graph an ECAD answer writes
+    # (tools.export turns a dict into pred_graph.json). The T6 oracle used to
+    # come back as "failed to execute" and burn its retry because only
+    # final.step was looked for here.
+    for name in ("final.step", "pred_graph.json"):
+        f = box.dir / name
+        if f.exists():
+            return f
+    return None
 
 
 def _observation(rnd, res, max_rounds):
@@ -216,16 +232,18 @@ def _observation(rnd, res, max_rounds):
     if res.stderr.strip():
         parts.append(f"stderr:\n{_clip(res.stderr)}")
     if res.images:
-        parts.append("images produced: " + ", ".join(p.name for p in res.images))
+        shown = res.images[:3]
+        parts.append("images produced: " + ", ".join(p.name for p in res.images)
+                     + (f" (the first {len(shown)} are attached)" if len(res.images) > len(shown) else ""))
     if rnd >= max_rounds - 1:
         parts.append("This is your final observation -- reply now with your "
-                     "```submit answer, using the best geometry you have.")
+                     "```submit answer, using the best you have.")
     return "\n\n".join(parts), list(res.images[:3])
 
 
 def tools_help(case_dir: Path) -> str:
     """The tools block of the prompt, generated from the task declaration so it
-    never advertises a callable the sandbox does not stage . Only a task
+    never advertises a callable the sandbox does not stage. Only a task
     with renderer = "shared" gets render/views; every task gets export and crop;
     an assembly task gets the three calls that write the fixed submission
     layout (envs.common.submission), because on those tasks the answer is that
@@ -234,24 +252,77 @@ def tools_help(case_dir: Path) -> str:
     task = load_task(Path(case_dir)) or {}
     renderer = (task.get("tools") or {}).get("renderer", "none")
     kind = (task.get("task") or {}).get("kind", "part")
+    given = (task.get("task") or {}).get("given", "")
     export_line = ("export(result, path) -> pred_graph.json (result is the graph dict)" if kind == "ecad"
                    else "export(result, path) -> STEP")
-    lines = [f"  tools.py     {export_line}"]
+    lines = []
     if kind == "assembly":
-        lines += ["               export_part(geometry_or_step_path, part_id)",
-                  "                                 -> submission/parts/<part_id>.step (one part TYPE)",
-                  "               use_part(part_id) -> copies the supplied step_files/<part_id>.step",
-                  "                                    into submission/parts/, unchanged",
-                  "               submit_assembly(instances[, assembly])",
+        # The answer on an assembly task is the submission/ directory, so
+        # the calls that write it come first; export() stays for the model's
+        # own checks. use_part copies input/step_files/<part_id>.step, and a
+        # task with given = nothing_3d (T4) has no such directory:
+        # advertising it there is exactly the defect change 15 closed for
+        # render/views.
+        lines += ["  tools.py     export_part(geometry_or_step_path, part_id)",
+                  "                                 -> submission/parts/<part_id>.step (one part TYPE)"]
+        if given != "nothing_3d":
+            lines += ["               use_part(part_id) -> copies the supplied step_files/<part_id>.step",
+                      "                                    into submission/parts/, unchanged"]
+        lines += ["               submit_assembly(instances[, assembly])",
                   "                                 -> submission/assembly/instances.json;",
-                  "                                    instances = [{part_id, instance_id, transform}]"]
+                  "                                    instances = [{part_id, transform[, instance_id]}]",
+                  "               export(geometry, path) -> STEP, for your own checks; not the answer"]
+    else:
+        lines += [f"  tools.py     {export_line}"]
     if renderer == "shared":
         lines += ["               render(step, png) -> isometric hidden-line view",
                   "               views(step, png)  -> four-orientation 2x2 sheet, same renderer",
                   "                                    and angles as the reference image"]
-    lines.append("               crop(png, box)    -> writes the cropped region as a new PNG and\n"
-                 "                                    returns its PATH (not an image); you see it next round")
+    has_sheets = any(str(i).endswith(".pdf") or "drawing" in str(i)
+                     for i in (task.get("task") or {}).get("inputs", []))
+    lines.append("               crop(png, (left, top, right, bottom)[, out_png])\n"
+                 "                                 -> writes the box (file pixel coordinates) as a new\n"
+                 "                                    PNG and returns its PATH (not an image); you see\n"
+                 "                                    it next round; default name crop_<stem>.png")
+    if has_sheets:
+        lines.append("                                    (a drawing sheet is cut from a 2x-resolution master)")
     return "\n".join(lines)
+
+
+# What ```submit has to contain, per task kind: one wording for the system
+# prompt and one for the three reminders (no block / rounds finished / the
+# program crashed). An assembly answer is the submission/ directory the
+# program writes with the tools; a `result` there is optional. The reminders
+# used to demand "the final solid in `result`" on every task, which on an
+# assembly task told the model to do something the scorer does not read.
+SUBMIT_WHAT = {
+    "part": "a complete CadQuery program that leaves the solid in `result`.",
+    "assembly": "a complete program that writes submission/ with the tools\n"
+                "             (export_part / use_part, then submit_assembly).",
+    "assembly_nothing_3d": "a complete program that writes submission/ with the tools\n"
+                           "             (export_part for every part, then submit_assembly).",
+    "ecad": "a complete program that leaves the graph dict in `result`.",
+}
+ANSWER = {
+    "part": "the complete CadQuery program for your best geometry, leaving the solid in `result`",
+    "assembly": "the complete program that writes submission/ with the tools for your best assembly",
+    "ecad": "the complete program that leaves your best graph dict in `result`",
+}
+
+
+def _kind(case_dir: Path) -> str:
+    from envs.common.score_case import load_task
+    task = load_task(Path(case_dir)) or {}
+    return (task.get("task") or {}).get("kind", "part")
+
+
+def _submit_what(case_dir: Path) -> str:
+    from envs.common.score_case import load_task
+    t = (load_task(Path(case_dir)) or {}).get("task") or {}
+    kind = t.get("kind", "part")
+    if kind == "assembly" and t.get("given") == "nothing_3d":
+        return SUBMIT_WHAT["assembly_nothing_3d"]
+    return SUBMIT_WHAT[kind]
 
 
 def _task_brief(case_dir: Path) -> str:
@@ -301,22 +372,22 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     box = Sandbox(case_dir, work_dir)
     task_brief = _task_brief(case_dir)
     files = _listing(box.dir)
+    kind = _kind(case_dir)
     system = SYSTEM.format(task_brief=task_brief.strip(),
                            file_list="\n".join(f"  {n}" for n in files),
                            tools_help=tools_help(case_dir),
+                           submit_what=_submit_what(case_dir),
                            rounds=max_rounds, cq_version=SANDBOX_CQ_VERSION)
+    answer = ANSWER[kind]
     # Images must be collected RECURSIVELY. T5's part drawings live in the
     # part_drawings/ subdirectory; the original scan was top-level only, so the
     # "all part drawings -> assembly" task never actually showed the model any
     # part drawing -- it received one assembly drawing and the reference views,
     # and the premise of the task disappeared. Subdirectory images are part of
     # the prompt too.
-    # Cap raised from 4 to SEED_IMG_CAP: a single T5 case needs 2+5=7 images,
-    # so a cap of 4 amounted to dropping the part drawings.
     seed_imgs = _seed_images(box.dir)
-    if len(seed_imgs) > SEED_IMG_CAP:
-        seed_imgs = seed_imgs[:SEED_IMG_CAP]
-    turns = [{"role": "user", "text": "Begin.", "images": seed_imgs}]
+    turns = [{"role": "user", "text": "Begin.", "images": seed_imgs,
+              "image_labels": [p.relative_to(box.dir).as_posix() for p in seed_imgs]}]
 
     rounds, submitted = [], ""
     dead = 0
@@ -375,8 +446,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                           "outside it:\n\n"
                           "```python\n# code to run in the working directory\n```\n\n"
                           "or, when you are ready to answer:\n\n"
-                          "```submit\n# complete CadQuery program, final geometry "
-                          "in `result`\n```\n\n"
+                          f"```submit\n# {answer}\n```\n\n"
                           "Start your reply with the opening ``` -- no preamble, "
                           "no analysis before it.",
                           "images": []})
@@ -388,9 +458,8 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
 
     if not submitted and rounds:
         turns.append({"role": "user", "text":
-                      "Rounds are finished. Reply with only a ```submit block: "
-                      "the complete program for your best geometry, leaving the "
-                      "final solid in `result`.", "images": []})
+                      f"Rounds are finished. Reply with only a ```submit block: {answer}.",
+                      "images": []})
         py_f, sub = _blocks(call_fn(system, turns))
         # The forced-submit round must ALSO accept ```python. It originally
         # accepted only ```submit, so when a model returned its complete

@@ -15,7 +15,7 @@ submission = "cadquery_program"
 #                         the drawings
 #   all_parts_step        all part geometry is handed over; only placement is tested
 given = "nothing_3d"
-inputs = ["drawing.pdf", "drawing.png"]
+inputs = ["drawing.png", "drawing_tile_*.png"]
 
 [tools]
 # The reference renderer is NOT injected. bench_views.py is the module that
@@ -41,7 +41,7 @@ entry = "envs.verifiers.part:score"
 # is a measurable ability -- but failure is a cliff (geometry entirely correct, merely
 # rotated about an axis -> 0.99 drops to 0.02). Report both columns, never just one.
 orientation = "free"
-# Headline metric (docs/METRICS.md, #26): part_v1 = 0.40 iou24_norm + 0.35 surf_f1
+# Headline metric (docs/METRICS.md, change 26): part_v1 = 0.40 iou24_norm + 0.35 surf_f1
 # + 0.25 pix_fg. The raw 64^3 IoU stays in the record as `iou`, a diagnostic.
 # Omitting the field means "legacy" (raw IoU is the headline).
 metric = "part_v1"
@@ -56,7 +56,7 @@ oracle = "data/t1_drawing2part/_oracle"
 # ⚠️ **The source corpus must be written down in the task declaration; it must never be
 # inferred from a directory name or a runtime argument.**
 # The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `the heldout corpus` and is **a different set of families**.
+# `benchcad-2-heldout` and is **a different set of families**.
 # Family names overlap between the two (one part family has a copy in each corpus), so
 # the case name alone cannot tell them apart -- and once a held-out case is mixed into a
 # batch of results, the held-out set is contaminated, irreversibly: a question that has

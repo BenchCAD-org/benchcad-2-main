@@ -1,8 +1,8 @@
 {
  "_what": "Scores the ECAD repo's own tasks/pcb2schematic/grading/verify.py recorded for four submissions against this fixture's gt/gt_graph.json. tools/t6_alignment.py re-scores the same graphs with this repo's verifier (envs/verifiers/ecad.py) and requires the same numbers; tests/test_t6_ecad_alignment.py runs it on every clone.",
  "_why": "Both repos vendor Metric V2 from the same source and nothing enforces that they stay the same. This fixture carries no board, so it is the one alignment set that can live in git; the real boards' sets sit beside their cases under envs/t6_pcb2schematic/cases/<id>/alignment/ (gitignored) and run only where that data tree is present.",
- "_how": "Each submission is the fixture's own reference graph with one thing wrong (see `mutation`), written by hand. Scored on 2026-09-11 with verify.py from BenchCAD-org/the ECAD source repository @ 1e4613d, whose lib/ecad_graph was byte-identical to envs/common/ecad_graph on that day.",
- "source_repo": "BenchCAD-org/the ECAD source repository",
+ "_how": "Each submission is the fixture's own reference graph with one thing wrong (see `mutation`), written by hand. Scored on 2026-09-11 with verify.py from BenchCAD-org/benchcad-ecad-tasks @ 1e4613d, whose lib/ecad_graph was byte-identical to envs/common/ecad_graph on that day.",
+ "source_repo": "BenchCAD-org/benchcad-ecad-tasks",
  "source_commit": "1e4613debc635a76767ad02cfe4b7637fd6dc994",
  "case": "case1",
  "source_task": null,

@@ -1,6 +1,6 @@
 {
  "case": "case1",
- "computed_on": "c139365a970f2fcc2716b74ab210df08bc5359a6",
+ "computed_on": "47aceb803dc17a79008401bbdab38d7f1c5e4f2b",
  "computed_with": {
   "metric": "part_x_asm_v1",
   "verifier": "envs.verifiers.assembly:score",
@@ -12,6 +12,7 @@
  "score_key": "score",
  "orientation": "free",
  "pose_mode": "iou24_aligned",
+ "scale": "fixed",
  "verifier": "envs.verifiers.assembly:score",
  "metric_reference": "docs/METRICS.md",
  "tolerance": 0.0001,
@@ -24,7 +25,7 @@
    "avg_part": 1.0,
    "asm_v1": 1.0
   },
-  "seconds": 85.3,
+  "seconds": 39.5,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {
@@ -36,7 +37,7 @@
    "avg_part": 1.0,
    "asm_v1": 1.0
   },
-  "seconds": 92.2,
+  "seconds": 36.6,
   "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
  },
  "baseline": {
@@ -48,7 +49,7 @@
    "avg_part": 0.0,
    "asm_v1": 0.0
   },
-  "seconds": 33.8,
+  "seconds": 11.8,
   "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. It is 0.0 because a single block places no part types at all, and asm_v1 scores per part type. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
  },
  "gt_sha256": "f3bd8f4d63f1f4b6d6d210708908d4377fa4494a71510a4896c7375042d0b019",

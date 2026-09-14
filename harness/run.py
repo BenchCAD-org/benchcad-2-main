@@ -138,8 +138,71 @@ def resolve_key(prefix: str, prov: Provider) -> str | None:
         f"runner without any provider key.")
 
 
-def _b64(path: Path) -> str:
+# The API's many-image rule, measured 2026-09-12 on claude-opus-5: a request
+# with MORE than MANY_IMAGES image blocks (every turn's images count, seeds
+# included) rejects any image with a dimension over MANY_IMAGE_PX with
+# "exceed max allowed size for many-image requests"; 20 images of 2100 px
+# pass, 21 do not, 21 of 2000 px pass. Every drawing sheet is 4200 px, so a
+# long run with crops would fail every call from about round 7 on -- and
+# drive()'s fallback would then drop ALL images, blinding the model for the
+# rest of the episode. Two bounds keep a request under the rule:
+#   KEEP_OBS_ROUNDS   observation images (crops, renders) older than this
+#                     many rounds leave the request; their text stays, and
+#                     the model can always crop again
+#   MANY_IMAGE_PX     when a request still carries more than MANY_IMAGES
+#                     images, each is downscaled to this on its longest side
+#                     before encoding -- the API would have downscaled a
+#                     4200 px sheet to ~2300 px anyway, so the cost is small
+MANY_IMAGES = 20
+MANY_IMAGE_PX = 2000
+KEEP_OBS_ROUNDS = 4
+
+
+def _b64(path: Path, max_px: int | None = None) -> str:
+    """The PNG at `path`, base64; downscaled in memory to `max_px` on its
+    longest side when it is larger than that (never written back)."""
+    if max_px:
+        import io
+        from PIL import Image
+        with Image.open(path) as im:
+            if max(im.size) > max_px:
+                k = max_px / max(im.size)
+                buf = io.BytesIO()
+                im.convert("RGB").resize((max(1, round(im.width * k)), max(1, round(im.height * k))),
+                                         Image.LANCZOS).save(buf, "PNG")
+                return base64.standard_b64encode(buf.getvalue()).decode()
     return base64.standard_b64encode(Path(path).read_bytes()).decode()
+
+
+def image_label(path, label: str | None = None) -> str:
+    """The text that precedes every image: its path in the working directory
+    when the episode says it (`image_labels`, round one), else its file
+    name. A round-one turn can carry twenty images; without a label the
+    model cannot tell drawing_tile_r2c3.png from r3c4, and the prompt names
+    files, not pictures. A label is the path the model must pass to
+    tools.crop, so part_drawings/part_03.png, not part_03.png."""
+    return f"[{label or Path(path).name}]"
+
+
+def labelled(t: dict):
+    """(path, label) per image of a turn."""
+    imgs = t.get("images") or []
+    labels = t.get("image_labels") or [None] * len(imgs)
+    return list(zip(imgs, labels))
+
+
+def bound_images(turns: list) -> tuple[list, int | None]:
+    """The turns as a request should carry them: the first user turn keeps its
+    images (the case's inputs), the last KEEP_OBS_ROUNDS user turns keep
+    theirs, every other turn's images are dropped (text kept). Returns the
+    trimmed turns and the per-image pixel limit to encode with (None when the
+    request is under the many-image threshold)."""
+    user_idx = [i for i, t in enumerate(turns) if t.get("role") != "assistant"]
+    keep = set(user_idx[:1]) | set(user_idx[-KEEP_OBS_ROUNDS:])
+    out = [dict(t, images=(t.get("images") or []) if i in keep else [],
+                image_labels=(t.get("image_labels") or []) if i in keep else []) for i, t in enumerate(turns)]
+    n = sum(len(t["images"]) for t in out)
+    return out, (MANY_IMAGE_PX if n > MANY_IMAGES else None)
 
 
 # A wedged stream is silent, so the clock that matters is httpx's PER-READ
@@ -288,12 +351,14 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     client = anthropic.Anthropic()
 
     def send(system: str, turns: list, drop_images: bool) -> str:
+        turns, max_px = bound_images(turns)
         messages = []
         for t in turns:
             content = [{"type": "text", "text": t["text"]}] if t.get("text") else []
-            for img in ([] if drop_images else (t.get("images") or [])):
+            for img, lab in ([] if drop_images else labelled(t)):
+                content.append({"type": "text", "text": image_label(img, lab)})
                 content.append({"type": "image", "source": {
-                    "type": "base64", "media_type": "image/png", "data": _b64(img)}})
+                    "type": "base64", "media_type": "image/png", "data": _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": content or [{"type": "text", "text": "(empty)"}]})
         # Stream: max_tokens this large trips the SDK's HTTP timeout otherwise.
@@ -411,12 +476,14 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
     room = {"on": False}
 
     def send(system: str, turns: list, drop_images: bool) -> str:
+        turns, max_px = bound_images(turns)
         messages: list = [{"role": "system", "content": system}]
         for t in turns:
             parts = [{"type": "text", "text": t["text"]}] if t.get("text") else []
-            for img in ([] if drop_images else (t.get("images") or [])):
+            for img, lab in ([] if drop_images else labelled(t)):
+                parts.append({"type": "text", "text": image_label(img, lab)})
                 parts.append({"type": "image_url", "image_url": {
-                    "url": "data:image/png;base64," + _b64(img)}})
+                    "url": "data:image/png;base64," + _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": parts or [{"type": "text", "text": "(empty)"}]})
         budget = max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens
@@ -526,12 +593,14 @@ def gemini_call(model: str, max_tokens: int, usage: list, api_key: str):
                               timeout=CALL_TIMEOUT_S * 1000))
 
     def send(system: str, turns: list, drop_images: bool) -> str:
+        turns, max_px = bound_images(turns)
         contents = []
         for t in turns:
             parts = [types.Part.from_text(text=t["text"])] if t.get("text") else []
-            for img in ([] if drop_images else (t.get("images") or [])):
+            for img, lab in ([] if drop_images else labelled(t)):
+                parts.append(types.Part.from_text(text=image_label(img, lab)))
                 parts.append(types.Part.from_bytes(
-                    data=Path(img).read_bytes(), mime_type="image/png"))
+                    data=base64.b64decode(_b64(img, max_px)), mime_type="image/png"))
             if not parts:
                 parts = [types.Part.from_text(text="(empty)")]
             # Gemini names the assistant role "model", not "assistant".

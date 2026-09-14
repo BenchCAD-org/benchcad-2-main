@@ -178,12 +178,13 @@ def test_equivalence_holds_for_a_wrong_answer_too(task, tmp_path):
 
 @pytest.mark.parametrize("task", ASSEMBLY_TASKS)
 def test_pairing_is_by_name_not_by_geometry(task, tmp_path):
-    """Names come from the part FILE names, so both scorers take their
-    name-first path; nothing is attributed by invariants."""
+    """Names come from the part FILE names, so asm_v1 takes its name-first
+    path and avg_part scores the part files themselves; nothing is attributed
+    by invariants."""
     case = FX / task / "case1"
     r = score_case(case, _oracle(case, tmp_path))
     assert r["asm_v1_detail"]["pairing"] == "names"
-    assert r["avg_part_detail"]["pairing"] == "names"
+    assert r["avg_part_detail"]["pairing"] == "files"
     assert not r["avg_part_detail"]["extra_children"]
 
 
@@ -278,6 +279,31 @@ def test_t4_models_every_part_and_none_is_identity_checked(tmp_path):
     assert r["score"] < 1.0
 
 
+def test_t5_a_zeroed_supplied_type_stays_out_of_the_mean(tmp_path):
+    """T5 averages the MODELLED part types only (`avg_part_types = "modelled"`,
+    docs/METRICS.md), so the format verdict on a SUPPLIED part -- a purchased
+    type rebuilt instead of used -- is recorded on its type row and on its
+    instances and does not enter avg_part: zeroing must not pull an
+    out-of-scope type back into the mean
+    (`envs.verifiers.assembly._zero_types` re-averages through
+    `avg_part.scope_mean`, not over every row). What charges the wrong shape is
+    asm_v1, which measures the union that was actually submitted.
+
+    The contrast is `test_a_rebuilt_part_scores_zero_for_its_type_with_the_reason`
+    on T2, where the same verdict does move avg_part because T2 averages over
+    every type."""
+    case = FX / "t5/case1"
+    pid = _supplied_id(case)
+    sub = _oracle(case, tmp_path)
+    _not_the_part(resolve_part(case, pid), sub / S.PARTS / f"{pid}.step")
+    r = score_case(case, sub)
+    assert pid in r["submission"]["zeroed_types"]
+    by = {row["part_id"]: row for row in r["avg_part_detail"]["per_type"]}
+    assert by[pid]["mean"] == 0.0 and by[pid]["zeroed"] and by[pid]["in_mean"] is False
+    assert r["avg_part"] == 1.0, [(k, v["mean"], v["in_mean"]) for k, v in by.items()]
+    assert r["asm_v1"] < 1.0 and abs(r["score"] - r["avg_part"] * r["asm_v1"]) <= EXACT
+
+
 def test_t5_models_its_drawing_parts_and_they_are_not_identity_checked(tmp_path):
     """T5's made-to-print part is the answer, so it is scored as a part rather
     than compared with a supplied file (there is none); its purchased parts are
@@ -331,14 +357,11 @@ def test_an_extra_part_type_earns_nothing_and_inflates_the_union(tmp_path):
     codes = {f["code"]: f["id"] for f in r["submission"]["failures"]}
     assert codes.get("extra_part_type") == "widget"
     assert r["asm_v1"] < 1.0                        # it is in the union it should not be in
-    assert r["avg_part_detail"]["extra_children"] == ["widget_i1"]
-    # It is not a reference type, so it earns nothing of its own -- and it is
-    # charged a second time through the alignment: avg_part reuses the
-    # bounding-box centre asm_v1 computed over the WHOLE submission, which a
-    # body outside the assembly's extent moves, so the honest instances are
-    # compared in a shifted frame. Pre-existing avg_part behaviour, recorded
-    # here rather than asserted away (see the PR's follow-up note).
-    assert r["avg_part"] < 1.0
+    assert r["avg_part_detail"]["extra_children"] == ["widget"]      # the part FILE, not an instance
+    # It is not a reference type, so it earns nothing of its own; the honest
+    # parts are still the reference parts, so avg_part (part file against
+    # reference part) stays 1.0 -- the extra body is charged once, by asm_v1.
+    assert r["avg_part"] == 1.0
 
 
 def test_a_part_file_that_is_never_placed_is_a_named_zero(tmp_path):

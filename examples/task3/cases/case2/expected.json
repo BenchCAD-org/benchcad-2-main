@@ -1,6 +1,6 @@
 {
  "case": "case2",
- "computed_on": "c782ab134a5fee570917e2329fefee6dc480869b",
+ "computed_on": "47aceb803dc17a79008401bbdab38d7f1c5e4f2b",
  "computed_with": {
   "metric": "part_v1",
   "verifier": "envs.verifiers.part:score",
@@ -21,7 +21,7 @@
   "columns": {
    "iou": 1.0
   },
-  "seconds": 40.1,
+  "seconds": 36.7,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {
@@ -30,7 +30,7 @@
   "columns": {
    "iou": 1.0
   },
-  "seconds": 55.7,
+  "seconds": 49.7,
   "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds. It is 0.0005 BELOW the oracle: writing the reference through a STEP export and reading it back changes the tessellation, and this metric's voxel term is sensitive to that. An end-to-end mock/oracle run reproduces this value, not `oracle.score`"
  },
  "baseline": {
@@ -39,7 +39,7 @@
   "columns": {
    "iou": 0.279871
   },
-  "seconds": 25.9,
+  "seconds": 24.7,
   "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
  },
  "gt_sha256": "4fe53d80a52fd16ca7e5352956fb51344a09a2369b9cd9fe5b64792d3cd8fc65",

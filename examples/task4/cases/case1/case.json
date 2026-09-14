@@ -16,12 +16,64 @@
    "sha256": "b13e7a2accc89598acad3ae1137ab2cc81b2b7ecab6e3cbb1bb373f4de4be2eb"
   },
   {
-   "path": "input/parts_views.png",
-   "sha256": "d9a01229aef5cd71e4b0d74edd28cdebe086f3d5b65729aa1176e84c3de7ecd2"
+   "path": "input/parts/body_alone.png",
+   "sha256": "538f744013b8203ff42e27731a40ac6417cfed4f8ddf3ba3ad4d1d0d901d70d1"
+  },
+  {
+   "path": "input/parts/body_in_assembly.png",
+   "sha256": "a7bc24ef5e5378ab603274abdbe96ee482402bd1077fb7fae9a3766e3e0b142c"
+  },
+  {
+   "path": "input/parts/cover_alone.png",
+   "sha256": "9178c6afbd5359c167b8af9bde28f4a50c2c00577d7aff1488cb71d75596501b"
+  },
+  {
+   "path": "input/parts/cover_in_assembly.png",
+   "sha256": "8220410ad1f4b7d34f59d5e12ed54a5221cbb202aed49135a1dc05f6a33a6794"
+  },
+  {
+   "path": "input/parts/jaw_1_alone.png",
+   "sha256": "d126e8593f304599cc845ac7d6dfe972143689d62a35b5f93ef3f51aceda0287"
+  },
+  {
+   "path": "input/parts/jaw_1_in_assembly.png",
+   "sha256": "7840dad5fd89cebf6690d049f74d385659bb1af68efa362763f5b4bebbb204f0"
+  },
+  {
+   "path": "input/parts/jaw_2_alone.png",
+   "sha256": "6f65e0c95eecb4d5b47712f5bbb4db6fded3198c37b75c0bbe1588530140e416"
+  },
+  {
+   "path": "input/parts/jaw_2_in_assembly.png",
+   "sha256": "15f6530574c4cabab86aaf10afbc4aa7cd581bde681f29df86e2a03d6782310d"
+  },
+  {
+   "path": "input/parts/jaw_3_alone.png",
+   "sha256": "3284ab00493647da4be2794b16eb3e6b7199fbf905a3e5cef63ef1d71d38e727"
+  },
+  {
+   "path": "input/parts/jaw_3_in_assembly.png",
+   "sha256": "2e67b3d3018a6ad8def92fc111a178600b0b5873a7e7bc6711a74b55fe3c0845"
+  },
+  {
+   "path": "input/parts/pinion_alone.png",
+   "sha256": "06598e5dd421b3e4b9aa85c6fe50e493e0a93bff4f8ee53930811866c33f4053"
+  },
+  {
+   "path": "input/parts/pinion_in_assembly.png",
+   "sha256": "0711152fc4d1492ce966b73c83e952a8b2ca7b95eca669fc3b7a74e5070616e6"
+  },
+  {
+   "path": "input/parts/scroll_plate_alone.png",
+   "sha256": "122a8f50517aaed0aa6841a716100ab41c1e62399530a5f4d422e80d107f44d0"
+  },
+  {
+   "path": "input/parts/scroll_plate_in_assembly.png",
+   "sha256": "e981fb46e0c5f46f8b4dbfd1aa2e16ba153ecf31cd5d92af662bddc69f41931c"
   },
   {
    "path": "input/views.png",
-   "sha256": "c1e5ea548db3456f1b23a8a652d6c63e5c73b508e603e2f02055b708b0cfb06f"
+   "sha256": "4294a2201372469c9088541aaf2f3fe110656ccf08fc9a57141f36f96da86e31"
   }
  ],
  "gt": [

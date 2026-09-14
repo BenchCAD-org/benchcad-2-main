@@ -1,5 +1,5 @@
-"""The drawing gate on PDFs , the parts-list mapping , symbol
-conservation  and vendor identifiers in model-facing JSON.
+"""The drawing gate on PDFs, the parts-list mapping, symbol
+conservation and vendor identifiers in model-facing JSON.
 
 Drawings whose text is outlines cannot be read here; they are admitted only
 with the delivery gate's report (provenance/redaction_report.json, status pass)."""

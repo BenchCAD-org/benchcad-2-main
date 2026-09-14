@@ -41,13 +41,18 @@ def export(result, step_path="my_part.step"):
     out = Path(step_path)
     if isinstance(result, (dict, list)):                          # T6: a graph, not geometry
         import json as _json
+        _check_graph(result)
         out = out.with_name("pred_graph.json") if out.suffix != ".json" else out
         out.write_text(_json.dumps(result, indent=1) + "\\n")
         return out
     if hasattr(result, "save") and hasattr(result, "children"):   # cq.Assembly
         result.save(str(out), "STEP")
         return out
-    obj = result.val() if hasattr(result, "val") else result
+    if hasattr(result, "vals"):                                    # a Workplane: EVERY object on
+        vals = result.vals()                                        # its stack, not the first only
+        obj = vals[0] if len(vals) == 1 else _compound(vals)
+    else:
+        obj = result
     # Check for actual solids before exporting. A surface or unclosed shell
     # still writes a few-hundred-KB STEP, but scoring needs solids -- without
     # them the score is silently 0 and the model never learns it submitted a
@@ -143,6 +148,22 @@ def _rows4x4(t):
     return out
 
 
+def _rigid_or_raise(T, part_id, k):
+    """A transform must be a proper rotation plus a translation. The scorer
+    drops any instance whose transform is not, so say so here, now."""
+    R = [row[:3] for row in T[:3]]
+    det = (R[0][0] * (R[1][1] * R[2][2] - R[1][2] * R[2][1])
+           - R[0][1] * (R[1][0] * R[2][2] - R[1][2] * R[2][0])
+           + R[0][2] * (R[1][0] * R[2][1] - R[1][1] * R[2][0]))
+    dots = [sum(R[i][m] * R[j][m] for m in range(3)) for i in range(3) for j in range(3)]
+    ortho = max(abs(d - (1.0 if i == j else 0.0)) for (i, j), d in zip([(i, j) for i in range(3) for j in range(3)], dots))
+    if ortho > 1e-3 or abs(det - 1.0) > 1e-3 or [round(x, 6) for x in T[3]] != [0, 0, 0, 1]:
+        raise ValueError(
+            f"instance {k} ({part_id}): transform is not rigid (det = {det:.4f}, "
+            f"orthonormality error {ortho:.2e}). T must be a proper rotation (det +1, no "
+            f"mirror, no scale) plus a translation; scale or mirror the geometry itself, not T.")
+
+
 def submit_assembly(instances, assembly=None):
     """Write submission/assembly/instances.json: where every instance goes.
 
@@ -163,6 +184,7 @@ def submit_assembly(instances, assembly=None):
                          "{part_id, transform} dicts")
     recs, n = [], {}
     for k, rec in enumerate(instances, 1):
+        _rigid_or_raise(_rows4x4(rec["transform"]), rec.get("part_id"), k)
         if not isinstance(rec, dict):
             raise ValueError(f"instance {k} is {type(rec).__name__}, not a dict "
                              f"with part_id and transform")
@@ -214,11 +236,78 @@ def finish(ns=None):
 
 
 
+def _compound(shapes):
+    import cadquery as cq
+    return cq.Compound.makeCompound([x if isinstance(x, cq.Shape) else x.val() for x in shapes])
+
+
+def _check_graph(g):
+    """The scorer rejects a graph that is not well formed -- a terminal or a
+    net an incidence names but nothing declares, a terminal on two nets --
+    and a rejected graph scores 0 with no partial credit. Say so here, with
+    the offending names, before it is written. Measured: a 38-component,
+    130-incidence graph scored 0.0 for one incidence naming a net that was
+    not in `nets`."""
+    problems = []
+    if not isinstance(g, dict):
+        raise ValueError("the graph must be a dict with components, nets and incidences")
+    comps, nets, inc = g.get("components"), g.get("nets"), g.get("incidences")
+    if not isinstance(comps, list) or not isinstance(nets, list) or not isinstance(inc, list):
+        raise ValueError("the graph needs three lists: components, nets, incidences")
+    terminals, seen_c = set(), set()
+    for c in comps:
+        if not isinstance(c, dict) or not c.get("id") or not isinstance(c.get("terminals"), list):
+            problems.append(f"component without id/terminals: {c!r}"[:120]); continue
+        if c["id"] in seen_c:
+            problems.append(f"duplicate component id {c['id']!r}")
+        seen_c.add(c["id"])
+        for t in c["terminals"]:
+            if t in terminals:
+                problems.append(f"duplicate terminal {t!r}")
+            terminals.add(t)
+    net_ids = [n.get("id") if isinstance(n, dict) else None for n in nets]
+    if any(i is None for i in net_ids):
+        problems.append("a net without an id")
+    if len(set(net_ids)) != len(net_ids):
+        problems.append("duplicate net ids")
+    net_set = set(net_ids)
+    on_net = {}
+    for pair in inc:
+        if not (isinstance(pair, (list, tuple)) and len(pair) == 2):
+            problems.append(f"incidence is not [terminal, net]: {pair!r}"[:120]); continue
+        t, n = pair
+        if t not in terminals:
+            problems.append(f"incidence names terminal {t!r}, which no component declares")
+        if n not in net_set:
+            problems.append(f"incidence names net {n!r}, which is not in nets")
+        if t in on_net and on_net[t] != n:
+            problems.append(f"terminal {t!r} is on two nets ({on_net[t]!r} and {n!r})")
+        on_net[t] = n
+    if problems:
+        shown = problems[:12] + ([f"... and {len(problems) - 12} more"] if len(problems) > 12 else [])
+        raise ValueError("graph not submitted -- the scorer would reject it (score 0):\\n  " + "\\n  ".join(shown))
+
+
 def crop(image_path, box, out_png=None):
-    """Crop box=(left, top, right, bottom) out of image_path."""
+    """Write the region box=(left, top, right, bottom) of image_path as a new
+    PNG and return its path. The box is in the FILE's pixel coordinates (a
+    drawing sheet is 4200 px wide; the copy you were shown is smaller) --
+    read the size with PIL first. out_png names the output; the default
+    crop_<stem>.png is overwritten by the next crop of the same image. A
+    drawing sheet has a sharper master behind it (the same page at twice the
+    resolution), and the crop is taken from that."""
     from PIL import Image
-    out = Path(out_png or ("crop_" + Path(image_path).stem + ".png"))
-    Image.open(image_path).crop(tuple(box)).save(out)
+    src = Path(image_path)
+    out = Path(out_png or ("crop_" + src.stem + ".png"))
+    l, t, r, b = (float(x) for x in box)
+    hires = src.parent / "_hires" / src.name
+    if hires.exists():
+        with Image.open(src) as shown, Image.open(hires) as master:
+            k = master.width / shown.width
+            master.crop((round(l * k), round(t * k), round(r * k), round(b * k))).save(out)
+        return out
+    with Image.open(src) as im:
+        im.crop((round(l), round(t), round(r), round(b))).save(out)
     return out
 '''
 
@@ -327,6 +416,7 @@ def _mount_works(work_dir: Path) -> bool:
             ["docker", "run", "--rm", "--name", probe,
              "--network", "none", "--read-only",
              "--security-opt", "no-new-privileges",
+             "-e", "PYTHONDONTWRITEBYTECODE=1",
              "-v", f"{work_dir}:/work", "-w", "/work",
              DOCKER_IMAGE, "python", "-c",
              "import pathlib,sys;"
@@ -351,6 +441,36 @@ def _docker_ready() -> bool:
 
 STAGE_DPI = 300          # matches the 300 dpi sheets the legacy cases shipped
 STAGE_MAX_EDGE = 4200    # px; an A0 sheet at 300 dpi is ~14000 px, far beyond what a prompt can carry
+# The master `tools.crop` cuts from: the same page at twice the resolution,
+# under _hires/ beside the sheet (an underscore name: never listed in the
+# prompt, never a seed image). The sheet itself is what the model is shown
+# and what it measures on -- the API downscales a 4200 px sheet to ~2300 px
+# before the model sees it, so 2-3 mm lettering on a crowded assembly
+# drawing lands at 13-20 px and is at the edge of legibility; a crop of the
+# 300 dpi sheet cannot add detail, a crop of the 600 dpi master can.
+HIRES_DIR = "_hires"
+HIRES_FACTOR = 2
+# Tiles: the sheet cut into a grid of overlapping pieces, each rendered from
+# the PDF at whatever resolution puts its long edge at TILE_PX -- the size
+# the API keeps (2576 px long edge, 4784 28-px patches on the
+# high-resolution tier), so a tile is shown as rendered, not downscaled. The
+# grid is chosen from the sheet's physical size: one column or row per
+# TILE_MM of paper, so an A3 sheet is 2 x 1 tiles at ~250 dpi, an A2 2 x 2
+# at ~180 dpi and an A0 4 x 3 at ~180 dpi, and 5 mm lettering is 35+ px
+# in every tile whatever the sheet. The whole sheet (STAGE_DPI, capped at
+# STAGE_MAX_EDGE, then downscaled by the API) is for layout and for the
+# pixel coordinates tools.crop takes; the tiles are for reading.
+TILE_MM = 300.0
+TILE_PX = 2300
+TILE_OVERLAP = 0.10
+# A tile that is blank paper is not written. Blank means: inside the sheet's
+# BLANK_MARGIN_MM border (the frame, the zone letters, the title block's
+# edge all live there) fewer than BLANK_INK of the tile's pixels are ink.
+# Measured on an A0 assembly sheet: the one empty tile is 0.00 %, the
+# sparsest tile with content 0.61 %. The grid names (r<i>c<j>) still say
+# where the remaining tiles sit, so a gap is a blank, not a missing file.
+BLANK_MARGIN_MM = 15.0
+BLANK_INK = 0.003
 
 
 def _rasterize_pdf(pdf: Path) -> list[Path]:
@@ -361,6 +481,7 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
     except ImportError:                                  # pragma: no cover
         import fitz                                      # type: ignore
     out = []
+    hires_dir = pdf.parent / HIRES_DIR
     with fitz.open(str(pdf)) as doc:
         for i, page in enumerate(doc):
             rect = page.rect
@@ -368,11 +489,141 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
             long_edge = max(rect.width, rect.height) * scale
             if long_edge > STAGE_MAX_EDGE:
                 scale *= STAGE_MAX_EDGE / long_edge
-            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
             dst = pdf.with_suffix(".png") if i == 0 else pdf.with_name(f"{pdf.stem}_p{i + 1}.png")
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            pix.save(str(dst))
+            pix_w, pix_h = pix.width, pix.height
+            out.append(dst)
+            out += _tiles(page, dst, fitz)
+            # The master for tools.crop: exactly HIRES_FACTOR x the sheet, so
+            # a box in the sheet's pixels maps onto it by one factor.
+            hires_dir.mkdir(exist_ok=True)
+            k = scale * HIRES_FACTOR
+            master = page.get_pixmap(matrix=fitz.Matrix(k, k), alpha=False)
+            want = (pix_w * HIRES_FACTOR, pix_h * HIRES_FACTOR)
+            if (master.width, master.height) != want:
+                # pymupdf rounds each render's size on its own, so the master
+                # can come out a pixel short of 2x; the factor has to be exact
+                # for crop's box mapping, so trim/pad by resampling (<= 1 px).
+                from PIL import Image
+                im = Image.frombytes("RGB", (master.width, master.height), master.samples)
+                im.resize(want, Image.LANCZOS).save(str(hires_dir / dst.name))
+            else:
+                master.save(str(hires_dir / dst.name))
+    return out
+
+
+def tile_grid(width_mm: float, height_mm: float) -> tuple[int, int]:
+    """(rows, cols) for a sheet of this size: one per TILE_MM of paper."""
+    import math
+    return max(1, math.ceil(height_mm / TILE_MM)), max(1, math.ceil(width_mm / TILE_MM))
+
+
+def _tiles(page, sheet: Path, fitz) -> list[Path]:
+    """<stem>_tile_r<i>c<j>.png (rows top to bottom, columns left to right):
+    overlapping pieces of `page`, each rendered from the PDF so that its
+    long edge is TILE_PX."""
+    rect = page.rect
+    w_mm, h_mm = rect.width / 72 * 25.4, rect.height / 72 * 25.4
+    rows, cols = tile_grid(w_mm, h_mm)
+    if rows * cols == 1:
+        return []
+    cw, ch = rect.width / cols, rect.height / rows
+    ox, oy = cw * TILE_OVERLAP, ch * TILE_OVERLAP
+    out = []
+    for i in range(rows):
+        for j in range(cols):
+            x0 = max(rect.x0, rect.x0 + j * cw - (ox if j else 0))
+            x1 = min(rect.x1, rect.x0 + (j + 1) * cw + (ox if j < cols - 1 else 0))
+            y0 = max(rect.y0, rect.y0 + i * ch - (oy if i else 0))
+            y1 = min(rect.y1, rect.y0 + (i + 1) * ch + (oy if i < rows - 1 else 0))
+            clip = fitz.Rect(x0, y0, x1, y1)
+            k = TILE_PX / max(clip.width, clip.height)
+            pix = page.get_pixmap(matrix=fitz.Matrix(k, k), clip=clip, alpha=False)
+            if _blank(pix, clip, rect, k):
+                continue
+            dst = sheet.with_name(f"{sheet.stem}_tile_r{i + 1}c{j + 1}.png")
             pix.save(str(dst))
             out.append(dst)
     return out
+
+
+def _blank(pix, clip, page_rect, k: float) -> bool:
+    """Is this tile blank paper once the sheet's border zone is ignored?"""
+    import numpy as np
+    m = BLANK_MARGIN_MM / 25.4 * 72
+    inner = fitz_rect_intersection(clip, (page_rect.x0 + m, page_rect.y0 + m, page_rect.x1 - m, page_rect.y1 - m))
+    if inner is None:
+        return True
+    a = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, :3].min(axis=2)
+    x0, y0 = round((inner[0] - clip.x0) * k), round((inner[1] - clip.y0) * k)
+    x1, y1 = round((inner[2] - clip.x0) * k), round((inner[3] - clip.y0) * k)
+    region = a[max(0, y0):max(0, y1), max(0, x0):max(0, x1)]
+    return region.size == 0 or float((region < 160).mean()) < BLANK_INK
+
+
+def fitz_rect_intersection(clip, box):
+    x0, y0 = max(clip.x0, box[0]), max(clip.y0, box[1])
+    x1, y1 = min(clip.x1, box[2]), min(clip.y1, box[3])
+    return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
+
+
+def _point_bom_at_pngs(bom: Path) -> None:
+    """The case's bom.json names a drawing part's input as its PDF (the
+    storage format); in the sandbox that drawing is the PNG rendered from it,
+    so the staged copy says so. The case file is untouched."""
+    import json
+    if not bom.exists():
+        return
+    try:
+        m = json.loads(bom.read_text())
+    except ValueError:
+        return
+    changed = False
+    for it in m.get("items", []):
+        f = it.get("file")
+        if isinstance(f, str) and f.lower().endswith(".pdf"):
+            it["file"] = f[:-4] + ".png"
+            changed = True
+    if changed:
+        bom.write_text(json.dumps(m, indent=1) + "\n")
+
+
+def _add_bom_items(bom: Path, case_json: Path) -> None:
+    """The case's own statement of how the assembly drawing's parts list maps
+    to the part ids (case.json parts_list.note, docs/CASE_FORMAT.md) goes into
+    the staged bom.json's note. It differs per case -- on one the balloon
+    numbers are the ids' numbers, on another the parts list carries a STEP
+    FILE column and the balloons are unrelated to the ids -- and the model
+    cannot know which without being told."""
+    import json
+    if not (bom.exists() and case_json.exists()):
+        return
+    try:
+        m = json.loads(bom.read_text()); pl = json.loads(case_json.read_text()).get("parts_list") or {}
+    except ValueError:
+        return
+    note = (pl.get("note") or "").strip()
+    table = pl.get("table") or {}
+    if pl.get("mapping") == "declared" and table:
+        # The case's validated item -> part table (checked against the sheet's
+        # own parts list): the balloon number is the one thing the model reads
+        # on the drawing and has to turn into a part id.
+        by_id = {v: int(k) for k, v in table.items() if str(k).isdigit()}
+        for it in m.get("items", []):
+            if it.get("part_id") in by_id:
+                it["item"] = by_id[it["part_id"]]
+        note = (note + " `item` is the part's balloon number on the assembly drawing.").strip()
+    elif pl.get("mapping") == "item_number":
+        for it in m.get("items", []):
+            digits = "".join(ch for ch in it.get("part_id", "") if ch.isdigit())
+            if digits:
+                it["item"] = int(digits)
+        note = (note + " `item` is the part's balloon number on the assembly drawing.").strip()
+    if not note:
+        return
+    m["parts_list"] = note
+    bom.write_text(json.dumps(m, indent=1) + "\n")
 
 
 class Sandbox:
@@ -389,8 +640,15 @@ class Sandbox:
             # is rendered here, next to itself, so the prompt and `tools.crop`
             # have PNGs to work with. gt/ and case.json never come across.
             shutil.copytree(self.case / "input", self.dir, dirs_exist_ok=True)
+            # The model sees a drawing as PNG only: the sheet, its four tiles,
+            # and (hidden) the master tools.crop cuts from. The PDF is the
+            # case's storage format, not an input; it is rendered and removed,
+            # so there is exactly one form of every drawing in the directory.
             for pdf in sorted(self.dir.rglob("*.pdf")):
                 _rasterize_pdf(pdf)
+                pdf.unlink()
+            _point_bom_at_pngs(self.dir / "bom.json")
+            _add_bom_items(self.dir / "bom.json", self.case / "case.json")
         else:
             # Legacy layout: everything except gt/ and meta.json.
             for p in sorted(self.case.iterdir()):
@@ -470,6 +728,7 @@ class Sandbox:
                    "--security-opt", "no-new-privileges",
                    "--env-file", "/dev/null",
                    "-e", "PYTHONPATH=/work",     # this is what makes the sitecustomize shim take effect
+                   "-e", "PYTHONDONTWRITEBYTECODE=1",   # no __pycache__ litter in the model's directory
                    # ezdxf (imported by cadquery) wants a cache directory under
                    # $HOME, which is read-only here, and says so on stderr every
                    # round. platformdirs honours XDG_CACHE_HOME; /tmp is the tmpfs.

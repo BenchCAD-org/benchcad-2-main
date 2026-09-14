@@ -4,7 +4,7 @@
 id = "t2_realparts2assembly"
 kind = "assembly"
 submission = "cadquery_program"
-inputs = ["drawing.pdf", "bom.json", "step_files/*.step"]
+inputs = ["drawing.png", "drawing_tile_*.png", "bom.json", "step_files/*.step"]
 given = "all_parts_step"
 
 [tools]
@@ -25,7 +25,7 @@ inject = []
 entry = "envs.verifiers.assembly:score"
 # The input is 2-D, so orientation must not cost points.
 orientation = "free"
-# Headline metric (docs/METRICS.md, #24): per-part-type leave-one-out IoU gain,
+# Headline metric (docs/METRICS.md, change 24): per-part-type leave-one-out IoU gain,
 # normalised by (1 - baseline). T4 / T5 declare part_x_asm_v1 (avg_part x asm_v1)
 # instead. Omitting the field means "legacy".
 metric = "asm_v1"
@@ -40,7 +40,7 @@ oracle = "data/t2_realparts2assembly/_oracle"
 # ⚠️ **The source corpus must be written down in the task declaration; it must never be
 # inferred from a directory name or a runtime argument.**
 # The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `the heldout corpus` and is **a different set of families**.
+# `benchcad-2-heldout` and is **a different set of families**.
 # Family names overlap between the two (one part family has a copy in each corpus), so
 # the case name alone cannot tell them apart -- and once a held-out case is mixed into a
 # batch of results, the held-out set is contaminated, irreversibly: a question that has

@@ -55,9 +55,9 @@ def test_manifest_carries_no_identity(tmp_path):
     shutil.copytree(REPO / "tests/fixtures/t1/case1", d)
     m = json.loads((d / "case.json").read_text())
     m["source"] = {"repo": "the data pipeline", "split": "example", "source_case": "T1 / case 23",
-                   "drive": {"case": "<a cloud link, removed>
-    m["notes"] = "see ~/Desktop"
-    m["redaction"] = {"status": "clean", "note": "author was someone@example.invalid"}
+                   "drive": {"case": "https://drive.google.com/drive/folders/xyz"}}
+    m["notes"] = "see /Users/somebody/Desktop"
+    m["redaction"] = {"status": "clean", "note": "author was someone@example.com"}
     (d / "case.json").write_text(json.dumps(m))
     errs = [e for e in check_case(d).errors if e.startswith("identity in manifest")]
     assert len(errs) == 5, errs

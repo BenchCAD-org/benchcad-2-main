@@ -25,6 +25,7 @@ id = "t6_pcb2schematic"
 kind = "ecad"    # part | assembly | ecad -- selects the verifier
 given = "renders_only"    # how much 3-D the model is handed; decides what the score means
 submission = "graph_json"
+submission_layout = "pred_graph.json: the terminal-net graph"    # what the answer looks like on disk when the program has run
 inputs = ["views/view_*.png", "README.md"]
 
 [episode]
@@ -36,8 +37,10 @@ code_fence = "```python"    # runs in the working directory; stdout, stderr and 
 submit_fence = "```submit"    # the final answer; ends the episode
 submission_variable = "result"    # the graph dict, exported as pred_graph.json
 working_dir_persists_between_rounds = true
-seed_images_per_call = 12    # envs/common/episode.py SEED_IMG_CAP; round-one images are resent every round
+seed_images_per_call = "all input images"    # no cap; round-one images are resent every round
 observation_images_per_round = 3    # envs/common/episode.py _observation
+observation_images_kept_for_rounds = 4    # harness/run.py KEEP_OBS_ROUNDS: older rounds' images leave the request, their text stays
+many_image_downscale_px = 2000    # harness/run.py: a request over 20 images has every image downscaled to this on its longest side (the API's many-image rule)
 forced_final_submission = true    # the last observation demands an answer; `submit_final` is recorded, so a deadline answer is never confused with a self-submission
 failed_submission_retries = 1    # a program that crashes gets its own error back once; not a round
 call_retries = 4    # harness/run.py ATTEMPTS

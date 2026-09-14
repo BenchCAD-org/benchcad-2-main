@@ -93,7 +93,7 @@ def _vox_dense(vox, size: int):
 
 def iou_step_vs_step(a: Path, b: Path, res: int = 64) -> float:
     """Voxel IoU of two STEP files, `a` the reference. Reference or voxelizer
-    failure raises; submission failure scores 0.0 with the reason on stderr ."""
+    failure raises; submission failure scores 0.0 with the reason on stderr."""
     import sys
     import numpy as np
     va = _normalized_mesh(Path(a)).voxelized(pitch=1.0 / res).fill()
