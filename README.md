@@ -1,55 +1,91 @@
 # BenchCAD 2
 
-Six CAD reconstruction tasks with their scorers, and nine development samples.
+Six CAD reconstruction tasks with executable scorers, and nine development
+samples. A model works in a sandboxed directory, one Python program per round,
+and hands in geometry (or a netlist); the scorer compares it with the reference
+by voxels, surfaces and renders. No LLM judge anywhere.
 
-| task | input | deliverable | headline score |
+| task | the model gets | it hands in | headline |
 |---|---|---|---|
-| T1 | one part drawing (PDF, rasterised at stage time) | the part | `part_v1`, free orientation |
-| T2 | every part as STEP + the assembly drawing | the assembly | `asm_v1` |
-| T3 | four reference views, no 3-D | the part | `part_v1`, pinned orientation |
-| T4 | four views + a per-part highlight sheet, no 3-D | every part **and** the assembly | `avg_part x asm_v1` |
-| T5 | five part drawings + sixteen supplied STEPs | the five parts **and** the assembly | `avg_part x asm_v1` |
+| T1 | one part drawing: the sheet as PNG plus legible tiles of it | the part, a CadQuery solid | `part_v1`, orientation free |
+| T2 | every part as STEP + the assembly drawing (sheet + tiles) + `bom.json` | the assembly: the supplied parts placed | `asm_v1` |
+| T3 | four rendered views of a part, no 3-D | the part | `part_v1`, orientation pinned |
+| T4 | four views of a mechanism + two sheets per part (alone / in place), no 3-D | every part **and** the assembly | `avg_part × asm_v1` |
+| T5 | five part drawings + sixteen supplied STEPs + the assembly drawing | the five parts **and** the assembly | `avg_part × asm_v1` |
 | T6 | six renders of an assembled PCB | the terminal-net graph | `ecad_v2` |
 
-`part_v1 = 0.40 iou_term + 0.35 surf_f1(tau=0.02) + 0.25 pix_fg`, every term and
-every headline in [0, 1]. `docs/METRICS.md` defines all of them; `docs/CASE_FORMAT.md`
-defines a case and a submission.
+`part_v1 = 0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg`; `asm_v1` is a per-part-type
+leave-one-out voxel IoU gain; `avg_part` is `part_v1` of each submitted part against
+its reference part. Every term and every headline is in [0, 1]. `docs/METRICS.md`
+defines them; `docs/CASE_FORMAT.md` defines a case and a submission; each task's
+prompt is `envs/<task>/TASK.md`.
 
-## Install
+## Requirements
+
+- Python 3.12 via [uv](https://docs.astral.sh/uv/) (`uv sync` installs cadquery, OCP, vtk, ...).
+- Docker for the sandbox the model's code runs in (on macOS: Docker Desktop or
+  colima with a few GB). The image is built once from `sandbox/`; on an x86
+  host tag it as you like and point `CADENV_DOCKER_IMAGE` at it. Without Docker,
+  `CADENV_LOCAL=1` runs the model's code as a plain subprocess — fine for a look,
+  not for a run you report.
+- An API key for the provider you run: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
+  `OPENAI_API_KEY`, `GEMINI_API_KEY` or `XAI_API_KEY`.
 
 ```sh
 uv sync --group harness --group dev
 docker build -t benchcad-sandbox:arm64 sandbox/     # no network inside, 2 GB, 1 CPU
 ```
 
-## Run everything, no API key needed
+## Score in one command
+
+```sh
+export ANTHROPIC_API_KEY=...          # or OPENROUTER_API_KEY with --model openrouter/anthropic/claude-opus-5
+uv run python harness/run.py --model anthropic/claude-opus-5 --cases examples --out results/opus5.json
+uv run python tools/summarize.py results/opus5.json
+```
+
+`--cases` takes any directory and finds every case under it, so `examples` is
+all nine samples, `examples/task2` one task, `examples/task2/cases/case2` one
+case, and a path into your own case tree works the same way. The defaults are
+the benchmark's contract: 100 rounds per case at effort `max`; `--rounds` and
+`--effort` (`low | medium | high | max`) override them for a smoke run. The
+run writes one JSON with a record per case (headline `score`, the diagnostic
+columns, tokens, seconds), and `work/<run>/` keeps every case's working
+directory and transcript; `summarize.py` prints the per-case table, the mean
+per task and the mean of the task means, with the count of scored cases next
+to every mean.
+
+Budget for the full contract: a part case is tens of thousands of input
+tokens per round (cached after round one); an assembly case starts at 12–20
+images per round. Reckon on a few dollars per part case and tens of dollars per
+assembly case at 100 rounds.
+
+## Check your setup before you spend anything
 
 ```sh
 uv run python harness/run.py --model mock/oracle --cases examples --rounds 1
 ```
 
-Every sample scores its `expected.json` `round_trip` value. Then a real model:
+`mock/oracle` hands in the reference answer the way each prompt asks for it
+(parts and an instances file on the assembly tasks, a solid or a graph on the
+others) and must score 1.0 on every sample; `mock/dumb` hands in a box. Each
+case's `expected.json` records those numbers and the commit they were measured
+on. Two more checks:
 
 ```sh
-ANTHROPIC_API_KEY=... uv run python harness/run.py \
-    --model anthropic/claude-opus-5 --cases examples --rounds 100 --effort max
+uv run python tools/check_cases.py examples/task*/cases/* --deep    # the data is well formed
+uv run python tools/verify_case.py examples/task1/cases/case1 your.step   # score one answer of yours
 ```
-Defaults are 100 rounds at effort max. `openrouter/<id>` (OPENROUTER_API_KEY),
-`openai/<id>`, `gemini/<id>` and `xai/<id>` also work.
 
-## Checking your setup against ours
+## Running your own agent
 
-Each case ships an `expected.json` with three numbers and the commit they were
-measured on: `oracle` (the reference submitted as the answer — the top of the
-scale), `round_trip` (the same reference after a STEP round trip, which is what
-a submitted program necessarily produces) and `baseline` (a trivial answer that
-knows only the overall size). Reproduce `round_trip` and your scoring chain
-matches ours.
-
-```sh
-uv run python tools/check_cases.py examples/task*/cases/* --deep
-uv run python tools/verify_case.py examples/task1/cases/case1 your.step
-```
+The harness is one file, `harness/run.py`: a provider turns the episode's
+`(system, turns)` into a reply, nothing else is provider-specific. To plug in
+another model or your own agent loop, add a provider there or drive
+`envs.common.episode.run_episode` yourself with a `call_fn(system, turns) -> str`.
+The interface a model sees — the prompt, the tools, the round protocol — is
+`envs/common/episode.py` and `envs/common/sandbox.py`; the tools it can call are
+`export`, `export_part`, `use_part`, `submit_assembly` and `crop`.
 
 ## These nine cases are development samples, not the formal bank
 
