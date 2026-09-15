@@ -720,9 +720,25 @@ class Sandbox:
         script = self.dir / "_run.py"
         script.write_text(code)
         if self.docker:
-            container = f"cadenv-{self.dir.name[:40]}-{self._round + 1}"
+            # Named after the directory's full path, not its (truncated) name:
+            # two episodes whose work dirs share their first 40 characters --
+            # the same case in two reps, two members of one T3 family -- ran
+            # side by side and the second `docker run` failed with "name
+            # already in use", scored as the model's zero.
+            import hashlib
+            tag = hashlib.sha1(str(self.dir).encode()).hexdigest()[:10]
+            container = f"cadenv-{self.dir.name[:30]}-{tag}-{self._round + 1}"
             cmd = ["docker", "run", "--rm", "--name", container,
                    "--network", "none", "--memory", MEMORY, "--cpus", CPUS,
+                   # On a Linux host the container's root writes root-owned
+                   # files into the mount: the next episode in that directory
+                   # cannot overwrite them (measured on a WSL2 host: the
+                   # oracle's second T5 export left 5 of 21 parts and scored
+                   # 0.03) and the user cannot delete the run afterwards.
+                   # Docker Desktop / colima on macOS map ownership to the
+                   # user already, and the image's python runs fine as any uid.
+                   *(["--user", f"{os.getuid()}:{os.getgid()}"]
+                     if sys.platform != "darwin" else []),
                    "--pids-limit", "256", "--read-only",
                    "--tmpfs", "/tmp:size=256m",
                    "--security-opt", "no-new-privileges",

@@ -72,8 +72,12 @@ def instance_shapes(step: Path):
     """One STEP -> [(name, shape)], one entry per placed instance.
 
     The STEP's own assembly structure (XCAF) is read first: the reference and
-    a submitted `cq.Assembly` both carry it, and one child is one instance,
-    already placed. Without a structure the file is split by solid.
+    a submitted `cq.Assembly` both carry it, and one LEAF is one instance,
+    placed by the product of the locations down its path. Sub-assemblies are
+    walked, not counted: six T5 references arrived with one multi-part
+    sub-assembly each, and reading one level only turned every instance
+    inside it into "no submitted instance paired" (case31: 8 hidden, 0.600
+    for the reference itself). Without a structure the file is split by solid.
 
     The fallback over-splits multi-solid parts (weldments, parts with
     inserts), which makes the per-instance numbers conservative. That is
@@ -88,6 +92,7 @@ def instance_shapes(step: Path):
     from OCP.TDataStd import TDataStd_Name
     from OCP.TDF import TDF_Label, TDF_LabelSequence
     from OCP.TDocStd import TDocStd_Document
+    from OCP.TopLoc import TopLoc_Location
     from OCP.XCAFDoc import XCAFDoc_DocumentTool
 
     step = Path(step)
@@ -99,20 +104,32 @@ def instance_shapes(step: Path):
         r.ReadFile(str(step))
         r.Transfer(doc)
         tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+
+        def walk(lab, loc):
+            comps = TDF_LabelSequence()
+            tool.GetComponents_s(lab, comps)
+            for j in range(1, comps.Length() + 1):
+                comp = comps.Value(j)
+                nm = TDataStd_Name()
+                ref = TDF_Label()
+                tool.GetReferredShape_s(comp, ref)
+                # The component label carries the instance name; the prototype
+                # label the part's -- a part placed twice has one prototype.
+                if comp.FindAttribute(TDataStd_Name.GetID_s(), nm) or \
+                        ref.FindAttribute(TDataStd_Name.GetID_s(), nm):
+                    name = nm.Get().ToExtString()
+                else:
+                    name = f"inst_{j}"
+                here = loc.Multiplied(tool.GetLocation_s(comp))
+                if tool.IsAssembly_s(ref):
+                    walk(ref, here)
+                else:
+                    out.append((name, cq.Shape.cast(tool.GetShape_s(ref).Moved(here))))
+
         free = TDF_LabelSequence()
         tool.GetFreeShapes(free)
         for i in range(1, free.Length() + 1):
-            top = free.Value(i)
-            comps = TDF_LabelSequence()
-            tool.GetComponents_s(top, comps)
-            for j in range(1, comps.Length() + 1):
-                lab = comps.Value(j)
-                nm = TDataStd_Name()
-                ref = TDF_Label()
-                tool.GetReferredShape_s(lab, ref)
-                name = (nm.Get().ToExtString()
-                        if ref.FindAttribute(TDataStd_Name.GetID_s(), nm) else f"inst_{j}")
-                out.append((name, cq.Shape.cast(tool.GetShape_s(lab))))     # the placed instance
+            walk(free.Value(i), TopLoc_Location())
     except Exception:                                          # noqa: BLE001
         out = []
     if out:

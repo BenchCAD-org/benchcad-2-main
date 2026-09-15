@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,18 @@ from envs.common.sandbox import HIRES_DIR, HIRES_FACTOR, TOOLS_PY, _rasterize_pd
 
 PDF = ROOT / "tests/fixtures/t1/case1/input/drawing.pdf"
 
+
+
+@pytest.fixture
+def wd(tmp_path):
+    """A work dir under $HOME. With the sandbox image present, Sandbox mounts
+    the directory into docker, and the VM shares only $HOME: a tmp_path under
+    /private/var mounts as an empty directory and Sandbox refuses it."""
+    import shutil
+    d = Path.home() / "cad-agent-work" / "pytest" / tmp_path.name / "wd"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    yield d
+    shutil.rmtree(d.parent, ignore_errors=True)
 
 def test_master_is_exactly_twice_the_sheet(tmp_path):
     pdf = tmp_path / "drawing.pdf"
@@ -59,14 +73,13 @@ def test_master_is_hidden_from_the_prompt():
     assert not _visible(Path(HIRES_DIR))
 
 
-def test_staged_drawings_are_png_only_with_tiles(tmp_path):
+def test_staged_drawings_are_png_only_with_tiles(tmp_path, wd):
     """The sandbox holds one form of every drawing: the sheet, its four tiles
     and the hidden master. The PDF is rendered and removed."""
     import os
     from envs.common.sandbox import Sandbox, tile_grid
     os.environ["CADENV_LOCAL"] = "1"
     case = ROOT / "tests/fixtures/t1/case1"
-    wd = tmp_path / "wd"
     Sandbox(case, wd)
     names = sorted(str(p.relative_to(wd)) for p in wd.rglob("*") if p.is_file())
     assert not any(n.endswith(".pdf") for n in names), names
@@ -114,14 +127,13 @@ def test_tile_grid_follows_the_sheet_size():
     assert tile_grid(210, 297) == (1, 1)          # A4: no tiles
 
 
-def test_staged_bom_names_the_png_not_the_pdf(tmp_path):
+def test_staged_bom_names_the_png_not_the_pdf(tmp_path, wd):
     """bom.json in the sandbox points at what is there: the drawing part's
     PNG, not the PDF the case stores (T5)."""
     import json, os
     from envs.common.sandbox import Sandbox
     os.environ["CADENV_LOCAL"] = "1"
     case = ROOT / "tests/fixtures/t5/case1"
-    wd = tmp_path / "wd"
     Sandbox(case, wd)
     files = [it["file"] for it in json.loads((wd / "bom.json").read_text())["items"]]
     assert files and not any(f.endswith(".pdf") for f in files), files
@@ -131,7 +143,7 @@ def test_staged_bom_names_the_png_not_the_pdf(tmp_path):
     assert any(it["file"].endswith(".pdf") for it in json.loads((case / "input/bom.json").read_text())["items"])
 
 
-def test_staged_bom_carries_the_parts_list_mapping(tmp_path):
+def test_staged_bom_carries_the_parts_list_mapping(tmp_path, wd):
     """bom.json in the sandbox says how the drawing's parts list maps to the
     ids (case.json parts_list.note) -- it differs per case."""
     import json, os
@@ -140,7 +152,6 @@ def test_staged_bom_carries_the_parts_list_mapping(tmp_path):
     case = ROOT / "examples/task2/cases/case1"
     if not case.exists():
         return
-    wd = tmp_path / "wd"
     Sandbox(case, wd)
     staged = json.loads((wd / "bom.json").read_text())
     pl = json.loads((case / "case.json").read_text())["parts_list"]

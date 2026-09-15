@@ -687,8 +687,12 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                     W(f"{rel}: symbol net gain {', '.join(gains)} -- {note}")
                 else:
                     E(f"{rel}: symbol net gain {', '.join(gains)} without drawings[...].gain_note -- unexplained additions")
-        W(f"{rel}: symbols plusminus {got['\u00b1']} (+{got['%%p']} in dimension codes), degree {got['\u00b0']} (+{got['%%d']}), "
-          f"diameter {got['\u00d8']} (+{got['%%c']})" + ("" if isinstance(exp, dict) else " -- no expected counts declared"))
+        # Plain lookups, not `\u` escapes inside the f-string: pyproject says
+        # >= 3.11 and 3.11 cannot compile a backslash there (measured: the
+        # runner died at import on a 3.11 venv).
+        pm, deg, dia = got["\u00b1"], got["\u00b0"], got["\u00d8"]
+        W(f"{rel}: symbols plusminus {pm} (+{got['%%p']} in dimension codes), degree {deg} (+{got['%%d']}), "
+          f"diameter {dia} (+{got['%%c']})" + ("" if isinstance(exp, dict) else " -- no expected counts declared"))
     # model-facing JSON must not carry vendor identifiers (drawing numbers, catalogue
     # codes with brand suffixes): the drawings are redacted, the BOM must be too
     for e in m.get("input", []):
@@ -849,8 +853,15 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                 E(f"geometry check failed: {ex}")
         if deep and not rep.errors:
             import tempfile
+            from envs.common.score_asm import instance_shapes
             from envs.geom.iou import iou_step_vs_step
             cq = _cq()
+            # Structure, not just volume: the rebuilt union can match gt.step to
+            # 1.0 while gt.step hides instances inside a sub-assembly, and the
+            # scorer pairs per instance. One leaf per instances.json entry.
+            n_leaves = len(instance_shapes(c.gt_step))
+            if n_leaves != len(c.instances):
+                E(f"gt.step has {n_leaves} placed instances, instances.json {len(c.instances)}")
             with tempfile.TemporaryDirectory() as td:
                 out = Path(td) / "rebuilt.step"
                 cq.exporters.export(rebuild_assembly(d), str(out))

