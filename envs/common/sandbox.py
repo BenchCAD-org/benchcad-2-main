@@ -468,19 +468,34 @@ STAGE_MAX_EDGE = 4200    # px; an A0 sheet at 300 dpi is ~14000 px, far beyond w
 # 300 dpi sheet cannot add detail, a crop of the 600 dpi master can.
 HIRES_DIR = "_hires"
 HIRES_FACTOR = 2
-# Tiles: the sheet cut into a grid of overlapping pieces, each rendered from
-# the PDF at whatever resolution puts its long edge at TILE_PX -- the size
-# the API keeps (2576 px long edge, 4784 28-px patches on the
-# high-resolution tier), so a tile is shown as rendered, not downscaled. The
-# grid is chosen from the sheet's physical size: one column or row per
-# TILE_MM of paper, so an A3 sheet is 2 x 1 tiles at ~250 dpi, an A2 2 x 2
-# at ~180 dpi and an A0 4 x 3 at ~180 dpi, and 5 mm lettering is 35+ px
-# in every tile whatever the sheet. The whole sheet (STAGE_DPI, capped at
-# STAGE_MAX_EDGE, then downscaled by the API) is for layout and for the
-# pixel coordinates tools.crop takes; the tiles are for reading.
-TILE_MM = 300.0
+# The sheet the model is shown is the sheet's READING AREA, not the whole
+# piece of paper: the drawing frame, the footer line (BenchCAD / format /
+# sheet number) and the parts-list table (2.2 mm lettering, and the same
+# rows as bom.json) are cropped away; the header line (title, projection
+# statement), every view, every dimension and every note stay. Measured on
+# the held-out T2/T5/T1 sheets (2026-09-17): the reading area is 88 % of a
+# part drawing and 98 % of an A2 assembly sheet, and the sheet's own
+# lettering is what limits reading, not the paper size -- the A2 assembly
+# sheets letter dimensions at 6.2 mm (19 px after the API's downscale),
+# the part drawings at 2.4-2.9 mm (11-17 px on A4/A3).
+# Text below CONTENT_TEXT_MM is a table, a watermark or a stamp, never a
+# dimension; it neither extends the reading area nor asks for tiles.
+CONTENT_TEXT_MM = 2.3
+CONTENT_MARGIN = 0.01        # of the long edge, around the reading area
+FOOTER_BAND = 0.955          # of the page height: the footer line lives below it
+# Tiles exist only for the sheet whose smallest dimension lettering would
+# still be under TILE_MIN_CAP px cap height after the API's downscale of the
+# reading area (the API keeps API_LONG_PX on the long edge): four A2 part
+# drawings with coordinate tables in the whole held-out bank, two tiles
+# each; no T2 sheet, no T1 sheet. A tile is a piece of the reading area
+# rendered from the PDF with its long edge at TILE_PX, neighbours
+# overlapping by TILE_OVERLAP, on the smallest grid that reaches the cap.
+API_LONG_PX = 2576
+TILE_MIN_CAP = 10.0          # px; the BOM table at 8.4 px read, at 6.6 px did not
 TILE_PX = 2300
 TILE_OVERLAP = 0.10
+TILE_GRIDS = ((1, 2), (2, 1), (2, 2), (2, 3), (3, 2), (3, 3), (3, 4), (4, 3), (4, 4), (4, 5), (5, 5))
+CAP_PER_EM = 0.7             # cap height of a digit, as a share of the em size
 # A tile that is blank paper is not written. Blank means: inside the sheet's
 # BLANK_MARGIN_MM border (the frame, the zone letters, the title block's
 # edge all live there) fewer than BLANK_INK of the tile's pixels are ink.
@@ -489,6 +504,66 @@ TILE_OVERLAP = 0.10
 # where the remaining tiles sit, so a gap is a blank, not a missing file.
 BLANK_MARGIN_MM = 15.0
 BLANK_INK = 0.003
+
+
+def reading_area(page, fitz):
+    """The part of `page` worth showing: every drawing path except the frame
+    and full-width rules, plus every text span of CONTENT_TEXT_MM em or more,
+    both excluding the footer band; grown by CONTENT_MARGIN. The whole page
+    when nothing is found (a scanned sheet has no paths and no text)."""
+    R = page.rect
+    W, H = R.width, R.height
+    boxes = []
+    for d in page.get_drawings():
+        r = d["rect"]
+        if r.width > 0.9 * W or r.height > 0.9 * H:
+            continue
+        if r.y0 > FOOTER_BAND * H or (r.width < 1 and r.height < 1):
+            continue
+        boxes.append(r)
+    for b in page.get_text("dict")["blocks"]:
+        for line in b.get("lines", []):
+            for sp in line["spans"]:
+                if sp["size"] * 25.4 / 72 >= CONTENT_TEXT_MM and sp["text"].strip():
+                    bb = fitz.Rect(sp["bbox"])
+                    if bb.y0 <= FOOTER_BAND * H:
+                        boxes.append(bb)
+    if not boxes:
+        return R
+    m = CONTENT_MARGIN * max(W, H)
+    return fitz.Rect(max(R.x0, min(b.x0 for b in boxes) - m), max(R.y0, min(b.y0 for b in boxes) - m),
+                     min(R.x1, max(b.x1 for b in boxes) + m), min(R.y1, max(b.y1 for b in boxes) + m))
+
+
+def smallest_lettering_mm(page, area, fitz) -> float | None:
+    """The smallest em size (mm) of a numeric text span inside `area`, ignoring
+    text under CONTENT_TEXT_MM (tables, stamps); None when there is none."""
+    sizes = []
+    for b in page.get_text("dict")["blocks"]:
+        for line in b.get("lines", []):
+            for sp in line["spans"]:
+                mm = sp["size"] * 25.4 / 72
+                if mm >= CONTENT_TEXT_MM and any(c.isdigit() for c in sp["text"]) \
+                        and fitz.Rect(sp["bbox"]).intersects(area):
+                    sizes.append(mm)
+    return min(sizes) if sizes else None
+
+
+def tile_grid(area_w_mm: float, area_h_mm: float, lettering_mm: float | None) -> tuple[int, int]:
+    """(rows, cols) for a reading area: (1, 1) when its smallest lettering
+    reaches TILE_MIN_CAP px after the API's downscale, else the smallest grid
+    of TILE_GRIDS whose tiles do."""
+    if lettering_mm is None:
+        return 1, 1
+    cap = CAP_PER_EM * lettering_mm * API_LONG_PX / max(area_w_mm, area_h_mm)
+    if cap >= TILE_MIN_CAP:
+        return 1, 1
+    for rows, cols in TILE_GRIDS:
+        tw = area_w_mm / cols * (1 + TILE_OVERLAP if cols > 1 else 1)
+        th = area_h_mm / rows * (1 + TILE_OVERLAP if rows > 1 else 1)
+        if CAP_PER_EM * lettering_mm * TILE_PX / max(tw, th) >= TILE_MIN_CAP:
+            return rows, cols
+    return TILE_GRIDS[-1]
 
 
 def _rasterize_pdf(pdf: Path) -> list[Path]:
@@ -502,22 +577,22 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
     hires_dir = pdf.parent / HIRES_DIR
     with fitz.open(str(pdf)) as doc:
         for i, page in enumerate(doc):
-            rect = page.rect
+            rect = reading_area(page, fitz)
             scale = STAGE_DPI / 72.0
             long_edge = max(rect.width, rect.height) * scale
             if long_edge > STAGE_MAX_EDGE:
                 scale *= STAGE_MAX_EDGE / long_edge
             dst = pdf.with_suffix(".png") if i == 0 else pdf.with_name(f"{pdf.stem}_p{i + 1}.png")
-            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=rect, alpha=False)
             pix.save(str(dst))
             pix_w, pix_h = pix.width, pix.height
             out.append(dst)
-            out += _tiles(page, dst, fitz)
+            out += _tiles(page, rect, dst, fitz)
             # The master for tools.crop: exactly HIRES_FACTOR x the sheet, so
             # a box in the sheet's pixels maps onto it by one factor.
             hires_dir.mkdir(exist_ok=True)
             k = scale * HIRES_FACTOR
-            master = page.get_pixmap(matrix=fitz.Matrix(k, k), alpha=False)
+            master = page.get_pixmap(matrix=fitz.Matrix(k, k), clip=rect, alpha=False)
             want = (pix_w * HIRES_FACTOR, pix_h * HIRES_FACTOR)
             if (master.width, master.height) != want:
                 # pymupdf rounds each render's size on its own, so the master
@@ -531,19 +606,13 @@ def _rasterize_pdf(pdf: Path) -> list[Path]:
     return out
 
 
-def tile_grid(width_mm: float, height_mm: float) -> tuple[int, int]:
-    """(rows, cols) for a sheet of this size: one per TILE_MM of paper."""
-    import math
-    return max(1, math.ceil(height_mm / TILE_MM)), max(1, math.ceil(width_mm / TILE_MM))
-
-
-def _tiles(page, sheet: Path, fitz) -> list[Path]:
+def _tiles(page, rect, sheet: Path, fitz) -> list[Path]:
     """<stem>_tile_r<i>c<j>.png (rows top to bottom, columns left to right):
-    overlapping pieces of `page`, each rendered from the PDF so that its
-    long edge is TILE_PX."""
-    rect = page.rect
+    overlapping pieces of the reading area `rect`, each rendered from the
+    PDF so that its long edge is TILE_PX -- only when the area's lettering
+    asks for them (tile_grid)."""
     w_mm, h_mm = rect.width / 72 * 25.4, rect.height / 72 * 25.4
-    rows, cols = tile_grid(w_mm, h_mm)
+    rows, cols = tile_grid(w_mm, h_mm, smallest_lettering_mm(page, rect, fitz))
     if rows * cols == 1:
         return []
     cw, ch = rect.width / cols, rect.height / rows
@@ -558,7 +627,7 @@ def _tiles(page, sheet: Path, fitz) -> list[Path]:
             clip = fitz.Rect(x0, y0, x1, y1)
             k = TILE_PX / max(clip.width, clip.height)
             pix = page.get_pixmap(matrix=fitz.Matrix(k, k), clip=clip, alpha=False)
-            if _blank(pix, clip, rect, k):
+            if _blank(pix, clip, page.rect, k):
                 continue
             dst = sheet.with_name(f"{sheet.stem}_tile_r{i + 1}c{j + 1}.png")
             pix.save(str(dst))
@@ -792,10 +861,17 @@ class Sandbox:
             if EXEC_GATE is not None:
                 EXEC_GATE.release()
         now = self._snapshot()
-        fresh = [self.dir / n for n, m in now.items() if self._seen.get(n) != m]
+        # Newest first: the model's latest figure is the one the round is
+        # about, and the observation attaches the first few. Sorted by name
+        # it attached "a_*.png" and dropped "d_*.png" every time, and the
+        # model spent a round renaming the file to get it shown.
+        fresh = sorted((self.dir / n for n, m in now.items() if self._seen.get(n) != m),
+                       key=lambda p: (-now[p.name], p.name))
         self._seen = now
-        res = Result(rc, out.decode(errors="replace")[-4000:],
-                     err.decode(errors="replace")[-4000:], sorted(fresh))
+        # Up to a megabyte of each stream is kept here; what the model sees
+        # of it is the episode's decision (_limit_output, Terminus 2's rule).
+        res = Result(rc, out.decode(errors="replace")[-1_000_000:],
+                     err.decode(errors="replace")[-1_000_000:], fresh)
         res.images = self._log(code, res)
         return res
 

@@ -68,7 +68,15 @@ OPENAI_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high
 # --rounds / --effort explicitly; the defaults are the contract the shipped
 # eval.toml quotes.
 DEFAULT_ROUNDS = 100
-DEFAULT_MAX_TOKENS = 16000
+# No cap on a reply by default: the model gets its own maximum output
+# (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
+# the model's ceiling is sent, ANTHROPIC_MAX_OUTPUT). A 16k cap was the
+# thinking's cap at effort max, and every round that filled it lost its
+# answer. BenchCAD-main's harness sends 512k for the same reason. --max-tokens
+# still sets one when a run wants it.
+DEFAULT_MAX_TOKENS = None
+ANTHROPIC_MAX_OUTPUT = {"claude-opus-5": 128_000}
+ANTHROPIC_MAX_OUTPUT_DEFAULT = 64_000
 ATTEMPTS = 4
 BACKOFF_S = 5
 # A reply with no content is retried once with this much more room, and on
@@ -153,35 +161,21 @@ def resolve_key(prefix: str, prov: Provider) -> str | None:
 # with MORE than MANY_IMAGES image blocks (every turn's images count, seeds
 # included) rejects any image with a dimension over MANY_IMAGE_PX with
 # "exceed max allowed size for many-image requests"; 20 images of 2100 px
-# pass, 21 do not, 21 of 2000 px pass. Every drawing sheet is 4200 px, so a
-# long run with crops would fail every call from about round 7 on -- and
-# drive()'s fallback would then drop ALL images, blinding the model for the
-# rest of the episode. Two bounds keep a request under the rule:
-#   KEEP_OBS_ROUNDS   observation images (crops, renders) older than this
-#                     many rounds leave the request; their text stays, and
-#                     the model can always crop again
-#   MANY_IMAGE_PX     when a request still carries more than MANY_IMAGES
-#                     images, each is downscaled to this on its longest side
-#                     before encoding -- the API would have downscaled a
-#                     4200 px sheet to ~2300 px anyway, so the cost is small
+# pass, 21 do not, 21 of 2000 px pass. Every image the episode has produced
+# stays in the request (nothing is dropped: the model's own figures are its
+# working memory, and a figure that left the request was re-made -- measured
+# on gpt-6-astra, 49 of 49 rounds re-cropping the same box), so once the
+# count passes MANY_IMAGES every image goes at MANY_IMAGE_PX from then on:
+# one cache rewrite, then a stable prefix.
+#   MANY_IMAGE_PX     the per-image bound over MANY_IMAGES images
+#   HARD_IMAGE_CAP    the API's own ceiling on image blocks per request
+#                     (600 on a 1M-context Anthropic model; OpenAI allows
+#                     1500). Not a policy: a request past it is a 400, so
+#                     the oldest observation images beyond it are left out
+#                     and the log says so.
 MANY_IMAGES = 20
 MANY_IMAGE_PX = 2000
-# An observation image (a render or plot the model made) stays in the
-# request for this many rounds, then leaves (its text stays, and the model
-# can make it again). Two rather than four: each round it stays is one more
-# cached read of ~2-5k tokens per image, and a model that needs an old
-# figure again has it on disk.
-KEEP_OBS_ROUNDS = 2
-# The downscale decision is made ONCE per episode, from the seed count, not
-# per request from the live count. A per-request decision flipped as crops
-# came and went: the seed images were re-encoded at a different size, the
-# request's prefix changed from turn one, and the whole prompt cache was
-# rewritten (1.25x) instead of read (0.1x). The seeds plus this many
-# observation images per kept round is the request size the episode is
-# sized for; above MANY_IMAGES it runs at MANY_IMAGE_PX from round one. On
-# the high-resolution tier a 2300 px tile is downscaled to ~1970 px by the
-# API anyway, so sending it at 2000 px loses nothing.
-OBS_PER_ROUND = 2
+HARD_IMAGE_CAP = 600
 
 
 def _b64(path: Path, max_px: int | None = None) -> str:
@@ -218,21 +212,26 @@ def labelled(t: dict):
 
 
 def bound_images(turns: list) -> tuple[list, int | None]:
-    """The turns as a request should carry them: the first user turn keeps its
-    images (the case's inputs), the last KEEP_OBS_ROUNDS user turns keep
-    theirs, every other turn's images are dropped (text kept). Returns the
-    trimmed turns and the per-image pixel limit to encode with (None when the
-    request is under the many-image threshold)."""
+    """The turns as a request should carry them: every image stays. Returns
+    the turns and the per-image pixel limit to encode with (None under the
+    many-image threshold). Only past HARD_IMAGE_CAP are the oldest
+    observation images left out, oldest first, seeds never."""
+    n = sum(len(t.get("images") or []) for t in turns)
+    if n <= HARD_IMAGE_CAP:
+        return turns, (MANY_IMAGE_PX if n > MANY_IMAGES else None)
     user_idx = [i for i, t in enumerate(turns) if t.get("role") != "assistant"]
-    keep = set(user_idx[:1]) | set(user_idx[-KEEP_OBS_ROUNDS:])
-    out = [dict(t, images=(t.get("images") or []) if i in keep else [],
-                image_labels=(t.get("image_labels") or []) if i in keep else []) for i, t in enumerate(turns)]
-    n_seed = len(out[user_idx[0]]["images"]) if user_idx else 0
-    sized_for = n_seed + KEEP_OBS_ROUNDS * OBS_PER_ROUND
-    n = sum(len(t["images"]) for t in out)
-    # The live count still rules when a model crops more than the episode
-    # was sized for: the API would reject the request otherwise.
-    return out, (MANY_IMAGE_PX if max(sized_for, n) > MANY_IMAGES else None)
+    over = n - HARD_IMAGE_CAP
+    out = [dict(t) for t in turns]
+    for i in user_idx[1:]:                                   # never the seed turn
+        if over <= 0:
+            break
+        imgs = list(out[i].get("images") or []); labs = list(out[i].get("image_labels") or [])
+        k = min(over, len(imgs))
+        out[i]["images"], out[i]["image_labels"] = imgs[k:], labs[k:] if labs else labs
+        over -= k
+    print(f"      request had {n} images, over the API's {HARD_IMAGE_CAP}; the oldest "
+          f"{n - HARD_IMAGE_CAP} observation images are left out of this request", flush=True)
+    return out, MANY_IMAGE_PX
 
 
 # A wedged stream is silent, so the clock that matters is httpx's PER-READ
@@ -313,7 +312,9 @@ def drive(send, what: str):
     3. A stream that goes silent stays silent. Retrying the same context twice
        wedged two cases for two hours each; give up the round instead.
     """
-    def call(system: str, turns: list) -> str:
+    def call(system: str, turns: list, plain: bool = False) -> str:
+        """`plain`: the reply is prose (a summary, questions, answers --
+        episode's context summarization), so rule 1 does not apply."""
         drop_images = False
         for attempt in range(ATTEMPTS):
             try:
@@ -356,8 +357,8 @@ def drive(send, what: str):
                       f"retry {attempt + 1}/{ATTEMPTS - 1}", flush=True)
                 time.sleep(BACKOFF_S * 2 ** attempt)
                 continue
-            if _has_fence(text) or attempt == ATTEMPTS - 1:
-                if not _has_fence(text):
+            if plain or _has_fence(text) or attempt == ATTEMPTS - 1:
+                if not plain and not _has_fence(text):
                     print(f"      no executable block after {ATTEMPTS} tries; "
                           f"handing the text back for the episode's nudge round",
                           flush=True)
@@ -387,9 +388,12 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     # without a retry with room that round is lost with nothing to show.
     room = {"on": False}
 
+    ceiling = {"n": max_tokens or next((n for k, n in ANTHROPIC_MAX_OUTPUT.items()
+                                        if model.startswith(k)), ANTHROPIC_MAX_OUTPUT_DEFAULT)}
+
     def send(system: str, turns: list, drop_images: bool) -> str:
         turns, max_px = bound_images(turns)
-        budget = max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens
+        budget = ceiling["n"] * EMPTY_RETRY_BOOST if (room["on"] and max_tokens) else ceiling["n"]
         messages = []
         for t in turns:
             content = [{"type": "text", "text": t["text"]}] if t.get("text") else []
@@ -417,11 +421,24 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         if room["on"]:
             print(f"      retrying with max_tokens={budget:,} so the answer has room "
                   f"after the thinking", flush=True)
-        with client.messages.stream(model=model, system=system,
-                                    max_tokens=budget, messages=messages,
-                                    extra_body={"cache_control": {"type": "ephemeral"}},
-                                    **knobs) as st:
-            msg = st.get_final_message()
+        while True:
+            try:
+                with client.messages.stream(model=model, system=system,
+                                            max_tokens=budget, messages=messages,
+                                            extra_body={"cache_control": {"type": "ephemeral"}},
+                                            **knobs) as st:
+                    msg = st.get_final_message()
+                break
+            except anthropic.BadRequestError as e:
+                # The model's ceiling is not published per model here; a 400
+                # naming max_tokens says what it is ("... maximum of N") and
+                # the value is halved until accepted, remembered per episode.
+                if "max_tokens" in str(e) and budget > 8000:
+                    ceiling["n"] = budget = budget // 2
+                    print(f"      {model} rejected max_tokens; sending {budget:,} "
+                          f"for the rest of this episode", flush=True)
+                    continue
+                raise
         u = msg.usage
         # episode resends the seed images every round and they are read from
         # the cache, so cache reads/writes are most of the input on later
@@ -432,6 +449,8 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         usage.append({"input_tokens": u.input_tokens + cached + written,
                       "cached_tokens": cached, "cache_write_tokens": written,
                       "output_tokens": u.output_tokens})
+        print(f"      usage: prompt {u.input_tokens + cached + written:,} (cached {cached:,}, "
+              f"cache write {written:,}), output {u.output_tokens:,}", flush=True)
         if msg.stop_reason == "refusal":
             cat = getattr(getattr(msg, "stop_details", None), "category", None)
             print(f"      refusal (category={cat}); treating as an empty turn", flush=True)
@@ -445,10 +464,10 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                   flush=True)
         if msg.stop_reason == "max_tokens" and not _has_fence(text):
             # Truncated before (or inside) the answer: a failed call, not a
-            # turn. Once, with room; the second time it is handed back as it
-            # is, so a model that cannot stop thinking is not mistaken for a
-            # broken adapter.
-            if not room["on"]:
+            # turn. With a --max-tokens cap: once more, with room; at the
+            # model's own ceiling there is no room to give, and the reply is
+            # handed back as it is.
+            if not room["on"] and max_tokens:
                 room["on"] = True
                 raise EmptyContent(f"stop_reason=max_tokens at {budget:,} tokens with no "
                                    f"executable block (thinking {len(think):,} chars)")
@@ -577,15 +596,17 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                     "detail": "high"}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": parts or [{"type": "text", "text": "(empty)"}]})
-        budget = max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens
+        budget = (max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens) if max_tokens else None
         extra: dict = {}
+        if budget:
+            extra["max_completion_tokens"] = budget
         if _is_openrouter(base_url):
             # The gateway's own effort knob, so "medium" means the same thing
             # here as it does on the anthropic path. It takes low | medium |
             # high, and an upstream is free to ignore it (measured: Novita's
             # free models do).
             extra["extra_body"] = {"reasoning": {"effort": OR_EFFORT[effort]}}
-        if room["on"]:
+        if room["on"] and budget:
             bound = None
             if _is_openrouter(base_url):
                 bound = int(budget * REASONING_BOUND_FRAC)
@@ -609,7 +630,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                 extra.pop("reasoning_effort", None)
             try:
                 stream = client.chat.completions.create(
-                    model=model, messages=messages, max_completion_tokens=budget,
+                    model=model, messages=messages,
                     stream=True, stream_options={"include_usage": True}, **extra)
                 break
             except openai.BadRequestError as e:
@@ -660,6 +681,10 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                   "call are unknown, not zero)", flush=True)
         else:
             usage.append(seen_usage)
+            print(f"      usage: prompt {seen_usage['input_tokens']:,} "
+                  f"(cached {seen_usage['cached_tokens']:,}), completion "
+                  f"{seen_usage['output_tokens']:,}"
+                  + (f" (reasoning {rtokens:,})" if rtokens else ""), flush=True)
         text, think = "".join(chunks), "".join(thinking)
         if think:
             # So a client reading the log can see where the budget went. The
@@ -677,7 +702,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
             return text
         why = (f"content empty, finish_reason={finish}, "
                f"reasoning_tokens={rtokens}")
-        if not room["on"]:
+        if not room["on"] and max_tokens:
             room["on"] = True                     # the next attempt gets room
             raise EmptyContent(why)
         # Room did not help: hand the empty reply back as before, so the
@@ -717,7 +742,8 @@ def gemini_call(model: str, max_tokens: int, usage: list, api_key: str):
         r = client.models.generate_content(
             model=model, contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=system, max_output_tokens=max_tokens))
+                system_instruction=system,
+                **({"max_output_tokens": max_tokens} if max_tokens else {})))
         um = getattr(r, "usage_metadata", None)
         if um:
             usage.append({"input_tokens": getattr(um, "prompt_token_count", 0),
@@ -801,24 +827,51 @@ def mock_call(kind: str, case: Path):
 
     reply = "Submitting.\n\n```submit\n" + body + "```\n"
 
-    def call(system: str, turns: list) -> str:
+    def call(system: str, turns: list, plain: bool = False) -> str:
         return reply
     return call
 
 
+# Context windows the runner assumes when --context-tokens is not given, by
+# model-id prefix (longest match). The episode summarises its history the
+# way Terminus 2 does when the provider's last-reported prompt size comes
+# within SUMMARIZE_FREE_TOKENS of this; a context-length error summarises
+# reactively whatever the number says, so a wrong entry costs one failed
+# call, not the case.
+CONTEXT_TOKENS = {"claude-opus-5": 1_000_000, "claude-": 200_000,
+                  "gpt-6": 400_000, "gpt-5": 400_000, "o3": 200_000, "o4": 200_000,
+                  "gemini": 1_000_000}
+DEFAULT_CONTEXT_TOKENS = 200_000
+
+
+def context_tokens_for(model_id: str) -> int:
+    best = None
+    for prefix, n in CONTEXT_TOKENS.items():
+        if model_id.startswith(prefix) and (best is None or len(prefix) > len(best[0])):
+            best = (prefix, n)
+    return best[1] if best else DEFAULT_CONTEXT_TOKENS
+
+
 def build_call(spec: str, max_tokens: int, usage: list, case: Path,
-               effort: str = DEFAULT_EFFORT):
+               effort: str = DEFAULT_EFFORT, context_tokens: int | None = None):
     prefix, prov, model_id = split_model(spec)
     if prov.kind == "mock":
-        return mock_call(model_id, case)
-    key = resolve_key(prefix, prov)
-    if prov.kind == "anthropic":
-        return anthropic_call(model_id, max_tokens, usage, effort)
-    if prov.kind == "openai_compat":
-        return openai_compat_call(model_id, max_tokens, usage, key, prov.base_url, effort)
-    if prov.kind == "gemini":
-        return gemini_call(model_id, max_tokens, usage, key)
-    raise SystemExit(f"provider kind {prov.kind!r} has no call implementation")
+        call = mock_call(model_id, case)
+    else:
+        key = resolve_key(prefix, prov)
+        if prov.kind == "anthropic":
+            call = anthropic_call(model_id, max_tokens, usage, effort)
+        elif prov.kind == "openai_compat":
+            call = openai_compat_call(model_id, max_tokens, usage, key, prov.base_url, effort)
+        elif prov.kind == "gemini":
+            call = gemini_call(model_id, max_tokens, usage, key)
+        else:
+            raise SystemExit(f"provider kind {prov.kind!r} has no call implementation")
+    # What the episode reads to decide on summarising: the provider's own
+    # count of the last prompt, and the window it has to fit in.
+    call.usage = usage                                   # type: ignore[attr-defined]
+    call.context_tokens = context_tokens or context_tokens_for(model_id)   # type: ignore[attr-defined]
+    return call
 
 
 # ── cases ───────────────────────────────────────────────────────────────────
@@ -951,7 +1004,14 @@ def main() -> int:
                          "openai: reasoning_effort, where max maps to xhigh; "
                          "openrouter: reasoning.effort, where max maps to high")
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
-    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
+                    help="cap on one reply (thinking included). Default: none "
+                         "-- the model's own maximum")
+    ap.add_argument("--context-tokens", type=int, default=None,
+                    help="the model's context window; the episode summarises "
+                         "its history (Terminus 2's way) when the last prompt "
+                         "comes within 8000 tokens of it. Default from the "
+                         "model id (harness/run.py CONTEXT_TOKENS)")
     ap.add_argument("--work", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None,
                     help="default results/<model>_<timestamp>.json")
@@ -1031,7 +1091,7 @@ def main() -> int:
         gt = case / "gt/gt.step"
         rec["gt_sha256"] = sha256(gt) if gt.exists() else None
         try:
-            call = build_call(a.model, a.max_tokens, usage, case, a.effort)
+            call = build_call(a.model, a.max_tokens, usage, case, a.effort, a.context_tokens)
             work = work_root / f"r{a.rep}__{case_key(case)}"
             # A directory from an earlier attempt (--resume re-running an
             # error) would be staged over, not replaced -- Sandbox copies with

@@ -57,35 +57,26 @@ _CODEISH = re.compile(
 # never reaches `text` at all (measured: 50-token completions, four consecutive
 # retries the same way, none of 10 cases able to start). With it, they emit a
 # well-formed fenced block immediately.
-SYSTEM = """You are solving a CAD task in a working directory.
+SYSTEM = """You are solving a CAD task in a working directory, over {rounds} rounds.
 
 {task_brief}
 
-Files in your directory:
+Directory:
 {file_list}
+tools.py:
 {tools_help}
 
-Python 3.12 with cadquery {cq_version} (cadquery-ocp 7.9), numpy, scipy, PIL,
-trimesh, vtk, matplotlib and ezdxf. There is no network. Stick to APIs that
-exist in those versions -- a call that does not exist raises.
+Python 3.12: cadquery {cq_version} (cadquery-ocp 7.9), numpy, scipy, PIL,
+trimesh, vtk, matplotlib, ezdxf. No network.
 
-```python    runs in the directory as a fresh process (nothing from earlier
-             rounds is in memory; files are); you get back the last 4000
-             characters of stdout and of stderr, and up to three PNGs it
-             wrote or copied at the top level of the directory (the first
-             three by name; every image is sent with its file name). 600 s,
-             2 GB, 1 CPU per round.
+Each reply is exactly one fenced block and nothing outside it:
+```python    runs as a fresh process in the directory (files persist, memory
+             does not). You get back stdout and stderr (each limited to
+             10,000 bytes: the first and last 5,000) and every PNG it wrote
+             at the top level of the directory, each with its file name; a
+             PNG written anywhere else is not shown. 600 s, 2 GB, 1 CPU.
 ```submit    your final answer: {submit_what}
-             It ends the episode and is what gets scored.
-
-The directory persists across rounds. You have {rounds} rounds. You can
-render your own geometry to check it (vtk, matplotlib) -- no renderer is
-supplied. An image file can be larger than the copy you were shown (a
-drawing sheet is 4200 px wide): read its size with PIL and crop by the
-file's pixel coordinates, not by what you see.
-
-Your entire reply must be exactly one fenced block and nothing else -- no
-narration, no plan, no prose before or after it. Start the reply with ```.
+             Ends the episode; this is what is scored.
 """
 
 
@@ -106,24 +97,40 @@ def _visible(p: Path) -> bool:
 
 
 def _listing(root: Path) -> list[str]:
-    """File listing, descending one level into subdirectories.
-
-    Otherwise `part_drawings` is a bare directory name and the model knows
-    neither how many drawings are inside nor what they are called.
-    """
+    """The directory, compactly: one line per top-level file, one line per
+    subdirectory naming what is inside; a drawing's tiles are a count next
+    to their sheet, not one line each. (A T5 directory has 39 files; listed
+    one per line the tiles alone were a third of the prompt.)"""
+    def _names(files: list[Path]) -> str:
+        sheets = [x.name for x in files if not _is_tile(x)]
+        tiles = [x for x in files if _is_tile(x)]
+        if len(sheets) > 8:
+            shown = f"{sheets[0]}, {sheets[1]} ... {sheets[-1]} ({len(sheets)} files)"
+        else:
+            shown = ", ".join(sheets)
+        if tiles:
+            shown += f"; {len(tiles)} tiles <sheet>_tile_r<i>c<j>.png"
+        return shown
     out = []
-    for p in sorted(root.iterdir()):
-        if not _visible(p):
-            continue
+    top = [p for p in sorted(root.iterdir()) if _visible(p)]
+    for p in top:
         if p.is_dir():
             kids = sorted(x for x in p.iterdir() if _visible(x))
             if p.name in _SUMMARIZE_DIRS:
-                out.append(f"{p.name}/   ({len(kids)} files -- see index.json)")
-                continue
-            out.append(f"{p.name}/")
-            out += [f"  {p.name}/{x.name}" for x in kids]
-        else:
-            out.append(p.name)
+                out.append(f"  {p.name}/   {len(kids)} files -- see index.json")
+            else:
+                out.append(f"  {p.name}/   {_names(kids)}")
+    files = [p for p in top if not p.is_dir()]
+    tiles = [p for p in files if _is_tile(p)]
+    for p in files:
+        if _is_tile(p):
+            continue
+        line = f"  {p.name}"
+        stem = p.name[:-4] if p.suffix == ".png" else None
+        mine = [t for t in tiles if stem and t.name.startswith(stem + "_tile_")]
+        if mine:
+            line += f"   + {len(mine)} tiles {stem}_tile_r<i>c<j>.png"
+        out.append(line)
     return out
 
 
@@ -192,19 +199,24 @@ def _is_answer(code: str | None) -> bool:
     return bool(code and _ANSWERISH.search(code))
 
 
-def _clip(s: str, head: int = 2000, tail: int = 4000) -> str:
-    """Truncate long output while KEEPING THE TAIL.
+OUTPUT_LIMIT_BYTES = 10_000
 
-    The original was `s[:2000]`, a head-only truncation -- but a model's
-    measurements are almost always printed last (compute, then print), so that
-    discarded exactly the part it most needed. Measured in another session:
-    30% of stdout was truncated, and 36% of those lost the model's own
-    conclusion line. Give more tail than head, and say how much was elided.
-    """
-    s = s.strip()
-    if len(s) <= head + tail:
-        return s
-    return (f"{s[:head]}\n\n...[{len(s) - head - tail} characters elided]...\n\n{s[-tail:]}")
+
+def _limit_output(output: str, max_bytes: int = OUTPUT_LIMIT_BYTES) -> str:
+    """Terminus 2's rule (Terminal-Bench 4.0): an observation is at most
+    max_bytes, the first and last halves kept, the middle replaced by a
+    line that says how much was omitted. Tail kept because a model prints
+    its conclusion last; head kept because the first error is first."""
+    output = output.strip()
+    data = output.encode("utf-8")
+    if len(data) <= max_bytes:
+        return output
+    half = max_bytes // 2
+    first = data[:half].decode("utf-8", errors="ignore")
+    last = data[-half:].decode("utf-8", errors="ignore")
+    omitted = len(data) - len(first.encode("utf-8")) - len(last.encode("utf-8"))
+    return (f"{first}\n[... output limited to {max_bytes} bytes; "
+            f"{omitted} interior bytes omitted ...]\n{last}")
 
 
 # Appended to the submitted program before it is run. `tools.finish` exports
@@ -237,64 +249,45 @@ def _artifact(box: Sandbox):
 def _observation(rnd, res, max_rounds):
     parts = [f"Round {rnd}/{max_rounds} -- exit {res.returncode}"]
     if res.stdout.strip():
-        parts.append(f"stdout:\n{_clip(res.stdout)}")
+        parts.append(f"stdout:\n{_limit_output(res.stdout)}")
     if res.stderr.strip():
-        parts.append(f"stderr:\n{_clip(res.stderr)}")
+        parts.append(f"stderr:\n{_limit_output(res.stderr)}")
     if res.images:
-        shown = res.images[:3]
-        parts.append("images produced: " + ", ".join(p.name for p in res.images)
-                     + (f" (the first {len(shown)} are attached)" if len(res.images) > len(shown) else ""))
-    if rnd >= max_rounds - 1:
-        parts.append("This is your final observation -- reply now with your "
-                     "```submit answer, using the best you have.")
-    return "\n\n".join(parts), list(res.images[:3])
+        # Every PNG the round wrote is attached, newest first, and stays in
+        # the conversation for the rest of the episode. A cap (three by name,
+        # then six) made the model rename files to get the next one shown.
+        parts.append("images produced: " + ", ".join(p.name for p in res.images))
+    return "\n\n".join(parts), list(res.images)
 
 
 def tools_help(case_dir: Path) -> str:
-    """The tools block of the prompt, generated from the task declaration so it
-    never advertises a callable the sandbox does not stage. Only a task
-    with renderer = "shared" gets render/views; every task gets export and crop;
-    an assembly task gets the three calls that write the fixed submission
-    layout (envs.common.submission), because on those tasks the answer is that
-    directory and not a single STEP."""
+    """The tools block of the prompt, from the task declaration, so it never
+    advertises a callable the sandbox does not stage. One line per tool:
+    signature -> effect. What a tool is good for is the model's call."""
     from envs.common.score_case import load_task
     task = load_task(Path(case_dir)) or {}
     renderer = (task.get("tools") or {}).get("renderer", "none")
     kind = (task.get("task") or {}).get("kind", "part")
     given = (task.get("task") or {}).get("given", "")
-    export_line = ("export(result, path) -> pred_graph.json (result is the graph dict)" if kind == "ecad"
-                   else "export(result, path) -> STEP")
     lines = []
     if kind == "assembly":
-        # The answer on an assembly task is the submission/ directory, so
-        # the calls that write it come first; export() stays for the model's
-        # own checks. use_part copies input/step_files/<part_id>.step, and a
-        # task with given = nothing_3d (T4) has no such directory:
-        # advertising it there is exactly the defect change 15 closed for
-        # render/views.
-        lines += ["  tools.py     export_part(geometry_or_step_path, part_id)",
-                  "                                 -> submission/parts/<part_id>.step (one part TYPE)"]
+        lines.append("  export_part(solid_or_step_path, part_id) -> submission/parts/<part_id>.step")
         if given != "nothing_3d":
-            lines += ["               use_part(part_id) -> copies the supplied step_files/<part_id>.step",
-                      "                                    into submission/parts/, unchanged"]
-        lines += ["               submit_assembly(instances[, assembly])",
-                  "                                 -> submission/assembly/instances.json;",
-                  "                                    instances = [{part_id, transform[, instance_id]}]",
-                  "               export(geometry, path) -> STEP, for your own checks; not the answer"]
+            lines.append("  use_part(part_id)            -> submission/parts/<part_id>.step, the supplied file unchanged")
+        lines.append("  submit_assembly(instances)   -> submission/assembly/instances.json;"
+                     " instances = [{part_id, transform[, instance_id]}]")
+        lines.append("  export(solid, path)          -> STEP, for your own checks; not the answer")
+    elif kind == "ecad":
+        lines.append("  export(result, path)         -> pred_graph.json (result is the graph dict)")
     else:
-        lines += [f"  tools.py     {export_line}"]
+        lines.append("  export(result, path)         -> STEP")
     if renderer == "shared":
-        lines += ["               render(step, png) -> isometric hidden-line view",
-                  "               views(step, png)  -> four-orientation 2x2 sheet, same renderer",
-                  "                                    and angles as the reference image"]
+        lines += ["  render(step, png)            -> isometric hidden-line view",
+                  "  views(step, png)             -> four-orientation 2x2 sheet, the reference's renderer and angles"]
     has_sheets = any(str(i).endswith(".pdf") or "drawing" in str(i)
                      for i in (task.get("task") or {}).get("inputs", []))
-    lines.append("               crop(png, (left, top, right, bottom)[, out_png])\n"
-                 "                                 -> writes the box (file pixel coordinates) as a new\n"
-                 "                                    PNG and returns its PATH (not an image); you see\n"
-                 "                                    it next round; default name crop_<stem>.png")
-    if has_sheets:
-        lines.append("                                    (a drawing sheet is cut from a 2x-resolution master)")
+    lines.append("  crop(png, (l, t, r, b)[, out]) -> a PNG of that box, in the file's own pixel coordinates"
+                 + (" (a sheet file is larger than shown; the crop is cut from a 2x master)" if has_sheets else ""))
     return "\n".join(lines)
 
 
@@ -369,6 +362,122 @@ def _task_brief(case_dir: Path) -> str:
         f'the path has no "cases" component -- nothing to build a brief from')
 
 
+# ── context summarization, the way Terminus 2 (Terminal-Bench 4.0) does it ──
+# When the conversation nears the model's context limit, three calls with
+# the same model replace it: (1) the agent summarises its own work so far,
+# (2) a fresh agent, given the task, the summary and the directory, asks the
+# questions the summary leaves open, (3) the old context answers them. The
+# conversation then restarts as [seed turn, questions prompt, questions,
+# answers + "continue"]. Proactively when the last request left fewer than
+# SUMMARIZE_FREE_TOKENS free (Terminus 2: 8000), reactively when a call
+# fails on context length -- then the newest turns are unwound first until
+# the summary request itself fits. Images from the summarised turns leave
+# with them (their files stay in the directory, and the hand-off says so);
+# the seed images are re-sent as in every round.
+SUMMARIZE_FREE_TOKENS = 8000
+UNWIND_FREE_TOKENS = 4000
+IMAGE_TOKEN_ESTIMATE = 4800          # the API's per-image ceiling; conservative on purpose
+_CONTEXT_ERROR = re.compile(r"context.length|context_length|maximum context|too many tokens|"
+                            r"prompt is too long|input length|exceeds the model|token limit", re.I)
+
+SUMMARY_PROMPT = """You are about to hand off your work to another AI agent.
+Please provide a comprehensive summary of what you have accomplished so far on this task:
+
+Original Task: {brief}
+
+Based on the conversation history, please provide a detailed summary covering:
+1. **Major Actions Completed** - List each significant program you ran and what you learned from it.
+2. **Important Information Learned** - A summary of crucial findings: measurements, dimensions, coordinates, file locations, errors, and the state of the working directory.
+3. **Challenging Problems Addressed** - Any significant issues you encountered and how you resolved them.
+4. **Current Status** - Exactly where you are in the task completion process.
+
+Be comprehensive and detailed. The next agent needs to understand everything that has happened so far in order to continue."""
+
+QUESTIONS_PROMPT = """You are picking up work from a previous AI agent on this task:
+
+**Original Task:** {brief}
+
+**Summary from Previous Agent:**
+{summary}
+
+**Current working directory:**
+{listing}
+
+**Last observation:**
+{last_obs}
+
+Please begin by asking several questions (at least five, more if necessary) about the current state of the solution that are not answered in the summary from the prior agent. After you ask these questions you will be on your own, so ask everything you need to know."""
+
+HANDOFF_PROMPT = """Here are the answers the other agent provided.
+
+{answers}
+
+Continue working on this task from where the previous agent left off. You can no longer ask questions. The images from the earlier rounds are no longer in this conversation; their files are still in the directory, and any PNG you write at the top level is shown to you. Reply with one fenced block."""
+
+
+def _est_tokens(system: str, turns: list) -> int:
+    n = len(system) // 4
+    for t in turns:
+        n += len(t.get("text") or "") // 4 + IMAGE_TOKEN_ESTIMATE * len(t.get("images") or [])
+    return n
+
+
+def _plain(call_fn, system: str, turns: list) -> str:
+    """A call whose reply is prose, not a fenced block (harness.run.drive
+    retries fenceless replies; `plain` switches that off)."""
+    try:
+        return call_fn(system, turns, plain=True) or ""
+    except TypeError:
+        return call_fn(system, turns) or ""
+
+
+def _needs_summary(call_fn) -> tuple[bool, int, int]:
+    """(needed, last_prompt_tokens, limit) from what the provider reported
+    for the last request and the limit the runner declared."""
+    usage = getattr(call_fn, "usage", None)
+    limit = getattr(call_fn, "context_tokens", None)
+    if not usage or not limit:
+        return False, 0, limit or 0
+    last = int(usage[-1].get("input_tokens", 0) or 0)
+    return limit - last < SUMMARIZE_FREE_TOKENS, last, limit
+
+
+def _summarize(call_fn, system: str, turns: list, brief: str, box: Sandbox,
+               rounds: list, why: str, log_n: int) -> list:
+    """Terminus 2's three steps; returns the new conversation."""
+    limit = getattr(call_fn, "context_tokens", None)
+    history = list(turns)
+    if why == "reactive" and limit:
+        while len(history) > 1 and limit - _est_tokens(system, history) < UNWIND_FREE_TOKENS:
+            history = history[:-2] if len(history) >= 3 else history[:1]
+    seed = history[0]
+    n_user = sum(1 for t in history[1:] if t.get("role") != "assistant")
+    last_obs = next((t["text"] for t in reversed(history[1:]) if t.get("role") != "assistant"), "")
+    plain_system = ("You are an AI agent handing over, or taking over, a CAD task in a working "
+                    "directory. Reply in plain text.")
+    summary = _plain(call_fn, plain_system, history + [{"role": "user", "text": SUMMARY_PROMPT.format(brief=brief), "images": []}])
+    listing = "\n".join(_listing(box.dir))
+    q_prompt = QUESTIONS_PROMPT.format(brief=brief, summary=summary, listing=listing,
+                                       last_obs=_limit_output(last_obs, 4000))
+    questions = _plain(call_fn, plain_system, [{"role": "user", "text": q_prompt, "images": []}])
+    answers = _plain(call_fn, plain_system, history + [
+        {"role": "user", "text": SUMMARY_PROMPT.format(brief=brief), "images": []},
+        {"role": "assistant", "text": summary, "images": []},
+        {"role": "user", "text": "The next agent has a few questions for you, please answer each of them one by one in detail:\n\n" + questions, "images": []}])
+    try:
+        (box.log_dir / f"summary_{log_n:02d}.json").write_text(json.dumps(
+            {"why": why, "turns_summarised": n_user, "summary": summary, "questions": questions, "answers": answers}, indent=1))
+    except OSError:
+        pass
+    rounds.append({"round": len(rounds) + 1, "action": "summarize", "why": why, "turns_summarised": n_user})
+    print(f"      context summarised ({why}): {n_user} rounds of history -> summary + "
+          f"{len(questions)} chars of questions + {len(answers)} chars of answers", flush=True)
+    return [seed,
+            {"role": "user", "text": q_prompt, "images": []},
+            {"role": "assistant", "text": questions, "images": []},
+            {"role": "user", "text": HANDOFF_PROMPT.format(answers=answers), "images": []}]
+
+
 def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 max_rounds: int = MAX_ROUNDS, exec_timeout: int = 600) -> dict:
     """Run one case.
@@ -400,7 +509,14 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
 
     rounds, submitted = [], ""
     dead = 0
+    summaries = 0
     for rnd in range(1, max_rounds + 1):
+        needed, last_tokens, limit = _needs_summary(call_fn)
+        if needed:
+            print(f"      last request {last_tokens:,} tokens of a {limit:,} context; "
+                  f"summarising proactively", flush=True)
+            summaries += 1
+            turns = _summarize(call_fn, system, turns, task_brief, box, rounds, "proactive", summaries)
         # A failed call should waste THIS ROUND, not the whole case. Measured
         # in v2: PART-0043 / -0199 / -0211 all hit a stream interruption on
         # the first call (the provider never sent response.completed), the
@@ -409,7 +525,15 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         # Only after MAX_DEAD_ROUNDS consecutive failures is it a real fault,
         # and only then is the exception allowed out.
         try:
-            raw = call_fn(system, turns)
+            try:
+                raw = call_fn(system, turns)
+            except Exception as e:                       # noqa: BLE001
+                if not _CONTEXT_ERROR.search(str(e)) or summaries >= max_rounds:
+                    raise
+                print(f"      context length error ({str(e)[:80]}); summarising", flush=True)
+                summaries += 1
+                turns = _summarize(call_fn, system, turns, task_brief, box, rounds, "reactive", summaries)
+                raw = call_fn(system, turns)
             dead = 0
         except Exception as e:                           # noqa: BLE001
             dead += 1
@@ -465,80 +589,31 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         text, imgs = _observation(rnd, res, max_rounds)
         turns.append({"role": "user", "text": text, "images": imgs})
 
+    # No forced final submission and no rescue: an episode whose rounds run
+    # out without a ```submit has no answer, and is scored as such (the
+    # record says `no_submission`). The budget is in the prompt and every
+    # observation counts the rounds; asking on the model's behalf measured
+    # the harness, not the model (BenchCAD-main PR 53: the two rescues were
+    # the whole apparent advantage over mini-swe-agent).
     if not submitted and rounds:
-        turns.append({"role": "user", "text":
-                      f"Rounds are finished. Reply with only a ```submit block: {answer}.",
-                      "images": []})
-        py_f, sub = _blocks(call_fn(system, turns))
-        # The forced-submit round must ALSO accept ```python. It originally
-        # accepted only ```submit, so when a model returned its complete
-        # program inside a ```python fence the fallback silently did nothing --
-        # the case became a structural zero, and the log did not even record
-        # submit_final, so it was invisible. Measured: minimax-m3 spent all
-        # eight rounds iterating in exec and answered the final round with
-        # exactly a ```python block. The program was there; we discarded it
-        # over the tag. What is asked for is "the complete program for your
-        # best geometry", and which tag it carries does not change that.
-        if sub is None and py_f is not None:
-            if _is_answer(py_f):
-                sub = py_f
-                rounds.append({"round": len(rounds) + 1,
-                               "action": "submit_final_from_python"})
-            else:
-                rounds.append({"round": len(rounds) + 1, "action": "no_answer"})
-        elif sub is not None:
-            rounds.append({"round": len(rounds) + 1, "action": "submit_final"})
-        elif py_f is None:
-            rounds.append({"round": len(rounds) + 1, "action": "no_answer"})
-        if sub is not None:
-            submitted = sub
+        rounds.append({"round": len(rounds) + 1, "action": "no_submission"})
 
-    # When the submitted program fails to execute, hand the error back and
-    # allow one resubmission. Originally a crash ended the episode -- measured:
-    # both hard zeros arose that way (once a nonexistent cadquery API, once a
-    # fillet radius that overflowed into BRep_API not done), while the model's
-    # understanding of the part had been adequate up to that point.
-    # This is a separate small budget and does not consume a round: it is not
-    # extra work for the model, it is showing the model its own error.
+    # The submitted program runs once, exactly as submitted. If it fails to
+    # execute, or leaves no answer, there is no answer: no resubmission with
+    # the error shown, no "last complete submission in the log", no "newest
+    # STEP anywhere". Those were rescues (BenchCAD-main PR 53 removed the same
+    # ones): a model whose final program does not run has not answered, and
+    # the record says so -- `submit_failed` with the stderr tail -- so the
+    # reader can tell a crash from a wrong shape.
     step = None
-    for attempt in range(2):
-        if not submitted.strip():
-            break
+    if submitted.strip():
         res = box.run(submitted + FINALISE, timeout=exec_timeout)
         if res.ok:
             step = _artifact(box)
-        if step is not None:
-            break
-        if attempt == 0:
-            err = (res.stderr or "").strip()[-1500:] or f"exit {res.returncode}"
-            turns.append({"role": "user", "text":
-                          "Your submitted program failed to execute, so nothing "
-                          f"was scored:\n\n{err}\n\nReply with one corrected "
-                          "```submit block and nothing else. Keep the geometry "
-                          "you had; fix only what the error names.", "images": []})
-            py2, sub2 = _blocks(call_fn(system, turns))
-            # The same trap as the forced-submit round: we ask for "one
-            # corrected ```submit block", the model answers in ```python, sub2
-            # is None, and the retry silently gives up. This path only runs
-            # when the case is already in trouble, so it fails exactly when it
-            # is most needed.
-            if sub2 is None and _is_answer(py2):
-                sub2 = py2
-                rounds.append({"round": len(rounds) + 1,
-                               "action": "resubmit_from_python"})
-            elif sub2 is not None:
-                rounds.append({"round": len(rounds) + 1, "action": "resubmit"})
-            if sub2 is None:
-                break
-            submitted = sub2
-    if step is None:
-        # The same fallback as for a STEP, for the directory layout: the last
-        # round that left a complete submission beats scoring zero.
-        subs = [d for d in box.submissions() if is_ready(d)]
-        step = subs[-1] if subs else None
-    if step is None:
-        cands = box.artifacts(".step")
-        step = cands[-1] if cands else None
+        if step is None:
+            rounds.append({"round": len(rounds) + 1, "action": "submit_failed",
+                           "rc": res.returncode,
+                           "stderr": (res.stderr or "").strip()[-1500:]})
 
     out = {"code": submitted, "step": str(step) if step else None,
            "artifact": (None if step is None else

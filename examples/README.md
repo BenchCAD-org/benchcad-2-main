@@ -332,9 +332,9 @@ The order of work is therefore:
    agree, your scoring chain is ours.
 2. **Confirm the model / agent integration** on the samples with a real model:
    one case per task, default budget, and check the recorded episode — whether
-   the answer arrived on its own or only under the forced final round
-   (`submit_final` vs `submit_final_from_python` vs `no_answer`; the runner
-   records which, and `no_answer` is kept out of every mean).
+   the model answered (`submit`), ran out of rounds (`no_submission`) or
+   submitted a program that did not run (`submit_failed`, stderr recorded);
+   nothing is asked on the model's behalf.
 3. **Then the formal run**, on the bank, by arrangement: the case set, the split
    (`open` / `heldout` — mixing them contaminates, irreversibly), the number of
    rounds, and how many repeats. Ask for repeats: same-case spread was 0.67 at

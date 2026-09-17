@@ -88,14 +88,21 @@ asm_v1`) that a supplied part earns for free. T2 supplies every part
 
 Drawings are stored as PDF only. The sandbox renders every PDF when it
 stages the case and removes the PDF, so the model sees exactly one form of
-each drawing: the sheet `<stem>.png` (`<stem>_p2.png` per further page; 300
-dpi, long edge capped at 4200 px), its tiles `<stem>_tile_r<i>c<j>.png` (one
-row / column per 300 mm of paper, each rendered from the PDF at 2300 px on
-its long edge, neighbours overlapping by 10 %, blank tiles not written; an
-A4 sheet has none) and, hidden under `_hires/`, a 2x master that
-`tools.crop` cuts from. The sheet and `part_drawings/<id>.png` are prompt
-images; the tiles are in the working directory for the model to open. Rasters
-are derived, never stored. T3 and T4 ship PNGs because their inputs are
+each drawing: the sheet's **reading area** `<stem>.png` (`<stem>_p2.png` per
+further page; 300 dpi, long edge capped at 4200 px) -- the drawing frame,
+the footer line and the parts-list table (lettering under 2.3 mm, and the
+rows of `bom.json`) are cropped away, the header line, views, dimensions
+and notes stay (`sandbox.reading_area`) -- and, hidden under `_hires/`, a
+2x master of the same area that `tools.crop` cuts from. Tiles
+`<stem>_tile_r<i>c<j>.png` exist only for a sheet whose smallest dimension
+lettering would still be under 10 px cap height after the API's downscale
+of the reading area (2576 px long edge): the smallest grid that lifts it,
+each tile rendered from the PDF at 2300 px on its long edge, neighbours
+overlapping by 10 %, blank tiles not written (`sandbox.tile_grid`).
+Measured on the held-out bank: no T1 or T2 sheet needs tiles, four A2 part
+drawings with coordinate tables need two each. The sheet and
+`part_drawings/<id>.png` are prompt images; the tiles are in the working
+directory for the model to open. Rasters are derived, never stored. T3 and T4 ship PNGs because their inputs are
 renders of the reference that have no PDF source.
 
 | task | `input/` | `gt/` beyond `gt.step` |

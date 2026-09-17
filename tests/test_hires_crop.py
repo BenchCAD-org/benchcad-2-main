@@ -84,47 +84,77 @@ def test_staged_drawings_are_png_only_with_tiles(tmp_path, wd):
     names = sorted(str(p.relative_to(wd)) for p in wd.rglob("*") if p.is_file())
     assert not any(n.endswith(".pdf") for n in names), names
     assert "drawing.png" in names
-    assert tile_grid(297, 210) == (1, 1)                              # the fixture is an A4 sheet: no tiles
-    assert not [n for n in names if n.startswith("drawing_tile_")]
+    assert not [n for n in names if n.startswith("drawing_tile_")]    # an A4 sheet: no tiles
     assert "_hires/drawing.png" in names
 
 
-def test_tiles_of_a_large_sheet(tmp_path):
-    """An A0 sheet (a T2 assembly drawing) is 3 x 4 overlapping tiles, each
-    rendered with its long edge at TILE_PX."""
-    from envs.common.sandbox import TILE_PX, _rasterize_pdf
+def _sheet(tmp_path, w_mm, h_mm, shapes, text=()):
+    """A synthetic sheet: a frame, a footer line, black rectangles, and
+    numeric text at given em sizes (mm), so the reading area and the
+    lettering rule can be exercised without a real drawing."""
     import pymupdf
+    tmp_path.mkdir(parents=True, exist_ok=True)
     pdf = tmp_path / "drawing.pdf"
-    doc = pymupdf.open(); page = doc.new_page(width=1189 / 25.4 * 72, height=841 / 25.4 * 72)
-    page.draw_rect(pymupdf.Rect(150, 150, 400, 400), fill=(0, 0, 0)); doc.save(str(pdf)); doc.close()
+    doc = pymupdf.open(); page = doc.new_page(width=w_mm / 25.4 * 72, height=h_mm / 25.4 * 72)
+    R = page.rect
+    page.draw_rect(pymupdf.Rect(R.x0 + 5, R.y0 + 5, R.x1 - 5, R.y1 - 5), color=(0, 0, 0), width=1)   # frame
+    page.insert_text((20, R.y1 - 8), "BenchCAD  A2  SHEET 1 / 1", fontsize=8)                        # footer
+    for x, y in shapes:
+        page.draw_rect(pymupdf.Rect(x, y, x + 200, y + 200), fill=(0, 0, 0))
+    for x, y, mm, txt in text:
+        page.insert_text((x, y), txt, fontsize=mm / 25.4 * 72)
+    doc.save(str(pdf)); doc.close()
+    return pdf
+
+
+def test_the_sheet_shown_is_the_reading_area(tmp_path):
+    """The frame, the footer and the paper around the content are cropped
+    away: an A2 sheet whose only content sits in its top-left quarter is
+    shown as that quarter (plus the margin), not as the whole sheet."""
+    from envs.common.sandbox import _rasterize_pdf
+    pdf = _sheet(tmp_path, 594, 420, [(150, 150)], text=[(160, 400, 4.0, "120.5")])
     files = _rasterize_pdf(pdf)
+    with Image.open(files[0]) as sheet:
+        # the content spans ~x 150..350 pt, y 150..400 pt of a 1684 x 1191 pt page
+        assert sheet.width < sheet.height * 1.2 and sheet.width < 0.4 * 1684 * 300 / 72 * 1.05
+
+
+def test_tiles_only_when_the_lettering_asks(tmp_path):
+    """Large lettering: no tiles, whatever the sheet size. Small lettering
+    on a big reading area: the smallest grid that lifts it to TILE_MIN_CAP
+    px, tiles rendered with their long edge at TILE_PX."""
+    from envs.common.sandbox import TILE_PX, _rasterize_pdf
+    big = _sheet(tmp_path / "big", 594, 420, [(150, 150), (1300, 900)],
+                 text=[(200, 500, 6.0, "670.9"), (1350, 1100, 6.0, "12")])
+    assert not [f for f in _rasterize_pdf(big) if "_tile_" in f.name]
+    small = _sheet(tmp_path / "small", 594, 420, [(30, 30), (1450, 950)],          # corner to corner
+                   text=[(60, 400, 2.8, "670.9"), (1500, 1100, 2.8, "12")])
+    files = _rasterize_pdf(small)
     tiles = [f for f in files if "_tile_" in f.name]
-    # one drawn shape at the top-left: only r1c1 has ink inside the margin;
-    # the other eleven are blank paper and are not written
-    assert [t.name for t in tiles] == ["drawing_tile_r1c1.png"]
-    with Image.open(tiles[0]) as t, Image.open(files[0]) as sheet:
-        assert max(t.size) == TILE_PX
-        assert t.width / sheet.width > 1.0 / 4                          # more than a bare quarter: the overlap
+    assert tiles, "2.8 mm lettering across an A2 reading area is 8.6 px after the downscale: tiles"
+    with Image.open(tiles[0]) as t:
+        assert abs(max(t.size) - TILE_PX) <= 1                      # pymupdf rounds the clip render
 
 
 def test_blank_tiles_are_skipped_but_content_tiles_kept(tmp_path):
+    """Two content corners of an A0 reading area with small lettering: the
+    grid covers the area, the blank pieces are not written, the pieces with
+    ink are."""
     from envs.common.sandbox import _rasterize_pdf
-    import pymupdf
-    pdf = tmp_path / "drawing.pdf"
-    doc = pymupdf.open(); page = doc.new_page(width=1189 / 25.4 * 72, height=841 / 25.4 * 72)
-    for x, y in ((150, 150), (1950, 1100), (2900, 2000)):               # r1c1, r2c3, r3c4 in page points
-        page.draw_rect(pymupdf.Rect(x, y, x + 200, y + 200), fill=(0, 0, 0))
-    doc.save(str(pdf)); doc.close()
+    pdf = _sheet(tmp_path, 1189, 841, [(150, 150), (2900, 2000)],
+                 text=[(200, 500, 2.5, "1189"), (2950, 2300, 2.5, "841")])
     tiles = sorted(f.name for f in _rasterize_pdf(pdf) if "_tile_" in f.name)
-    assert tiles == ["drawing_tile_r1c1.png", "drawing_tile_r2c3.png", "drawing_tile_r3c4.png"], tiles
+    assert tiles and tiles[0] == "drawing_tile_r1c1.png" and len(tiles) < 9, tiles
 
 
-def test_tile_grid_follows_the_sheet_size():
+def test_tile_grid_follows_the_lettering_not_the_paper():
     from envs.common.sandbox import tile_grid
-    assert tile_grid(420, 297) == (1, 2)          # A3
-    assert tile_grid(594, 420) == (2, 2)          # A2
-    assert tile_grid(1189, 841) == (3, 4)         # A0
-    assert tile_grid(210, 297) == (1, 1)          # A4: no tiles
+    assert tile_grid(594, 420, 6.2) == (1, 1)          # the A2 assembly sheets: 19 px, no tiles
+    assert tile_grid(594, 420, 2.8) == (1, 2)          # an A2 part drawing with 2.8 mm lettering: two
+    assert tile_grid(420, 297, 2.4) == (1, 1)          # A3 at 2.4 mm: 10.4 px, just enough
+    assert tile_grid(1189, 841, 2.5) == (3, 4)         # A0 at 2.5 mm: 12 tiles of ~330 mm
+    assert tile_grid(210, 297, 2.4) == (1, 1)          # A4
+    assert tile_grid(594, 420, None) == (1, 1)         # no lettering found: nothing to read closer
 
 
 def test_staged_bom_names_the_png_not_the_pdf(tmp_path, wd):
@@ -168,13 +198,10 @@ def test_tiles_are_on_disk_but_not_seeds(tmp_path):
     from envs.common.episode import _seed_images
     from envs.common.sandbox import _rasterize_pdf
     import pymupdf
-    wd = tmp_path / "wd"; wd.mkdir()
-    pdf = wd / "drawing.pdf"
-    doc = pymupdf.open(); page = doc.new_page(width=1189 / 25.4 * 72, height=841 / 25.4 * 72)
-    for x, y in ((150, 150), (1950, 1100), (2900, 2000)):
-        page.draw_rect(pymupdf.Rect(x, y, x + 200, y + 200), fill=(0, 0, 0))
-    doc.save(str(pdf)); doc.close()
+    wd = tmp_path / "wd"
+    pdf = _sheet(wd, 1189, 841, [(150, 150), (1950, 1100), (2900, 2000)],
+                 text=[(200, 500, 2.5, "1189"), (2000, 1400, 2.5, "500"), (2950, 2300, 2.5, "841")])
     files = _rasterize_pdf(pdf); pdf.unlink()
-    assert sum("_tile_" in f.name for f in files) == 3
+    assert sum("_tile_" in f.name for f in files) >= 3
     seeds = _seed_images(wd)
     assert [p.name for p in seeds] == ["drawing.png"]

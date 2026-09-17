@@ -132,3 +132,42 @@ def test_a_tile_the_model_copies_or_touches_at_the_top_level_is_attached(tmp_pat
                 "pathlib.Path('views.png').touch()\n", timeout=60)
     assert r.returncode == 0, r.stderr
     assert sorted(p.name for p in r.images) == ["r1c2.png", "views.png"]
+
+
+def test_context_summarization_replaces_the_history_the_terminus_way(tmp_path, monkeypatch):
+    """When the last request left fewer than SUMMARIZE_FREE_TOKENS free, the
+    episode makes Terminus 2's three calls (summary, questions, answers) and
+    continues from [seed, questions prompt, questions, answers + continue];
+    the seed images stay, the summarised rounds' images do not, and the
+    record says `summarize`."""
+    from envs.common import episode as E
+    from envs.common import sandbox as S
+    monkeypatch.setenv("CADENV_LOCAL", "1")
+    monkeypatch.setattr(S, "_docker_ready", lambda: False)
+    case = ROOT / "tests/fixtures/t3/case1"
+    calls: list[dict] = []
+    usage: list[dict] = []
+
+    def call_fn(system, turns, plain=False):
+        calls.append({"plain": plain, "n_turns": len(turns), "images": sum(len(t.get("images") or []) for t in turns),
+                      "last": turns[-1]["text"][:40]})
+        if plain:
+            return {"You are about to hand off": "SUMMARY-TEXT", "picking up work": "Q1? Q2? Q3? Q4? Q5?",
+                    "few questions for you": "A1. A2. A3. A4. A5."}[
+                next(k for k in ("You are about to hand off", "picking up work", "few questions for you") if k in turns[-1]["text"])]
+        # round 1: a program that writes a PNG; round 2: submit
+        if len([t for t in turns if t.get("role") == "assistant"]) == 0:
+            usage.append({"input_tokens": 195_000, "output_tokens": 10})     # 5,000 free of 200k -> summarise before round 2
+            return "```python\nfrom PIL import Image\nImage.new('RGB', (8, 8), 'red').save('look.png')\nprint('ok')\n```"
+        usage.append({"input_tokens": 3_000, "output_tokens": 10})
+        return "```submit\nimport cadquery as cq\nresult = cq.Workplane('XY').box(10, 10, 10)\n```"
+    call_fn.usage = usage
+    call_fn.context_tokens = 200_000
+    out = E.run_episode(case, tmp_path / "w", call_fn, max_rounds=5, exec_timeout=60)
+    kinds = [c["plain"] for c in calls]
+    assert kinds == [False, True, True, True, False], calls
+    # the second real call sees the restarted conversation: seed + q-prompt + questions + handoff
+    last = calls[-1]
+    assert last["n_turns"] == 4 and last["images"] == 1 and "Here are the answers" in last["last"]
+    assert [r["action"] for r in out["rounds"]] == ["exec", "summarize", "submit"]
+    assert out["submitted"] and (tmp_path / "w_log" / "summary_01.json").exists()

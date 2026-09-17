@@ -4,8 +4,7 @@
 and two obliques of each side (`_obl_a`, `_obl_b`). A board with copper
 layers between the outer two also has `view_inner<n>.png` per inner layer:
 a top-down drawing of that layer's copper (traces, pours, vias), framed like
-`view_top`; a 2-layer board has none, and all its routing is on the outer
-layers. `README.md` has board-specific notes.
+`view_top`; a 2-layer board has none. `README.md` has board-specific notes.
 
 Recover the components and which terminals share a net. Leave a dict in
 `result`:

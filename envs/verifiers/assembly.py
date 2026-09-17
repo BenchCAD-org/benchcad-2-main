@@ -258,7 +258,24 @@ def score(case_dir: Path, step: Path, task=None) -> dict:
 
     # instances() is parsed once and shared by every scorer: on a 40-instance
     # case the OCCT tessellation alone is a sizeable share of the time.
-    gi, pi = instances(gt), instances(Path(step))
+    #
+    # The reference instances are built the way the submission's are: the
+    # case's own part files placed by gt/instances.json, written through the
+    # same cq.Assembly path (submission.reference_submission + materialise),
+    # not read out of gt/gt.step. The two are the same B-rep (the deep gate
+    # checks it), but a solid tessellated in place and the same solid
+    # tessellated in its part frame and moved differ by sub-voxel vertex
+    # noise, and a ball or a pin that covers one cell then lands in another
+    # cell on one side only: leave-one-type-out scored the reference of
+    # idler_sprocket_asm 0.33 against itself (every ball 0.0). Same path both
+    # sides -> the identity is exact by construction; gt.step stays the
+    # audited artefact and the legacy columns' file.
+    import tempfile
+    from envs.common.submission import parse as _parse_sub, reference_submission
+    ref_dir = Path(tempfile.mkdtemp(prefix="benchcad-reference-"))
+    ref_step = _sub.materialise(_parse_sub(reference_submission(case_dir, ref_dir), case_dir=case_dir),
+                                ref_dir) or gt
+    gi, pi = instances(ref_step), instances(Path(step))
     pinned = orientation_is_pinned(case_dir, task)
     scale = scale_mode(task)
     # ⚠️ The legacy call is ALWAYS scale="fixed", whatever the task declares.

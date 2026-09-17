@@ -47,8 +47,14 @@ uv run python tools/summarize.py results/gpt55.json
 `--cases` takes any directory and finds every case under it, so `examples` is
 all nine samples, `examples/task2` one task, `examples/task2/cases/case2` one
 case, and a path into your own case tree works the same way. The defaults are
-the benchmark's contract: 100 rounds per case at effort `max`; `--rounds` and
-`--effort` override them for a smoke run. The run writes one JSON with a
+the benchmark's contract: 100 rounds per case at effort `max`, no cap on a
+reply (the model's own maximum output; `--max-tokens` sets one), every image
+the episode produced kept in the conversation, the observation text limited
+the way Terminus 2 limits it (10,000 bytes, first and last halves), and
+context summarised the way Terminus 2 summarises it when the model's window
+fills; `--rounds` and `--effort` override the budget for a smoke run. An
+episode ends when the model submits, or with no answer when its rounds run
+out -- nothing is asked on its behalf. The run writes one JSON with a
 record per case (headline `score`, the diagnostic columns, tokens, seconds),
 and `work/<run>/` keeps every case's working directory and transcript;
 `summarize.py` prints the per-case table, the mean per task and the mean of
