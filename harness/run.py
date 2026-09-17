@@ -43,40 +43,55 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from envs.common.episode import run_episode            # noqa: E402
 from envs.common.score_case import fmt, score_case     # noqa: E402
 
-# Thinking effort, as the API takes it. Measured against claude-opus-5 on
-# 2026-09-11: `thinking.type.enabled` with a token budget is REJECTED for this
-# model ("Use thinking.type.adaptive and output_config.effort"), and the
-# accepted efforts are low | medium | high | max. Leaving it unset is not max --
-# the same prompt spent 32 thinking tokens by default, 111 at effort=max -- so
-# the default here is max and every run states it.
-EFFORTS = ("none", "low", "medium", "high", "max")
-DEFAULT_EFFORT = "max"
-# OpenRouter takes low | medium | high; max maps onto high there.
-OR_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high",
-             "max": "high"}
-# OpenAI's own knob on /chat/completions, `reasoning_effort`. Measured
-# 2026-09-15 on gpt-5.4 and gpt-5.5: none | low | medium | high | xhigh are
-# accepted and `minimal` / `max` are 400s, so max maps onto xhigh. Older
-# families take fewer values (gpt-5: minimal..high, gpt-5.1: none..high, the
-# o-series: low..high) and gpt-4.1 has no such parameter at all
-# ("Unrecognized request argument supplied: reasoning_effort"), so a 400 that
-# names the parameter steps the value down -- xhigh -> high -> not sent -- and
-# the call is repeated; the step is remembered for the rest of the episode.
-OPENAI_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high",
-                 "max": "xhigh"}
-# A formal run gets the full budget: 100 rounds at effort max. Smoke runs pass
-# --rounds / --effort explicitly; the defaults are the contract the shipped
-# eval.toml quotes.
-DEFAULT_ROUNDS = 100
+# Thinking effort follows the model: a level is sent as it is, and only to a
+# provider that has it -- nothing is remapped (PROVIDER_EFFORTS, checked by
+# check_effort before any call is made).
+#
+#   anthropic   output_config.effort low | medium | high | xhigh | max, the
+#               five Anthropic documents for Opus 5, Sonnet 5 and Fable 5.1;
+#               none = thinking.type=disabled (on Opus 5 not at xhigh / max).
+#               A model without effort (Haiku 4.5) answers 400 and the case
+#               fails; that is intended, drive() treats it as deterministic.
+#   openai      reasoning_effort none | low | medium | high | xhigh, measured
+#               2026-09-15 on gpt-5.4 and gpt-5.5 (`minimal` and `max` are
+#               400s). Older families take fewer values (gpt-5: minimal..high,
+#               gpt-5.1: none..high, the o-series: low..high) and gpt-4.1 has
+#               no such parameter at all ("Unrecognized request argument
+#               supplied: reasoning_effort"), so a 400 that names the
+#               parameter steps the value down -- xhigh -> high -> not sent --
+#               and the call is repeated; the step is remembered for the rest
+#               of the episode.
+#   openrouter  reasoning.effort low | medium | high, and none.
+#
+# Unset, the level is the provider's top (top_effort): Anthropic max, OpenAI
+# xhigh, OpenRouter high. Leaving it unset at the API is not the top -- both
+# APIs default to high (measured 2026-09-11 on claude-opus-5: 32 thinking
+# tokens unset, 111 at max) -- and the level actually run is what the
+# banner and every record carry.
+EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+DEFAULT_EFFORT = None
+PROVIDER_EFFORTS = {"anthropic/": EFFORTS,
+                    "openai/": ("none", "low", "medium", "high", "xhigh"),
+                    "openrouter/": ("none", "low", "medium", "high")}
+OPENAI_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openai/"]}
+OR_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openrouter/"]}
+# The rounds an episode gets when --rounds is not given; the eval.toml the
+# examples ship quotes it (tools/make_dev_samples.py). 30, since 2026-09-17:
+# on the trial runs the model submitted on its own well inside that, and
+# the rounds past it bought re-crops, not answers.
+DEFAULT_ROUNDS = 30
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
-# the model's ceiling is sent, ANTHROPIC_MAX_OUTPUT). A 16k cap was the
-# thinking's cap at effort max, and every round that filled it lost its
-# answer. BenchCAD-main's harness sends 512k for the same reason. --max-tokens
-# still sets one when a run wants it.
+# the model's ceiling is sent -- what the Models API reports as max_tokens
+# (_anthropic_model_info), else this table: 128k for the Claude 5 family
+# and everything not listed, 64k for Haiku 4.5, Anthropic's own numbers; a
+# model with a lower ceiling answers 400 and anthropic_call halves until
+# accepted). A 16k cap was the thinking's cap at effort max, and every
+# round that filled it lost its answer. BenchCAD-main's harness sends 512k
+# for the same reason. --max-tokens still sets one when a run wants it.
 DEFAULT_MAX_TOKENS = None
-ANTHROPIC_MAX_OUTPUT = {"claude-opus-5": 128_000}
-ANTHROPIC_MAX_OUTPUT_DEFAULT = 64_000
+ANTHROPIC_MAX_OUTPUT = {"claude-haiku-4-5": 64_000}
+ANTHROPIC_MAX_OUTPUT_DEFAULT = 128_000
 ATTEMPTS = 4
 BACKOFF_S = 5
 # A reply with no content is retried once with this much more room, and on
@@ -155,6 +170,28 @@ def resolve_key(prefix: str, prov: Provider) -> str | None:
         f"{prefix}* needs {want} in the environment; none of those is set.\n"
         f"Export one and retry, or use --model mock/oracle to exercise the "
         f"runner without any provider key.")
+
+
+def top_effort(prefix: str) -> str | None:
+    """The highest level the provider at `prefix` has -- what --effort means
+    when it is not given -- or None for a provider with no effort knob (xai,
+    opencode, gemini, mock: nothing is sent)."""
+    levels = PROVIDER_EFFORTS.get(prefix)
+    return levels[-1] if levels else None
+
+
+def check_effort(prefix: str, effort: str | None) -> None:
+    """Refuse a level the provider at `prefix` does not have, before any
+    call is made: no remapping, a run at `max` on OpenAI is an error."""
+    levels = PROVIDER_EFFORTS.get(prefix)
+    name = prefix.rstrip("/")
+    if levels is None:
+        if effort is not None:
+            raise SystemExit(f"{name} has no effort knob; leave --effort unset")
+        return
+    if effort not in levels:
+        raise SystemExit(f"{name} has no effort {effort!r}; its levels are "
+                         + ", ".join(levels))
 
 
 # The API's many-image rule, measured 2026-09-12 on claude-opus-5: a request
@@ -376,10 +413,47 @@ def drive(send, what: str):
 
 # ── provider call_fns: all return call(system, turns) -> str ─────────────────
 
+_MODEL_INFO: dict[str, dict | None] = {}
+
+
+def _anthropic_model_info(client, model: str) -> dict | None:
+    """What the Models API says `model` takes: its output ceiling
+    (max_tokens), its context window (max_input_tokens) and the effort
+    levels it has. Asked once per process. None when it cannot be asked
+    (offline, a client without .models), said once; the built-in tables
+    then stand in."""
+    if model in _MODEL_INFO:
+        return _MODEL_INFO[model]
+    try:
+        info = client.models.retrieve(model)
+        eff = getattr(getattr(info, "capabilities", None), "effort", None)
+        efforts: set[str] = set()
+        for lvl in EFFORTS[1:]:
+            cap = getattr(eff, lvl, None)
+            if cap is not None and cap.supported:
+                efforts.add(lvl)
+        out = {"max_tokens": getattr(info, "max_tokens", None),
+               "max_input_tokens": getattr(info, "max_input_tokens", None),
+               "efforts": efforts}
+    except Exception as e:                                       # noqa: BLE001
+        print(f"      (models API unavailable for {model}, {type(e).__name__}; "
+              f"using the built-in table)", flush=True)
+        out = None
+    _MODEL_INFO[model] = out
+    return out
+
+
 def anthropic_call(model: str, max_tokens: int, usage: list,
-                   effort: str = DEFAULT_EFFORT):
+                   effort: str | None = DEFAULT_EFFORT):
     import anthropic
-    client = anthropic.Anthropic()
+    effort = effort or top_effort("anthropic/")
+    check_effort("anthropic/", effort)
+    # The same clock as the openai client: a wedged stream is caught by the
+    # per-read timeout, the other phases by CALL_TIMEOUT_S. (anthropic 1.x is
+    # built on httpx2; anthropic.Timeout is its Timeout.)
+    client = anthropic.Anthropic(timeout=anthropic.Timeout(CALL_TIMEOUT_S, read=READ_IDLE_S,
+                                                           connect=30.0))
+    info = _anthropic_model_info(client, model)
     # As on the openai path: set for exactly ONE attempt by the truncation
     # raise below, cleared on every other outcome, so the boost never
     # compounds. max_tokens covers the thinking AND the answer on this API,
@@ -388,8 +462,26 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     # without a retry with room that round is lost with nothing to show.
     room = {"on": False}
 
-    ceiling = {"n": max_tokens or next((n for k, n in ANTHROPIC_MAX_OUTPUT.items()
-                                        if model.startswith(k)), ANTHROPIC_MAX_OUTPUT_DEFAULT)}
+    ceiling = {"n": max_tokens or (info or {}).get("max_tokens")
+               or next((n for k, n in ANTHROPIC_MAX_OUTPUT.items()
+                        if model.startswith(k)), ANTHROPIC_MAX_OUTPUT_DEFAULT)}
+
+    # The level actually sent: the one asked for, or -- when the Models API
+    # lists this model's levels and it is not among them -- the highest of
+    # those below it (the lowest listed when none is), said once.
+    level = effort
+    if info and info["efforts"] and effort != "none" and effort not in info["efforts"]:
+        listed = [lvl for lvl in EFFORTS[1:] if lvl in info["efforts"]]
+        below = [lvl for lvl in listed if EFFORTS.index(lvl) < EFFORTS.index(effort)]
+        level = below[-1] if below else listed[0]
+        print(f"      {model} has no effort {effort}; sending {level}", flush=True)
+
+    # none is thinking switched off; every other level rides on adaptive
+    # thinking, the documented mode for every current model. A model that
+    # rejects either (Haiku 4.5 takes neither) answers 400, which drive()
+    # does not retry: the case fails, as intended -- nothing is remapped.
+    knobs = ({"thinking": {"type": "disabled"}} if effort == "none" else
+             {"thinking": {"type": "adaptive"}, "output_config": {"effort": level}})
 
     def send(system: str, turns: list, drop_images: bool) -> str:
         turns, max_px = bound_images(turns)
@@ -403,20 +495,14 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                     "type": "base64", "media_type": "image/png", "data": _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": content or [{"type": "text", "text": "(empty)"}]})
-        # "none" is thinking switched off, not an effort value: output_config
-        # takes low..max only. (The other four are measured; none is the
-        # documented `thinking.type.disabled` and is not yet measured here.)
-        knobs = ({"thinking": {"type": "disabled"}} if effort == "none" else
-                 {"thinking": {"type": "adaptive"},
-                  "output_config": {"effort": effort}})
         # Prompt caching is NOT automatic on this API: without a cache_control
         # field nothing is cached, and every round re-bought the whole
         # transcript and every seed image at full price (the usage
-        # accounting below was written as if it were on; it was not). A
-        # top-level cache_control asks the API to cache the longest stable
-        # prefix itself: reads are 0.1x the input price, writes 1.25x, and
-        # the prefix -- system prompt, seed images, every earlier turn --
-        # is the bulk of a round's input from round two on.
+        # accounting below was written as if it were on; it was not). The
+        # top-level cache_control asks the API to mark the last cacheable
+        # block itself, so the longest stable prefix -- system prompt, seed
+        # images, every earlier turn, the bulk of a round's input from round
+        # two on -- is read at 0.1x the input price (writes 1.25x).
         # Stream: max_tokens this large trips the SDK's HTTP timeout otherwise.
         if room["on"]:
             print(f"      retrying with max_tokens={budget:,} so the answer has room "
@@ -425,7 +511,7 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
             try:
                 with client.messages.stream(model=model, system=system,
                                             max_tokens=budget, messages=messages,
-                                            extra_body={"cache_control": {"type": "ephemeral"}},
+                                            cache_control={"type": "ephemeral"},
                                             **knobs) as st:
                     msg = st.get_final_message()
                 break
@@ -433,6 +519,9 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                 # The model's ceiling is not published per model here; a 400
                 # naming max_tokens says what it is ("... maximum of N") and
                 # the value is halved until accepted, remembered per episode.
+                # Any other 400 -- effort or adaptive thinking on a model
+                # without them, thinking disabled at xhigh / max -- is
+                # drive()'s deterministic 400.
                 if "max_tokens" in str(e) and budget > 8000:
                     ceiling["n"] = budget = budget // 2
                     print(f"      {model} rejected max_tokens; sending {budget:,} "
@@ -459,7 +548,7 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                         for b in msg.content if b.type == "thinking")
         text = "".join(b.text for b in msg.content if b.type == "text")
         if think or msg.stop_reason != "end_turn":
-            print(f"      thinking {len(think):,} chars, content {len(text):,}"
+            print(f"      reasoning {len(think):,} chars, content {len(text):,}"
                   + ("" if msg.stop_reason == "end_turn" else f", stop={msg.stop_reason}"),
                   flush=True)
         if msg.stop_reason == "max_tokens" and not _has_fence(text):
@@ -477,7 +566,10 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
             return text
         room["on"] = False
         return text
-    return drive(send, "anthropic call")
+    call = drive(send, "anthropic call")
+    # The window the Models API reported, for build_call's context_tokens.
+    call.context_hint = (info or {}).get("max_input_tokens")    # type: ignore[attr-defined]
+    return call
 
 
 def _delta_reasoning(delta) -> str:
@@ -540,7 +632,7 @@ def _is_openrouter(base_url: str | None) -> bool:
 
 def openai_compat_call(model: str, max_tokens: int, usage: list,
                        api_key: str, base_url: str | None,
-                       effort: str = DEFAULT_EFFORT):
+                       effort: str | None = DEFAULT_EFFORT):
     """OpenAI, xAI, OpenRouter and OpenCode all speak /chat/completions.
 
     Streamed, so a per-read timeout (READ_IDLE_S on the client below) can
@@ -557,6 +649,12 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
     """
     import httpx
     import openai
+    # The provider's own levels, its top when none was given: OpenAI and
+    # OpenRouter have a knob, xAI and OpenCode are sent nothing.
+    who = "openai/" if base_url is None else "openrouter/" if _is_openrouter(base_url) else None
+    if who:
+        effort = effort or top_effort(who)
+        check_effort(who, effort)
     client = openai.OpenAI(
         api_key=api_key, base_url=base_url,
         timeout=httpx.Timeout(CALL_TIMEOUT_S, read=READ_IDLE_S, connect=30.0))
@@ -853,8 +951,10 @@ def context_tokens_for(model_id: str) -> int:
 
 
 def build_call(spec: str, max_tokens: int, usage: list, case: Path,
-               effort: str = DEFAULT_EFFORT, context_tokens: int | None = None):
+               effort: str | None = DEFAULT_EFFORT, context_tokens: int | None = None):
     prefix, prov, model_id = split_model(spec)
+    effort = effort if effort is not None else top_effort(prefix)
+    check_effort(prefix, effort)
     if prov.kind == "mock":
         call = mock_call(model_id, case)
     else:
@@ -868,9 +968,12 @@ def build_call(spec: str, max_tokens: int, usage: list, case: Path,
         else:
             raise SystemExit(f"provider kind {prov.kind!r} has no call implementation")
     # What the episode reads to decide on summarising: the provider's own
-    # count of the last prompt, and the window it has to fit in.
+    # count of the last prompt, and the window it has to fit in -- as given,
+    # else as the provider reported it (anthropic's Models API), else the
+    # table.
     call.usage = usage                                   # type: ignore[attr-defined]
-    call.context_tokens = context_tokens or context_tokens_for(model_id)   # type: ignore[attr-defined]
+    call.context_tokens = (context_tokens or getattr(call, "context_hint", None)   # type: ignore[attr-defined]
+                           or context_tokens_for(model_id))
     return call
 
 
@@ -999,11 +1102,14 @@ def main() -> int:
     ap.add_argument("--cases", default="tests/fixtures",
                     help="a case dir, or a tree to search (default: tests/fixtures)")
     ap.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT,
-                    help="thinking effort (default: max). anthropic: "
-                         "output_config.effort (none = thinking disabled); "
-                         "openai: reasoning_effort, where max maps to xhigh; "
-                         "openrouter: reasoning.effort, where max maps to high")
-    ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+                    help="thinking effort, sent as it is and only to a provider "
+                         "that has it: anthropic output_config.effort "
+                         "none..max (none = thinking disabled); openai "
+                         "reasoning_effort none..xhigh; openrouter "
+                         "reasoning.effort none..high. Default: the "
+                         "provider's top level (max, xhigh, high)")
+    ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
+                    help=f"rounds per episode (default: {DEFAULT_ROUNDS})")
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
                     help="cap on one reply (thinking included). Default: none "
                          "-- the model's own maximum")
@@ -1039,6 +1145,10 @@ def main() -> int:
     a = ap.parse_args()
 
     prefix, prov, model_id = split_model(a.model)
+    defaulted = a.effort is None
+    if defaulted:
+        a.effort = top_effort(prefix)
+    check_effort(prefix, a.effort)
     cases = _shard(discover(a.cases), a.shard)
     if not cases:
         raise SystemExit(f"--cases {a.cases}: no cases found")
@@ -1064,8 +1174,10 @@ def main() -> int:
         kept = {r["case"]: r for r in prior.get("cases", []) if _done(r)}
         stamp = prior.get("started", stamp)
     todo = [c for c in cases if str(c) not in kept]
+    effort_note = (f" ({prefix.rstrip('/')}'s top level)" if defaulted and a.effort else
+                   " (no effort knob)" if a.effort is None else "")
     print(f"model {a.model}  provider {prefix.rstrip('/')}  "
-          f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort}  "
+          f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort or '-'}{effort_note}  "
           f"rep {a.rep}  workers {a.workers}"
           + (f"  max-execs {a.max_execs}" if a.max_execs else "")
           + (f"  shard {a.shard}" if a.shard else "")

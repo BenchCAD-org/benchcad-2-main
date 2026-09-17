@@ -31,8 +31,9 @@ inputs = ["drawing.png", "drawing_tile_*.png", "bom.json", "part_drawings/*.png"
 [episode]
 # One fenced block per reply, text and images only -- never a provider's own
 # tool protocol, so scores stay comparable across vendors.
-rounds = 100    # harness/run.py DEFAULT_ROUNDS; --rounds overrides
-max_tokens_per_round = "model maximum"    # no cap on a reply, thinking included (harness/run.py DEFAULT_MAX_TOKENS = None; --max-tokens sets one)
+rounds = 30    # harness/run.py DEFAULT_ROUNDS; --rounds overrides
+effort = "provider's top level"    # harness/run.py: --effort takes one of none | low | medium | high | xhigh | max, sent verbatim and refused where the provider lacks it (OpenAI none..xhigh, Anthropic none..max); unset, the run uses the provider's top (OpenAI xhigh, Anthropic max) and records the level it used
+max_tokens_per_round = "model maximum"    # no cap on a reply, thinking included: OpenAI and Gemini get no limit, Anthropic gets the model's own ceiling from the Models API (harness/run.py DEFAULT_MAX_TOKENS = None; --max-tokens sets one)
 code_fence = "```python"    # runs in the working directory; stdout, stderr and new images come back
 submit_fence = "```submit"    # the final answer; ends the episode
 submission_variable = "none"    # the answer is the submission/ directory the program writes (tools.export_part + tools.submit_assembly); a `result` left over is exported to final.step, but the directory is what gets scored

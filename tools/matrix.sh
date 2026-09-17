@@ -12,15 +12,20 @@
 # One rep at a time; within a rep the five efforts run as five processes side
 # by side (so 5 x <workers> episodes are in flight and no effort's tail leaves
 # workers idle), each writing results/<tag>_<effort>_r<rep>_s<k>.json and a
-# log next to it. Every process runs with --resume, so re-running the same
-# command after a crash or a reboot picks up where it stopped. Reps are
-# ordered outermost so that stopping early leaves complete efforts for the
-# reps that finished.
+# log next to it. EFFORTS follows the model: every level is sent verbatim and
+# harness/run.py refuses one the provider lacks, so an Anthropic matrix is
+# EFFORTS="low medium high xhigh max" (the default) and an OpenAI matrix is
+# EFFORTS="low medium high xhigh" (OpenAI has no max). EFFORTS="none ..." adds a
+# thinking-off run (OpenAI reasoning_effort none, Anthropic thinking disabled).
+# ROUNDS defaults to the harness's own default (30). Every
+# process runs with --resume, so re-running the same command after a crash or
+# a reboot picks up where it stopped. Reps are ordered outermost so that
+# stopping early leaves complete efforts for the reps that finished.
 set -u
-if [ $# -lt 5 ]; then sed -n 2,16p "$0"; exit 2; fi
+if [ $# -lt 5 ]; then sed -n 2,22p "$0"; exit 2; fi
 MODEL=$1; CASES=$2; SHARD=$3; WORKERS=$4; shift 4
-EFFORTS=${EFFORTS:-"none low medium high max"}
-ROUNDS=${ROUNDS:-100}
+EFFORTS=${EFFORTS:-"low medium high xhigh max"}
+ROUNDS=${ROUNDS:-30}
 MAX_EXECS=${MAX_EXECS:-0}
 TAG=$(echo "$MODEL" | tr '/:' '__')
 K=${SHARD%%/*}

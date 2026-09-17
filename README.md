@@ -38,34 +38,47 @@ docker build -t benchcad-sandbox:arm64 sandbox/     # no network inside, 2 GB, 1
 
 ## Score in one command
 
+The nine development samples are in `examples/` -- `examples/task1` ...
+`examples/task6`, one or two cases each -- and a first run points there:
+
 ```sh
-export OPENAI_API_KEY=...             # or ANTHROPIC_API_KEY with --model anthropic/claude-opus-5
-uv run python harness/run.py --model openai/gpt-5.5 --cases examples --out results/gpt55.json
-uv run python tools/summarize.py results/gpt55.json
+export OPENAI_API_KEY=...             # or ANTHROPIC_API_KEY
+uv run python harness/run.py --model openai/gpt-6-astra --cases examples --out results/astra.json
+uv run python harness/run.py --model anthropic/claude-opus-5 --cases examples --out results/opus5.json
+uv run python tools/summarize.py results/astra.json results/opus5.json
 ```
 
 `--cases` takes any directory and finds every case under it, so `examples` is
-all nine samples, `examples/task2` one task, `examples/task2/cases/case2` one
+all nine samples, `examples/task3` one task, `examples/task3/cases/case1` one
 case, and a path into your own case tree works the same way. The defaults are
-the benchmark's contract: 100 rounds per case at effort `max`, no cap on a
-reply (the model's own maximum output; `--max-tokens` sets one), every image
-the episode produced kept in the conversation, the observation text limited
-the way Terminus 2 limits it (10,000 bytes, first and last halves), and
-context summarised the way Terminus 2 summarises it when the model's window
-fills; `--rounds` and `--effort` override the budget for a smoke run. An
-episode ends when the model submits, or with no answer when its rounds run
-out -- nothing is asked on its behalf. The run writes one JSON with a
-record per case (headline `score`, the diagnostic columns, tokens, seconds),
-and `work/<run>/` keeps every case's working directory and transcript;
-`summarize.py` prints the per-case table, the mean per task and the mean of
-the task means, with the count of scored cases next to every mean.
+the benchmark's contract: **30 rounds per case** (`--rounds` changes it) at the
+provider's top effort (`--effort` changes it), no cap on a reply (the model's
+own maximum output; `--max-tokens` sets one), every image the episode produced
+kept in the conversation, the observation text limited the way Terminus 2
+limits it (10,000 bytes, first and last halves), and context summarised the way
+Terminus 2 summarises it when the model's window fills. An episode ends when
+the model submits, or with no answer when its rounds run out -- nothing is
+asked on its behalf. The run writes one JSON with a record per case (headline
+`score`, the diagnostic columns, tokens, seconds), and `work/<run>/` keeps
+every case's working directory and transcript; `summarize.py` prints the
+per-case table, the mean per task and the mean of the task means, with the
+count of scored cases next to every mean.
 
-`--effort` is `none | low | medium | high | max` and is passed to the
-provider's own knob: OpenAI `reasoning_effort` (`max` is `xhigh`; a model that
-rejects a value is stepped down and the log says so), Anthropic
-`output_config.effort` (`none` disables thinking), OpenRouter
-`reasoning.effort`. Images go to OpenAI at `detail: high`. Every provider
-speaks the same text-and-images protocol, so scores compare across vendors.
+`--effort` follows the model: OpenAI takes `none | low | medium | high | xhigh`
+(`reasoning_effort`), Anthropic `none | low | medium | high | xhigh | max`
+(`none` is thinking disabled; the rest is `output_config.effort` with adaptive
+thinking), OpenRouter `none | low | medium | high` (`reasoning.effort`). A level
+the provider does not have is refused at startup -- `max` on OpenAI is an
+error, not xhigh -- and with no `--effort` the run uses the provider's top
+level (OpenAI xhigh, Anthropic max), prints it and records it in the results.
+Anthropic requires `max_tokens`, so it is sent the model's own ceiling from the
+Models API (128k on Opus 5 / Sonnet 5 / Fable 5.1), and the same lookup's
+`max_input_tokens` is the window the summarisation works against;
+`--context-tokens` overrides. Both adapters share the client timeouts, the
+retry rules, the image handling and prompt caching (OpenAI's automatic prefix
+cache, Anthropic's top-level `cache_control`), and both log usage per call.
+Images go to OpenAI at `detail: high`. Every provider speaks the same
+text-and-images protocol, so scores compare across vendors.
 
 Runs of any size:
 
@@ -87,8 +100,8 @@ only errors, so a run interrupted anywhere continues with the same command.
 
 Budget for the full contract: a part case is tens of thousands of input
 tokens per round (cached after round one); an assembly case starts at 12–20
-images per round. Reckon on a few dollars per part case and tens of dollars per
-assembly case at 100 rounds.
+images per round. Reckon on a few dollars per part case and around ten per
+assembly case at 30 rounds.
 
 ## Check your setup before you spend anything
 

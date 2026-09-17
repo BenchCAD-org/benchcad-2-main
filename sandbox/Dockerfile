@@ -19,8 +19,13 @@ FROM python:3.12-slim-trixie
 # vtk / OCC offscreen rendering needs these. A missing one does not fail at
 # import -- it throws on the first render, with an exception that does not
 # name a library. Install the whole set rather than adding them on demand.
+# Without libegl1 / libegl-mesa0 / libgles2 vtk has no offscreen context at
+# all in a container (no X, EGL fails to load, no OSMesa) and a first
+# Render() is a SIGSEGV (rc 139), measured 2026-09-17; with them it renders
+# through mesa's llvmpipe (a T4 case's views and part sheets in 3.2 s).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglx-mesa0 libglvnd0 libgl1-mesa-dri \
+        libegl1 libegl-mesa0 libgles2 libgbm1 \
         libx11-6 libx11-xcb1 libxext6 libxrender1 libsm6 libice6 \
     && rm -rf /var/lib/apt/lists/*
 

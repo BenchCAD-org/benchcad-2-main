@@ -31,8 +31,9 @@ inputs = ["views.png"]
 [episode]
 # One fenced block per reply, text and images only -- never a provider's own
 # tool protocol, so scores stay comparable across vendors.
-rounds = 100    # harness/run.py DEFAULT_ROUNDS; --rounds overrides
-max_tokens_per_round = "model maximum"    # no cap on a reply, thinking included (harness/run.py DEFAULT_MAX_TOKENS = None; --max-tokens sets one)
+rounds = 30    # harness/run.py DEFAULT_ROUNDS; --rounds overrides
+effort = "provider's top level"    # harness/run.py: --effort takes one of none | low | medium | high | xhigh | max, sent verbatim and refused where the provider lacks it (OpenAI none..xhigh, Anthropic none..max); unset, the run uses the provider's top (OpenAI xhigh, Anthropic max) and records the level it used
+max_tokens_per_round = "model maximum"    # no cap on a reply, thinking included: OpenAI and Gemini get no limit, Anthropic gets the model's own ceiling from the Models API (harness/run.py DEFAULT_MAX_TOKENS = None; --max-tokens sets one)
 code_fence = "```python"    # runs in the working directory; stdout, stderr and new images come back
 submit_fence = "```submit"    # the final answer; ends the episode
 submission_variable = "result"    # a complete CadQuery program leaving the answer in `result`
@@ -84,7 +85,7 @@ crop = "tools.crop(png, (left, top, right, bottom)) -> PNG"
 [verify]
 entry = "envs.verifiers.part:score"    # the verifier; dispatched on this declaration, never sniffed
 metric = "part_v1"    # envs/t3_part2step/task.toml [verify] metric
-headline_formula = "0.40 * iou_term + 0.35 * surf_f1 + 0.25 * pix_fg"
+headline_formula = "0.5 * iou_term + 0.3 * surf_f1 + 0.2 * pix_fg"
 headline_range = [0.0, 1.0]
 metric_reference = "docs/METRICS.md"
 score_key = "score"
