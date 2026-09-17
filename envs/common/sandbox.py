@@ -32,6 +32,24 @@ from .submission import SUB_ROOT
 DOCKER_IMAGE = os.environ.get("CADENV_DOCKER_IMAGE", "benchcad-sandbox:arm64")
 MEMORY, CPUS = "2g", "1"
 
+
+def _exec_gate():
+    """At most CADENV_MAX_EXECS sandbox executions at once in this process,
+    whatever the number of episodes in flight (harness/run.py --workers).
+
+    An episode spends most of its time waiting on the model, so the number
+    of containers actually running is a fraction of the workers -- but the
+    fraction is not bounded, and the docker host is: each container may take
+    MEMORY. The gate makes the bound explicit, so API concurrency and sandbox
+    concurrency are sized separately. Unset or 0 means no gate.
+    """
+    import threading
+    n = int(os.environ.get("CADENV_MAX_EXECS", "0") or 0)
+    return threading.BoundedSemaphore(n) if n > 0 else None
+
+
+EXEC_GATE = _exec_gate()
+
 TOOLS_PY = '''\
 """Tools available in this working directory."""
 from pathlib import Path
@@ -720,9 +738,25 @@ class Sandbox:
         script = self.dir / "_run.py"
         script.write_text(code)
         if self.docker:
-            container = f"cadenv-{self.dir.name[:40]}-{self._round + 1}"
+            # Named after the directory's full path, not its (truncated) name:
+            # two episodes whose work dirs share their first 40 characters --
+            # the same case in two reps, two members of one T3 family -- ran
+            # side by side and the second `docker run` failed with "name
+            # already in use", scored as the model's zero.
+            import hashlib
+            tag = hashlib.sha1(str(self.dir).encode()).hexdigest()[:10]
+            container = f"cadenv-{self.dir.name[:30]}-{tag}-{self._round + 1}"
             cmd = ["docker", "run", "--rm", "--name", container,
                    "--network", "none", "--memory", MEMORY, "--cpus", CPUS,
+                   # On a Linux host the container's root writes root-owned
+                   # files into the mount: the next episode in that directory
+                   # cannot overwrite them (measured on a WSL2 host: the
+                   # oracle's second T5 export left 5 of 21 parts and scored
+                   # 0.03) and the user cannot delete the run afterwards.
+                   # Docker Desktop / colima on macOS map ownership to the
+                   # user already, and the image's python runs fine as any uid.
+                   *(["--user", f"{os.getuid()}:{os.getgid()}"]
+                     if sys.platform != "darwin" else []),
                    "--pids-limit", "256", "--read-only",
                    "--tmpfs", "/tmp:size=256m",
                    "--security-opt", "no-new-privileges",
@@ -743,6 +777,8 @@ class Sandbox:
             env = {**os.environ,
                    "PYTHONPATH": os.pathsep.join(
                        [str(self.dir), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)}
+        if EXEC_GATE is not None:
+            EXEC_GATE.acquire()
         try:
             r = subprocess.run(cmd, timeout=timeout, capture_output=True,
                                cwd=None if self.docker else self.dir, env=env)
@@ -752,6 +788,9 @@ class Sandbox:
                 subprocess.run(["docker", "kill", container],
                                capture_output=True, timeout=60)
             rc, out, err = -1, b"", f"timeout after {timeout}s".encode()
+        finally:
+            if EXEC_GATE is not None:
+                EXEC_GATE.release()
         now = self._snapshot()
         fresh = [self.dir / n for n, m in now.items() if self._seen.get(n) != m]
         self._seen = now

@@ -3,7 +3,7 @@
 
     uv run python harness/run.py --model anthropic/claude-opus-5
     uv run python harness/run.py --model mock/oracle          # no key needed
-    uv run python harness/run.py --model openai/gpt-5.4 --cases envs/t3_part2step/cases
+    uv run python harness/run.py --model openai/gpt-5.5 --effort high --cases examples
 
 `--model <provider>/<id>` picks the provider by prefix. Every provider speaks
 the same `call_fn(system, turns) -> str` contract that envs.common.episode
@@ -49,10 +49,21 @@ from envs.common.score_case import fmt, score_case     # noqa: E402
 # accepted efforts are low | medium | high | max. Leaving it unset is not max --
 # the same prompt spent 32 thinking tokens by default, 111 at effort=max -- so
 # the default here is max and every run states it.
-EFFORTS = ("low", "medium", "high", "max")
+EFFORTS = ("none", "low", "medium", "high", "max")
 DEFAULT_EFFORT = "max"
 # OpenRouter takes low | medium | high; max maps onto high there.
-OR_EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high"}
+OR_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high",
+             "max": "high"}
+# OpenAI's own knob on /chat/completions, `reasoning_effort`. Measured
+# 2026-09-15 on gpt-5.4 and gpt-5.5: none | low | medium | high | xhigh are
+# accepted and `minimal` / `max` are 400s, so max maps onto xhigh. Older
+# families take fewer values (gpt-5: minimal..high, gpt-5.1: none..high, the
+# o-series: low..high) and gpt-4.1 has no such parameter at all
+# ("Unrecognized request argument supplied: reasoning_effort"), so a 400 that
+# names the parameter steps the value down -- xhigh -> high -> not sent -- and
+# the call is repeated; the step is remembered for the rest of the episode.
+OPENAI_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high",
+                 "max": "xhigh"}
 # A formal run gets the full budget: 100 rounds at effort max. Smoke runs pass
 # --rounds / --effort explicitly; the defaults are the contract the shipped
 # eval.toml quotes.
@@ -155,7 +166,22 @@ def resolve_key(prefix: str, prov: Provider) -> str | None:
 #                     4200 px sheet to ~2300 px anyway, so the cost is small
 MANY_IMAGES = 20
 MANY_IMAGE_PX = 2000
-KEEP_OBS_ROUNDS = 4
+# An observation image (a render or plot the model made) stays in the
+# request for this many rounds, then leaves (its text stays, and the model
+# can make it again). Two rather than four: each round it stays is one more
+# cached read of ~2-5k tokens per image, and a model that needs an old
+# figure again has it on disk.
+KEEP_OBS_ROUNDS = 2
+# The downscale decision is made ONCE per episode, from the seed count, not
+# per request from the live count. A per-request decision flipped as crops
+# came and went: the seed images were re-encoded at a different size, the
+# request's prefix changed from turn one, and the whole prompt cache was
+# rewritten (1.25x) instead of read (0.1x). The seeds plus this many
+# observation images per kept round is the request size the episode is
+# sized for; above MANY_IMAGES it runs at MANY_IMAGE_PX from round one. On
+# the high-resolution tier a 2300 px tile is downscaled to ~1970 px by the
+# API anyway, so sending it at 2000 px loses nothing.
+OBS_PER_ROUND = 2
 
 
 def _b64(path: Path, max_px: int | None = None) -> str:
@@ -201,8 +227,12 @@ def bound_images(turns: list) -> tuple[list, int | None]:
     keep = set(user_idx[:1]) | set(user_idx[-KEEP_OBS_ROUNDS:])
     out = [dict(t, images=(t.get("images") or []) if i in keep else [],
                 image_labels=(t.get("image_labels") or []) if i in keep else []) for i, t in enumerate(turns)]
+    n_seed = len(out[user_idx[0]]["images"]) if user_idx else 0
+    sized_for = n_seed + KEEP_OBS_ROUNDS * OBS_PER_ROUND
     n = sum(len(t["images"]) for t in out)
-    return out, (MANY_IMAGE_PX if n > MANY_IMAGES else None)
+    # The live count still rules when a model crops more than the episode
+    # was sized for: the API would reject the request otherwise.
+    return out, (MANY_IMAGE_PX if max(sized_for, n) > MANY_IMAGES else None)
 
 
 # A wedged stream is silent, so the clock that matters is httpx's PER-READ
@@ -349,9 +379,17 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                    effort: str = DEFAULT_EFFORT):
     import anthropic
     client = anthropic.Anthropic()
+    # As on the openai path: set for exactly ONE attempt by the truncation
+    # raise below, cleared on every other outcome, so the boost never
+    # compounds. max_tokens covers the thinking AND the answer on this API,
+    # and at effort high / max the thinking alone can run past 16k tokens:
+    # the reply then stops at max_tokens with the answer unwritten, and
+    # without a retry with room that round is lost with nothing to show.
+    room = {"on": False}
 
     def send(system: str, turns: list, drop_images: bool) -> str:
         turns, max_px = bound_images(turns)
+        budget = max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens
         messages = []
         for t in turns:
             content = [{"type": "text", "text": t["text"]}] if t.get("text") else []
@@ -361,19 +399,38 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                     "type": "base64", "media_type": "image/png", "data": _b64(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": content or [{"type": "text", "text": "(empty)"}]})
+        # "none" is thinking switched off, not an effort value: output_config
+        # takes low..max only. (The other four are measured; none is the
+        # documented `thinking.type.disabled` and is not yet measured here.)
+        knobs = ({"thinking": {"type": "disabled"}} if effort == "none" else
+                 {"thinking": {"type": "adaptive"},
+                  "output_config": {"effort": effort}})
+        # Prompt caching is NOT automatic on this API: without a cache_control
+        # field nothing is cached, and every round re-bought the whole
+        # transcript and every seed image at full price (the usage
+        # accounting below was written as if it were on; it was not). A
+        # top-level cache_control asks the API to cache the longest stable
+        # prefix itself: reads are 0.1x the input price, writes 1.25x, and
+        # the prefix -- system prompt, seed images, every earlier turn --
+        # is the bulk of a round's input from round two on.
         # Stream: max_tokens this large trips the SDK's HTTP timeout otherwise.
+        if room["on"]:
+            print(f"      retrying with max_tokens={budget:,} so the answer has room "
+                  f"after the thinking", flush=True)
         with client.messages.stream(model=model, system=system,
-                                    max_tokens=max_tokens, messages=messages,
-                                    thinking={"type": "adaptive"},
-                                    output_config={"effort": effort}) as st:
+                                    max_tokens=budget, messages=messages,
+                                    extra_body={"cache_control": {"type": "ephemeral"}},
+                                    **knobs) as st:
             msg = st.get_final_message()
         u = msg.usage
-        # episode resends the seed images every round to hit the prompt cache,
-        # so cache reads/writes are most of the input on later rounds; counting
-        # only input_tokens undercounts the run.
-        usage.append({"input_tokens": (u.input_tokens
-                                       + (getattr(u, "cache_read_input_tokens", 0) or 0)
-                                       + (getattr(u, "cache_creation_input_tokens", 0) or 0)),
+        # episode resends the seed images every round and they are read from
+        # the cache, so cache reads/writes are most of the input on later
+        # rounds; counting only input_tokens undercounts the run. The two
+        # are also kept apart, so a results file shows what caching bought.
+        cached = getattr(u, "cache_read_input_tokens", 0) or 0
+        written = getattr(u, "cache_creation_input_tokens", 0) or 0
+        usage.append({"input_tokens": u.input_tokens + cached + written,
+                      "cached_tokens": cached, "cache_write_tokens": written,
                       "output_tokens": u.output_tokens})
         if msg.stop_reason == "refusal":
             cat = getattr(getattr(msg, "stop_details", None), "category", None)
@@ -386,6 +443,20 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
             print(f"      thinking {len(think):,} chars, content {len(text):,}"
                   + ("" if msg.stop_reason == "end_turn" else f", stop={msg.stop_reason}"),
                   flush=True)
+        if msg.stop_reason == "max_tokens" and not _has_fence(text):
+            # Truncated before (or inside) the answer: a failed call, not a
+            # turn. Once, with room; the second time it is handed back as it
+            # is, so a model that cannot stop thinking is not mistaken for a
+            # broken adapter.
+            if not room["on"]:
+                room["on"] = True
+                raise EmptyContent(f"stop_reason=max_tokens at {budget:,} tokens with no "
+                                   f"executable block (thinking {len(think):,} chars)")
+            room["on"] = False
+            print("      still truncated with the doubled budget; handing the reply "
+                  "back (this round is lost)", flush=True)
+            return text
+        room["on"] = False
         return text
     return drive(send, "anthropic call")
 
@@ -474,6 +545,22 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
     # on every other outcome: the boost is never compounded, so
     # max_tokens * EMPTY_RETRY_BOOST is the ceiling however many rounds run.
     room = {"on": False}
+    # OpenAI's own effort knob (see OPENAI_EFFORT); None once stepped all the
+    # way down. Only OpenAI itself gets it: xAI and OpenCode are not measured
+    # against it, and OpenRouter has its `reasoning` block below.
+    knob = {"effort": OPENAI_EFFORT[effort] if base_url is None else None}
+
+    def _step_down(err: str) -> bool:
+        """A 400 that names reasoning_effort: lower the knob one step, or drop
+        it, and say so. False when there is nothing left to lower."""
+        if "reasoning_effort" not in err or not knob["effort"]:
+            return False
+        was, knob["effort"] = knob["effort"], ("high" if knob["effort"] == "xhigh" else None)
+        print(f"      {model} rejected reasoning_effort={was}; "
+              + (f"sending {knob['effort']} instead" if knob["effort"]
+                 else "sending no reasoning_effort")
+              + " for the rest of this episode", flush=True)
+        return True
 
     def send(system: str, turns: list, drop_images: bool) -> str:
         turns, max_px = bound_images(turns)
@@ -482,8 +569,12 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
             parts = [{"type": "text", "text": t["text"]}] if t.get("text") else []
             for img, lab in ([] if drop_images else labelled(t)):
                 parts.append({"type": "text", "text": image_label(img, lab)})
+                # detail "high" is the request for the full-resolution
+                # pass; "auto" leaves it to the endpoint, and a drawing sheet
+                # read at the low tier is a blur.
                 parts.append({"type": "image_url", "image_url": {
-                    "url": "data:image/png;base64," + _b64(img, max_px)}})
+                    "url": "data:image/png;base64," + _b64(img, max_px),
+                    "detail": "high"}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": parts or [{"type": "text", "text": "(empty)"}]})
         budget = max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens
@@ -511,9 +602,22 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
             print(f"      retrying with max_completion_tokens={budget:,}"
                   + (f", reasoning.max_tokens={bound:,}" if bound else "")
                   + " so the content has room", flush=True)
-        stream = client.chat.completions.create(
-            model=model, messages=messages, max_completion_tokens=budget,
-            stream=True, stream_options={"include_usage": True}, **extra)
+        while True:
+            if knob["effort"]:
+                extra["reasoning_effort"] = knob["effort"]
+            else:
+                extra.pop("reasoning_effort", None)
+            try:
+                stream = client.chat.completions.create(
+                    model=model, messages=messages, max_completion_tokens=budget,
+                    stream=True, stream_options={"include_usage": True}, **extra)
+                break
+            except openai.BadRequestError as e:
+                # Deterministic to drive(), so it must be handled here: the
+                # same request minus one step of the knob is a different
+                # request. Anything else is drive()'s to classify.
+                if not _step_down(str(e)):
+                    raise
         chunks, thinking = [], []
         seen_usage, rtokens, finish = None, None, None
         try:
@@ -523,7 +627,11 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                 # providers). Keep the LAST one rather than summing, which
                 # inflated a 10-token prompt to 30.
                 if getattr(ch, "usage", None):
+                    det = getattr(ch.usage, "prompt_tokens_details", None)
+                    cached = (det.get("cached_tokens") if isinstance(det, dict)
+                              else getattr(det, "cached_tokens", None)) or 0
                     seen_usage = {"input_tokens": ch.usage.prompt_tokens,
+                                  "cached_tokens": cached,
                                   "output_tokens": ch.usage.completion_tokens}
                     # Same last-one-wins rule, except that a frame which omits
                     # the breakdown must not erase a count an earlier one gave.
@@ -640,21 +748,27 @@ def mock_call(kind: str, case: Path):
                     '"nets": [], "incidences": []}\n')
     elif (case / "gt/instances.json").exists() and kind == "oracle":
         # Assembly: the answer is the fixed submission layout the prompt asks
-        # for (envs.common.submission), not one STEP. A supplied part goes in
-        # through tools.use_part (the file the sandbox staged, unchanged); a
-        # part the model had to make goes in through tools.export_part from
-        # gt/parts, inlined here because gt/ is never staged. Placement is
-        # gt/instances.json verbatim. The old single-STEP submission scored the
-        # same reference, but it proved the deprecated path, not the one the
-        # task description says to use.
+        # for (envs.common.submission), not one STEP. Placement is
+        # gt/instances.json verbatim, and each T there is relative to the file
+        # `resolve_part` names -- gt/parts/<id>.step when the case holds one,
+        # else the staged input/step_files/<id>.step. So a type with a gt/parts
+        # copy goes in through tools.export_part from that copy (inlined here
+        # because gt/ is never staged), and only a type without one through
+        # tools.use_part. Choosing use_part whenever an input file existed put
+        # the de-posed input under a T meant for the posed gt/parts copy:
+        # measured on the T5 sample, 13 of 21 types landed wrong and the
+        # reference scored 0.03. The old single-STEP submission scored the same
+        # reference, but it proved the deprecated path, not the one the task
+        # description says to use.
         inst = json.loads((case / "gt/instances.json").read_text())["instances"]
         lines = ["import base64, pathlib", "import tools",
                  "_d = pathlib.Path('_oracle'); _d.mkdir(exist_ok=True)"]
         for pid in sorted({r["part_id"] for r in inst}):
-            if (case / "input/step_files" / f"{pid}.step").exists():
+            posed = case / "gt/parts" / f"{pid}.step"
+            if not posed.exists() and (case / "input/step_files" / f"{pid}.step").exists():
                 lines.append(f"tools.use_part({pid!r})")
             else:
-                blob = base64.b64encode((case / "gt/parts" / f"{pid}.step").read_bytes()).decode()
+                blob = base64.b64encode(posed.read_bytes()).decode()
                 lines += [f"(_d / '{pid}.step').write_bytes(base64.b64decode('{blob}'))",
                           f"tools.export_part(str(_d / '{pid}.step'), {pid!r})"]
         recs = [{"part_id": r["part_id"], "instance_id": r["instance_id"], "transform": r["T"]}
@@ -785,6 +899,43 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _raise_fd_limit() -> None:
+    """macOS starts a process at 256 descriptors. Twenty concurrent episodes
+    (subprocess pipes, image files, HTTP streams) go straight through that,
+    and the failure is OSError 24 inside the episode, scored as the model's
+    zero. The former batch runner measured 31 of 49 records lost that way."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = min(hard, 65536) if hard != resource.RLIM_INFINITY else 65536
+        if soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    except (ImportError, ValueError, OSError):
+        pass
+
+
+def _done(rec: dict) -> bool:
+    """Whether a record from an earlier run of the same --out is final.
+
+    A score, a skip, or an episode that ran to its end without submitting
+    is a result. An error is the harness's or the network's, not the
+    model's, and is re-run.
+    """
+    return not rec.get("error") and ("score" in rec or "skipped" in rec)
+
+
+def _shard(cases: list, spec: str | None) -> list:
+    """--shard k/n keeps cases k, k+n, k+2n, ... of the sorted list."""
+    if not spec:
+        return cases
+    try:
+        k, n = (int(x) for x in spec.split("/"))
+        assert n > 0 and 0 <= k < n
+    except (ValueError, AssertionError):
+        raise SystemExit(f"--shard {spec!r}: expected k/n with 0 <= k < n")
+    return cases[k::n]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Run one model over a set of cases.",
@@ -796,17 +947,39 @@ def main() -> int:
                     help="a case dir, or a tree to search (default: tests/fixtures)")
     ap.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT,
                     help="thinking effort (default: max). anthropic: "
-                         "output_config.effort; openrouter: reasoning.effort, "
-                         "where max maps to high")
+                         "output_config.effort (none = thinking disabled); "
+                         "openai: reasoning_effort, where max maps to xhigh; "
+                         "openrouter: reasoning.effort, where max maps to high")
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     ap.add_argument("--work", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None,
                     help="default results/<model>_<timestamp>.json")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="episodes run at once (threads: an episode waits on "
+                         "HTTP or on its sandbox almost all of the time). "
+                         "Each sandbox exec may take 2 GB; size the docker "
+                         "host for workers x 2 GB")
+    ap.add_argument("--max-execs", type=int, default=0,
+                    help="at most this many sandbox executions at once in "
+                         "this process, however many workers wait on the "
+                         "API (CADENV_MAX_EXECS; 0 = no cap). Size it to the "
+                         "docker host: each execution may take 2 GB")
+    ap.add_argument("--rep", type=int, default=0,
+                    help="repetition index: recorded in every record and "
+                         "part of the work-dir name, so reps of one case can "
+                         "run side by side (default 0)")
+    ap.add_argument("--shard", default=None,
+                    help="k/n: this process takes cases k, k+n, k+2n, ... of "
+                         "the sorted list; give each machine its own k")
+    ap.add_argument("--resume", action="store_true",
+                    help="reuse --out: cases it already holds with a score, "
+                         "a skip or a finished episode are kept, errors are "
+                         "re-run, the rest are run")
     a = ap.parse_args()
 
     prefix, prov, model_id = split_model(a.model)
-    cases = discover(a.cases)
+    cases = _shard(discover(a.cases), a.shard)
     if not cases:
         raise SystemExit(f"--cases {a.cases}: no cases found")
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -814,20 +987,58 @@ def main() -> int:
                          f"{a.model.replace('/', '_')}_{stamp}.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     work_root = a.work or (Path.home() / "cad-agent-work" / f"run_{stamp}")
+    if a.workers > 1:
+        _raise_fd_limit()
+    if a.max_execs:
+        # Read by envs.common.sandbox at import; the harness imports it
+        # through episode above, so re-create the gate here.
+        os.environ["CADENV_MAX_EXECS"] = str(a.max_execs)
+        import envs.common.sandbox as _sb
+        _sb.EXEC_GATE = _sb._exec_gate()
 
+    # Records keyed by case path, in case order, so a resumed run and a
+    # parallel run both write the same file a sequential run would.
+    kept: dict[str, dict] = {}
+    if a.resume and out_path.exists():
+        prior = json.loads(out_path.read_text())
+        kept = {r["case"]: r for r in prior.get("cases", []) if _done(r)}
+        stamp = prior.get("started", stamp)
+    todo = [c for c in cases if str(c) not in kept]
     print(f"model {a.model}  provider {prefix.rstrip('/')}  "
-          f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort}", flush=True)
-    records = []
-    for i, case in enumerate(cases, 1):
+          f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort}  "
+          f"rep {a.rep}  workers {a.workers}"
+          + (f"  max-execs {a.max_execs}" if a.max_execs else "")
+          + (f"  shard {a.shard}" if a.shard else "")
+          + (f"  resume: {len(kept)} kept, {len(todo)} to run" if a.resume else ""),
+          flush=True)
+    records: dict[str, dict] = dict(kept)
+    import threading
+    lock = threading.Lock()
+
+    def write() -> None:
+        out_path.write_text(json.dumps(
+            {"model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
+             "effort": a.effort, "rep": a.rep, "started": stamp,
+             "cases": [records[str(c)] for c in cases if str(c) in records]},
+            indent=1, default=str) + "\n")
+
+    def one(case: Path) -> dict:
         usage: list = []
         t0 = time.time()
         rec = {"case": str(case), "case_id": case.name, "model": a.model,
-               "provider": prefix.rstrip("/"), "rounds": a.rounds}
+               "provider": prefix.rstrip("/"), "rounds": a.rounds,
+               "effort": a.effort, "rep": a.rep}
         gt = case / "gt/gt.step"
         rec["gt_sha256"] = sha256(gt) if gt.exists() else None
         try:
             call = build_call(a.model, a.max_tokens, usage, case, a.effort)
-            work = work_root / case_key(case)
+            work = work_root / f"r{a.rep}__{case_key(case)}"
+            # A directory from an earlier attempt (--resume re-running an
+            # error) would be staged over, not replaced -- Sandbox copies with
+            # dirs_exist_ok -- and its old submission could be scored.
+            import shutil
+            for stale in (work, work.parent / (work.name + "_log")):
+                shutil.rmtree(stale, ignore_errors=True)
             res = run_episode(case, work, call, max_rounds=a.rounds)
             rec["submitted"] = res["submitted"]
             # run_episode only looks for .step artifacts, so an ECAD submission
@@ -844,7 +1055,6 @@ def main() -> int:
             # (envs/common/episode.py _artifact). In the record because the two
             # are scored by different code paths.
             rec["artifact"] = res.get("artifact")
-            rec["score"] = score_case(case, Path(artifact)) if artifact else None
         except SkipCase as e:
             rec["skipped"] = str(e)
         except SystemExit:
@@ -855,18 +1065,52 @@ def main() -> int:
         rec["seconds"] = round(time.time() - t0, 1)
         rec["tokens"] = {
             "input": sum(u.get("input_tokens", 0) for u in usage),
+            "cached": sum(u.get("cached_tokens", 0) for u in usage),
             "output": sum(u.get("output_tokens", 0) for u in usage),
             "calls": len(usage)}
-        records.append(rec)
+        return rec
+
+    done = 0
+
+    def finish(case: Path, rec: dict) -> None:
+        """Score and record. Runs on the MAIN thread only: the pixel term
+        renders through vtk, and on macOS vtk's Cocoa window may only be
+        created on the main thread -- from a worker thread it is an
+        NSInternalInconsistencyException that aborts the whole process
+        (measured: four episodes lost at once, results file empty)."""
+        nonlocal done
+        if "error" not in rec and "skipped" not in rec:
+            t0 = time.time()
+            try:
+                artifact = rec.get("step")
+                rec["score"] = score_case(case, Path(artifact)) if artifact else None
+            except Exception as e:                               # noqa: BLE001
+                rec["error"] = f"{type(e).__name__}: {e}"
+                rec["traceback"] = traceback.format_exc()[-2000:]
+            rec["seconds_score"] = round(time.time() - t0, 1)
+        with lock:
+            records[str(case)] = rec
+            done += 1
+            n = done
+            write()
         score = rec.get("score")
         line = (show(score) if score
                 else rec.get("skipped") and f"skipped: {rec['skipped']}"
                 or rec.get("error") or "no submission")
-        print(f"  [{i}/{len(cases)}] {case.name}: {line}  "
+        print(f"  [{n}/{len(todo)}] {case.name}: {line}  "
               f"({rec['seconds']}s)", flush=True)
-        out_path.write_text(json.dumps(
-            {"model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
-             "started": stamp, "cases": records}, indent=1, default=str) + "\n")
+
+    if a.workers <= 1:
+        write()
+        for case in todo:
+            finish(case, one(case))
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        write()
+        with ThreadPoolExecutor(max_workers=a.workers) as ex:
+            futs = {ex.submit(one, c): c for c in todo}
+            for f in as_completed(futs):
+                finish(futs[f], f.result())
     print(f"\n{len(records)} cases -> {out_path}")
     return 0
 

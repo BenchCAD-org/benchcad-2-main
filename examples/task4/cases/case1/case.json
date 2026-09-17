@@ -17,63 +17,63 @@
   },
   {
    "path": "input/parts/body_alone.png",
-   "sha256": "538f744013b8203ff42e27731a40ac6417cfed4f8ddf3ba3ad4d1d0d901d70d1"
+   "sha256": "3fefa3dbe3c1fe753ce602299b304ea1702deef3400f78d81b4f15dd1eb9da14"
   },
   {
    "path": "input/parts/body_in_assembly.png",
-   "sha256": "a7bc24ef5e5378ab603274abdbe96ee482402bd1077fb7fae9a3766e3e0b142c"
+   "sha256": "56560b273114bd7fa6ba967620c2479900e24f435fa4de22359fdf59c8efb501"
   },
   {
    "path": "input/parts/cover_alone.png",
-   "sha256": "9178c6afbd5359c167b8af9bde28f4a50c2c00577d7aff1488cb71d75596501b"
+   "sha256": "cb4f7bd22009abecfc85ce88b37ecf5df36e075ce56ab1661103900e7aeafdaa"
   },
   {
    "path": "input/parts/cover_in_assembly.png",
-   "sha256": "8220410ad1f4b7d34f59d5e12ed54a5221cbb202aed49135a1dc05f6a33a6794"
+   "sha256": "4b992a8e05b206e840f043a897105daaa1ea7b9623295d006405ec9836c7b347"
   },
   {
    "path": "input/parts/jaw_1_alone.png",
-   "sha256": "d126e8593f304599cc845ac7d6dfe972143689d62a35b5f93ef3f51aceda0287"
+   "sha256": "2eea8a4ed6f7d33f64076558d27263d2d989ee0529133b138f4880f5f6597c1c"
   },
   {
    "path": "input/parts/jaw_1_in_assembly.png",
-   "sha256": "7840dad5fd89cebf6690d049f74d385659bb1af68efa362763f5b4bebbb204f0"
+   "sha256": "1920dda2ea73d51c590ad706e21ed3ee57819b43605a81dbf087c399a977f6cd"
   },
   {
    "path": "input/parts/jaw_2_alone.png",
-   "sha256": "6f65e0c95eecb4d5b47712f5bbb4db6fded3198c37b75c0bbe1588530140e416"
+   "sha256": "4f602d61b5d76d5f30eb10688720330df539156e8bf02e8d43144221f1f2f9aa"
   },
   {
    "path": "input/parts/jaw_2_in_assembly.png",
-   "sha256": "15f6530574c4cabab86aaf10afbc4aa7cd581bde681f29df86e2a03d6782310d"
+   "sha256": "58b99cd549023eed3285a0c521257d52b874c4025c3ceeed292784a65c54a16f"
   },
   {
    "path": "input/parts/jaw_3_alone.png",
-   "sha256": "3284ab00493647da4be2794b16eb3e6b7199fbf905a3e5cef63ef1d71d38e727"
+   "sha256": "ae2ebeef2062e07a49c64c4ace4e9e606717cc31bf767e05679f7563f47da154"
   },
   {
    "path": "input/parts/jaw_3_in_assembly.png",
-   "sha256": "2e67b3d3018a6ad8def92fc111a178600b0b5873a7e7bc6711a74b55fe3c0845"
+   "sha256": "03a8d63094257fca2796911efc988c0ba8ab659f52f9a273ec9e3f07ed3838ad"
   },
   {
    "path": "input/parts/pinion_alone.png",
-   "sha256": "06598e5dd421b3e4b9aa85c6fe50e493e0a93bff4f8ee53930811866c33f4053"
+   "sha256": "a089c59b2b4be57cc19e97423ec978bdc38d9ca1a12b296b7ee427f6f7bc1ae3"
   },
   {
    "path": "input/parts/pinion_in_assembly.png",
-   "sha256": "0711152fc4d1492ce966b73c83e952a8b2ca7b95eca669fc3b7a74e5070616e6"
+   "sha256": "10b506c4c091f52a3a23fb767590410f6f14e4082ab58c39d1267a2a8b947a25"
   },
   {
    "path": "input/parts/scroll_plate_alone.png",
-   "sha256": "122a8f50517aaed0aa6841a716100ab41c1e62399530a5f4d422e80d107f44d0"
+   "sha256": "9fbcb73458b2b2250ba90947ca2fb54279cd31b67709cc7e96bb489834a2a006"
   },
   {
    "path": "input/parts/scroll_plate_in_assembly.png",
-   "sha256": "e981fb46e0c5f46f8b4dbfd1aa2e16ba153ecf31cd5d92af662bddc69f41931c"
+   "sha256": "fa83ea50c413f9893985fa0d89a73be289b467c15ead163468eea46d8afa4da6"
   },
   {
    "path": "input/views.png",
-   "sha256": "4294a2201372469c9088541aaf2f3fe110656ccf08fc9a57141f36f96da86e31"
+   "sha256": "f36352ae0357175ea8dc9a57ece879da5007f82be44da516588248f06d35740f"
   }
  ],
  "gt": [

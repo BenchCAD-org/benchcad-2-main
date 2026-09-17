@@ -177,6 +177,7 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
         state["nodes"] += 1
         if state["nodes"] > node_budget:
             state["exact"] = False
+            state["limit"] = "node_budget"
             return
         # Every 32 nodes. The inner solve is a Hungarian assignment, so a
         # single node can cost tens of milliseconds and a coarser interval
@@ -185,6 +186,7 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
                 and time.monotonic() - started > deadline_s):
             state["exact"] = False
             state["timed_out"] = True
+            state["limit"] = "deadline"
             return
         if k == len(free_gt):
             m, _, _ = evaluate(phi)
@@ -228,5 +230,14 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
     r.anchored_nets = sorted(net_anchor)          # type: ignore[attr-defined]
     r.searched_components = len(free_gt)          # type: ignore[attr-defined]
     r.timed_out = bool(state.get("timed_out"))    # type: ignore[attr-defined]
+    # WHICH limit stopped the search, not just that one did. `exact=False` on
+    # its own says the number is a lower bound; it does not say what to do
+    # about it, and the two answers are different. Out of time means the board
+    # is slow -- raise the deadline or accept the bound. Out of nodes means the
+    # search space is too branchy at this budget, and more wall clock buys
+    # nothing. Measured on case22: the values-on arm burned 200,001 nodes in
+    # 2649 s against a 3600 s deadline, so the budget bound first and a longer
+    # deadline would not have moved it.
+    r.search_limit = state.get("limit")           # type: ignore[attr-defined]
     r.seconds = round(time.monotonic() - started, 3)   # type: ignore[attr-defined]
     return r

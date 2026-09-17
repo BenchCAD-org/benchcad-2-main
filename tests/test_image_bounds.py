@@ -55,3 +55,23 @@ def test_b64_downscales_only_when_asked_and_only_when_larger(tmp_path):
     assert size(_b64(big, MANY_IMAGE_PX)) == (2000, 1414)
     assert size(_b64(small, MANY_IMAGE_PX)) == (600, 400)
     assert _b64(small, MANY_IMAGE_PX) == _b64(small)                   # untouched bytes when nothing to do
+
+
+def test_the_size_decision_is_made_from_the_seeds_not_the_live_count():
+    """A T2 case seeds 13 images. Deciding per request, round one went out
+    at full size and round five (13 seeds + a few crops > 20) at 2000 px:
+    the seed bytes changed, the request prefix changed from turn one, and
+    the prompt cache was rewritten instead of read. The episode is sized
+    once: 13 + KEEP_OBS_ROUNDS x OBS_PER_ROUND > 20, so 2000 px from round
+    one, crops or not; 12 seeds stay at full size."""
+    from harness.run import OBS_PER_ROUND
+    edge = MANY_IMAGES - KEEP_OBS_ROUNDS * OBS_PER_ROUND        # the last seed count at full size
+    out, max_px = bound_images(_turns(n_seed=edge + 1, rounds=0, per_round=0))
+    assert sum(len(t["images"]) for t in out) == edge + 1 and max_px == MANY_IMAGE_PX
+    out, max_px = bound_images(_turns(n_seed=edge, rounds=0, per_round=0))
+    assert max_px is None
+    # The live count still rules above the threshold: the API would reject
+    # the request otherwise.
+    out, max_px = bound_images(_turns(n_seed=edge, rounds=KEEP_OBS_ROUNDS, per_round=OBS_PER_ROUND + 1))
+    assert max_px == MANY_IMAGE_PX
+

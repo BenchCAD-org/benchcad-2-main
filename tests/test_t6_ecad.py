@@ -21,6 +21,29 @@ def test_reference_scores_one(case):
     r = score(case, case / "gt/gt_graph.json")
     assert r["score"] == pytest.approx(1.0), r
     assert all(v == pytest.approx(1.0) for v in r["channels"].values()), r["channels"]
+    # A finished search says so: exact, and no wall named.
+    assert r["exact_search"] is True and r["search_limit"] is None, r
+
+
+def test_search_walls_come_from_the_task_and_name_the_wall_they_hit(tmp_path):
+    """[verifier] timeout_sec / node_budget in task.toml are the phi search's
+    two walls (the ECAD repo's declaration). A search stopped by one returns
+    a lower bound with exact_search = false and search_limit naming the
+    wall, so the reader knows whether more time would move the number."""
+    case = CASES[0]
+    task = {"verifier": {"timeout_sec": 3600.0, "node_budget": 1}}
+    # A submission that leaves the anchors unusable forces a search: every
+    # designator renamed, connectivity kept.
+    g = json.loads((case / "gt/gt_graph.json").read_text())
+    ren = {c["id"]: f"X{i}" for i, c in enumerate(g["components"])}
+    for c in g["components"]:
+        c["terminals"] = [t.replace(c["id"] + ".", ren[c["id"]] + ".", 1) for t in c["terminals"]]
+        c["id"] = ren[c["id"]]
+    g["incidences"] = [[next(ren[k] + t[len(k):] for k in ren if t.startswith(k + ".")), n] for t, n in g["incidences"]]
+    sub = tmp_path / "pred_graph.json"; sub.write_text(json.dumps(g))
+    r = score(case, sub, task)
+    assert r["exact_search"] is False and r["search_limit"] == "node_budget", r
+    assert "node_budget" in r["note"]
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])

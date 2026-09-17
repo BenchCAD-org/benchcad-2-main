@@ -86,13 +86,17 @@ asm_v1`) that a supplied part earns for free. T2 supplies every part
 (placement only), T5 supplies the purchased types and keeps the rest as
 `part_drawings/`.
 
-Drawings are stored as PDF only. The sandbox rasterizes every PDF when it
-stages the case, beside the PDF (`<stem>.png`, `<stem>_p2.png`, ... at 300 dpi,
-long edge capped at 4200 px), so the model sees `drawing.png` (and
-`drawing_p2.png` for a second page) next to `drawing.pdf`, and
-`part_drawings/<id>.png` next to each T5 part drawing; rasters are derived,
-never stored. T3 and T4 ship PNGs because their inputs are renders of the
-reference that have no PDF source.
+Drawings are stored as PDF only. The sandbox renders every PDF when it
+stages the case and removes the PDF, so the model sees exactly one form of
+each drawing: the sheet `<stem>.png` (`<stem>_p2.png` per further page; 300
+dpi, long edge capped at 4200 px), its tiles `<stem>_tile_r<i>c<j>.png` (one
+row / column per 300 mm of paper, each rendered from the PDF at 2300 px on
+its long edge, neighbours overlapping by 10 %, blank tiles not written; an
+A4 sheet has none) and, hidden under `_hires/`, a 2x master that
+`tools.crop` cuts from. The sheet and `part_drawings/<id>.png` are prompt
+images; the tiles are in the working directory for the model to open. Rasters
+are derived, never stored. T3 and T4 ship PNGs because their inputs are
+renders of the reference that have no PDF source.
 
 | task | `input/` | `gt/` beyond `gt.step` |
 |---|---|---|
@@ -101,7 +105,7 @@ reference that have no PDF source.
 | T3 | `views.png` | `views.json` |
 | T4 | `views.png`, `parts/<id>_alone.png` + `parts/<id>_in_assembly.png` for every part type, `bom.json` (no 3-D supplied) | `parts/<id>.step` for every part type, `instances.json`, `views.json` |
 | T5 | `drawing.pdf`, `bom.json`, `part_drawings/<id>.pdf`, `step_files/<id>.step` (de-posed) | `parts/<id>.step` for every drawing part, `instances.json` |
-| T6 | `views/view_{top,bottom}[_obl_{a,b}].png`, `README.md` | `gt_graph.json` instead of `gt.step` (kind `ecad`) |
+| T6 | `views/view_{top,bottom}[_obl_{a,b}].png`, `views/view_inner<n>.png` per inner copper layer (none on a 2-layer board), `README.md` | `gt_graph.json` instead of `gt.step` (kind `ecad`) |
 
 T3/T4 renders follow one rule: of the four views in `views.png` only the
 top-right one, from direction (1,1,1), is exact; the other three are rendered

@@ -120,3 +120,23 @@ def test_cjk_hidden_in_a_step_escape_is_caught(tmp_path):
     assert CJK.search(decode_step_text(marked)), "decoder must see it"
     errs = [e for e in check_case(d).errors if "STEP name" in e]
     assert errs, check_case(d).errors
+
+
+def test_t6_inner_layer_views_are_input_vocabulary(tmp_path):
+    """A board with copper layers between the outer two carries one
+    views/view_inner<n>.png per inner layer (ECAD change 48); a 2-layer board has
+    none. The name is the vocabulary; a view under any other name is not."""
+    import json
+    import shutil
+    from envs.common.caseformat import sha256
+    d = tmp_path / "t6" / "case1"
+    shutil.copytree(REPO / "tests/fixtures/t6/case1", d)
+    top = d / "input/views/view_top.png"
+    m = json.loads((d / "case.json").read_text())
+    for name in ("view_inner1.png", "view_inner2.png", "view_side.png", "view_inner.png"):
+        shutil.copy(top, d / "input/views" / name)
+        m["input"].append({"path": f"input/views/{name}", "sha256": sha256(top)})
+    (d / "case.json").write_text(json.dumps(m))
+    bad = [e for e in check_case(d).errors if "not allowed" in e]
+    assert not any("view_inner1" in e or "view_inner2" in e for e in bad), bad
+    assert any("view_side.png" in e for e in bad) and any("view_inner.png" in e for e in bad), bad

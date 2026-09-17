@@ -108,7 +108,10 @@ INPUT_POLICY = {
     # T6 pcb2schematic: six standardized renders of the assembled board and the
     # input note; the answer is a terminal-net graph, not a STEP.
     "t6": {"required": ["views/view_top.png", "views/view_bottom.png"],
-           "allowed": [r"views/view_(top|bottom)(_obl_[ab])?\.png", r"README\.md"], "png": True},
+           # view_inner<n>.png: one top-down copper drawing per inner layer of a
+           # board with more than two (ECAD change 48); a 2-layer board has none.
+           "allowed": [r"views/view_(top|bottom)(_obl_[ab])?\.png", r"views/view_inner[0-9]+\.png",
+                       r"README\.md"], "png": True},
 }
 ASSEMBLY_TASKS = {"t2", "t4", "t5"}
 KIND_OF = {"t1": "part", "t2": "assembly", "t3": "part", "t4": "assembly", "t5": "assembly", "t6": "ecad"}
@@ -687,8 +690,12 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                     W(f"{rel}: symbol net gain {', '.join(gains)} -- {note}")
                 else:
                     E(f"{rel}: symbol net gain {', '.join(gains)} without drawings[...].gain_note -- unexplained additions")
-        W(f"{rel}: symbols plusminus {got['\u00b1']} (+{got['%%p']} in dimension codes), degree {got['\u00b0']} (+{got['%%d']}), "
-          f"diameter {got['\u00d8']} (+{got['%%c']})" + ("" if isinstance(exp, dict) else " -- no expected counts declared"))
+        # Plain lookups, not `\u` escapes inside the f-string: pyproject says
+        # >= 3.11 and 3.11 cannot compile a backslash there (measured: the
+        # runner died at import on a 3.11 venv).
+        pm, deg, dia = got["\u00b1"], got["\u00b0"], got["\u00d8"]
+        W(f"{rel}: symbols plusminus {pm} (+{got['%%p']} in dimension codes), degree {deg} (+{got['%%d']}), "
+          f"diameter {dia} (+{got['%%c']})" + ("" if isinstance(exp, dict) else " -- no expected counts declared"))
     # model-facing JSON must not carry vendor identifiers (drawing numbers, catalogue
     # codes with brand suffixes): the drawings are redacted, the BOM must be too
     for e in m.get("input", []):
@@ -841,22 +848,73 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                 if len(gt_inv) != len(exp):
                     E(f"gt.step has {len(gt_inv)} solids, parts x instances give {len(exp)}")
                 else:
+                    # 1e-4 relative: BRepGProp integrates extrusion / spline faces
+                    # numerically, and a rotated or mirrored copy of the same solid
+                    # comes back 1 mm^3 in 17,000 off (a T4 clamp half, measured);
+                    # a different part is off by far more than 0.01 %.
                     for (gv, ga), (ev, ea) in zip(gt_inv, exp):
-                        if abs(gv - ev) > 1e-6 * max(1.0, abs(ev)) or abs(ga - ea) > 1e-6 * max(1.0, abs(ea)):
+                        if abs(gv - ev) > 1e-4 * max(1.0, abs(ev)) or abs(ga - ea) > 1e-4 * max(1.0, abs(ea)):
                             E(f"gt.step solid (vol {gv}, area {ga}) has no matching instance (nearest vol {ev}, area {ea})")
                             break
             except Exception as ex:                             # noqa: BLE001
                 E(f"geometry check failed: {ex}")
         if deep and not rep.errors:
             import tempfile
+            from envs.common.score_asm import instance_shapes
             from envs.geom.iou import iou_step_vs_step
             cq = _cq()
+            # Structure, not just volume: the rebuilt union can match gt.step to
+            # 1.0 while gt.step hides instances inside a sub-assembly, and the
+            # scorer pairs per instance. One leaf per instances.json entry.
+            n_leaves = len(instance_shapes(c.gt_step))
+            if n_leaves != len(c.instances):
+                E(f"gt.step has {n_leaves} placed instances, instances.json {len(c.instances)}")
+            rebuilt = rebuild_assembly(d)
             with tempfile.TemporaryDirectory() as td:
                 out = Path(td) / "rebuilt.step"
-                cq.exporters.export(rebuild_assembly(d), str(out))
+                cq.exporters.export(rebuilt, str(out))
                 iou = iou_step_vs_step(c.gt_step, out, res)
-                if iou < 0.999:
-                    E(f"assembly rebuilt from parts+instances has IoU {iou:.4f} against gt.step")
+            if iou >= 0.999:
+                rep.warnings.append(f"rebuild IoU {iou:.4f}")
+            else:
+                # The voxel number is the mesher's, not the data's, on thin
+                # B-spline parts (rollers, blades, spring clips): the two sides
+                # tessellate at tolerances set by bounding boxes that are not
+                # tight on splines, and 29 held-out T4 cases sat at 0.998-0.999
+                # while every part intersected its reference exactly. Settle it
+                # with exact B-rep booleans, solid by solid.
+                exact = exact_rebuild_iou(rebuilt, c.gt_step)
+                if exact["min"] < 0.999:
+                    E(f"assembly rebuilt from parts+instances has IoU {iou:.4f} against gt.step; "
+                      f"exact per-solid IoU min {exact['min']:.4f} ({exact['worst']})")
                 else:
-                    rep.warnings.append(f"rebuild IoU {iou:.4f}")
+                    rep.warnings.append(f"rebuild IoU {iou:.4f} (voxel); exact per-solid IoU min {exact['min']:.6f}")
     return rep
+
+
+def exact_rebuild_iou(rebuilt, gt_step: Path) -> dict:
+    """Exact B-rep IoU of each rebuilt solid against the nearest gt.step solid
+    (nearest by bbox centre and volume, each gt solid used once):
+    {"min": worst IoU, "worst": that solid's index, "iou": all}."""
+    gt = solids(gt_step)
+    def cen(g):
+        b = g.BoundingBox()
+        return ((b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2, (b.zmin + b.zmax) / 2)
+    used, ious, worst = set(), [], (1.0, None)
+    for k, s in enumerate(rebuilt.Solids()):
+        v, cs = s.Volume(), cen(s)
+        free = [(i, g) for i, g in enumerate(gt) if i not in used]
+        if not free:
+            return {"min": 0.0, "worst": f"solid {k}: no gt solid left", "iou": ious}
+        i, g = min(free, key=lambda ig: sum((a - b) ** 2 for a, b in zip(cen(ig[1]), cs)) + abs(ig[1].Volume() - v))
+        used.add(i)
+        try:
+            inter = s.intersect(g).Volume()
+        except Exception:                                   # noqa: BLE001  -- boolean failed: no overlap
+            inter = 0.0
+        gv = g.Volume()
+        iou = inter / (v + gv - inter) if (v + gv - inter) > 0 else 0.0
+        ious.append(iou)
+        if iou < worst[0]:
+            worst = (iou, f"solid {k} vs gt solid {i}")
+    return {"min": worst[0], "worst": worst[1], "iou": ious}

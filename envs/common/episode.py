@@ -72,9 +72,9 @@ exist in those versions -- a call that does not exist raises.
 ```python    runs in the directory as a fresh process (nothing from earlier
              rounds is in memory; files are); you get back the last 4000
              characters of stdout and of stderr, and up to three PNGs it
-             wrote at the top level of the directory (the first three by
-             name; every image is sent with its file name). 600 s, 2 GB,
-             1 CPU per round.
+             wrote or copied at the top level of the directory (the first
+             three by name; every image is sent with its file name). 600 s,
+             2 GB, 1 CPU per round.
 ```submit    your final answer: {submit_what}
              It ends the episode and is what gets scored.
 
@@ -127,14 +127,23 @@ def _listing(root: Path) -> list[str]:
     return out
 
 
+def _is_tile(p: Path) -> bool:
+    return "_tile_r" in p.name
+
+
 def _seed_images(root: Path) -> list[Path]:
     """Prompt images: top-level first (assembly drawing / reference views),
-    then subdirectory images sorted by name."""
-    top = [p for p in sorted(root.iterdir()) if _visible(p) and p.suffix == ".png"]
+    then subdirectory images sorted by name. A drawing's tiles are NOT
+    seeds: the sheet is the overview, the tiles are the legible copies on
+    disk, and the model has them shown the way it has any image shown -- a
+    PNG it writes or copies at the top level of the directory is attached
+    next round -- so a round carries one image per sheet instead of one per
+    tile (a T2 case seeded 13 images, a T5 case 20, every round)."""
+    top = [p for p in sorted(root.iterdir()) if _visible(p) and p.suffix == ".png" and not _is_tile(p)]
     sub = []
     for d in sorted(root.iterdir()):
         if d.is_dir() and _visible(d) and d.name not in _SUMMARIZE_DIRS:
-            sub += [x for x in sorted(d.iterdir()) if _visible(x) and x.suffix == ".png"]
+            sub += [x for x in sorted(d.iterdir()) if _visible(x) and x.suffix == ".png" and not _is_tile(x)]
     return top + sub
 
 

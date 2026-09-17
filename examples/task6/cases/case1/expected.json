@@ -1,10 +1,10 @@
 {
  "case": "case1",
- "computed_on": "47aceb803dc17a79008401bbdab38d7f1c5e4f2b",
+ "computed_on": "827e0aeb88a87fa6afac7a643d91ca7cbb704025",
  "computed_with": {
   "metric": "ecad_v2",
   "verifier": "envs.verifiers.ecad:score",
-  "worktree_dirty": false
+  "worktree_dirty": true
  },
  "env": "t6_pcb2schematic",
  "kind": "ecad",

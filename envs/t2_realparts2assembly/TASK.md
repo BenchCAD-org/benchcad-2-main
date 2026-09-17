@@ -6,9 +6,10 @@ drawing (`drawing_p2.png` ... per further page). You are shown it downscaled:
 the layout is clear, the lettering is not. The same sheet is also cut into
 tiles, `drawing_tile_r<i>c<j>.png` (row i from the top, column j from the
 left, neighbours overlapping by 10 %), each at a resolution where every number
-and label is legible; a tile that would be blank paper is not written. Read
-the sheet on the tiles; use `drawing.png` for where things are and for
-`tools.crop` coordinates. `bom.json` gives each part's id, `quantity` and
+and label is legible; a tile that would be blank paper is not written. The
+tiles are in the directory, not in this message. Use `drawing.png` for where
+things are and for `tools.crop` coordinates. `bom.json` gives each part's id,
+`quantity` and
 `item` (its balloon number on the drawing), and its `parts_list` note says how
 the drawing's parts list is laid out. The parts list may show standard
 fasteners that are not in `bom.json`; those are not part of the answer. Two

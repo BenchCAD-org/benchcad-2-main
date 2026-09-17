@@ -408,4 +408,33 @@ def decompose(pred: Graph, gt: Graph, result: MatchResult) -> dict:
            "unmatched_gt_components": sorted(set(gt.components) - matched_gt)}
     if comp + assign:
         out["collateral_share"] = round(comp / (comp + assign), 4)
+
+    # -- by copper visibility (2026-09-15) ------------------------------- #
+    # On a board with inner copper layers, a net that has copper on one of
+    # them carries connections no photograph shows -- the model sees those only
+    # through view_inner<n>.png. Split the incidence recovery by that, so a
+    # score on a 4-layer board says how much of what was missed sat on
+    # copper the camera never saw. Reported, never folded into S.
+    #
+    # Three states, and the third is not the first: a net with `layers` that
+    # are all outer is OUTER; one with an inner layer is INNER; a net with no
+    # `layers` at all comes from a source that could not say (no PCB document,
+    # or a net with no copper), and is UNKNOWN rather than assumed outer.
+    OUTER = {"Top Layer", "Bottom Layer"}
+    def visibility(nid):
+        layers = gt.nets.get(nid, {}).get("meta", {}).get("layers")
+        if not layers:
+            return "unknown"
+        return "inner" if any(l not in OUTER for l in layers) else "outer"
+    by = {"outer": [0, 0], "inner": [0, 0], "unknown": [0, 0]}    # [recovered, total]
+    for t, n in gt.incidences:
+        k = visibility(n)
+        by[k][1] += 1
+        if t in recovered_terms:
+            by[k][0] += 1
+    if by["inner"][1] or by["unknown"][1] != len(gt.incidences):
+        out["by_layer_visibility"] = {
+            k: {"recovered": v[0], "total": v[1],
+                "rate": round(v[0] / v[1], 4) if v[1] else None}
+            for k, v in by.items() if v[1]}
     return out

@@ -8,12 +8,13 @@
  "synthetic": false,
  "source": {
   "repo": "benchcad-ecad-tasks",
-  "split": "example"
+  "split": "example",
+  "board_class": "2-layer, all routing on outer copper"
  },
  "input": [
   {
    "path": "input/README.md",
-   "sha256": "a1c80b9be13f65614a21388c18cf60990011147dc50b3a074a53d92e0448820d"
+   "sha256": "c15cc150a865c4b480563f9c3cc7c03ee9256c8752a515f55fcdd8ab5a81223b"
   },
   {
    "path": "input/views/view_bottom.png",
@@ -47,7 +48,7 @@
   },
   {
    "path": "gt/observability.json",
-   "sha256": "921cf69073fb542cc483beb80c6c5c6471ea6af15bab392d02446fb5e996a898"
+   "sha256": "850ea3bfe3f6e456ce631e8de1a5674f77b5f7251851ccbd40779240701e5031"
   }
  ],
  "generator": {
@@ -63,5 +64,5 @@
   "status": "unknown",
   "note": "renders are of a real board; component silkscreen is visible by design"
  },
- "notes": "Recover implementation-level schematic connectivity for a 2-layer assembled PCB from six standardized renders and nothing else \u2014 the inverse of pcba-placement."
+ "notes": "Recover implementation-level schematic connectivity for an assembled PCB from standardized renders \u2014 six views, plus one per inner copper layer \u2014 and nothing else \u2014 the inverse of pcba-placement."
 }

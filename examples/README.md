@@ -147,13 +147,13 @@ the host; one core is enough, it is just slower.
 
 | sample | source task | headline metric | oracle | round trip | trivial floor | size |
 |---|---|---|---|---|---|---|
-| `task1/cases/case1` | T1 `drawing2part` — part drawing to part | `part_v1` | 1.000000 | 1.000000 | 0.120641 | 0.9 MB |
+| `task1/cases/case1` | T1 `drawing2part` — part drawing to part | `part_v1` | 1.000000 | 1.000000 | 0.098903 | 0.9 MB |
 | `task2/cases/case1` | T2 `realparts2assembly` — supplied parts + assembly sheet | `asm_v1` | 1.000000 | 1.000000 | 0.000000 | 9.5 MB |
 | `task2/cases/case2` | T2 `realparts2assembly` — one supplied part carries two solids | `asm_v1` | 1.000000 | 1.000000 | 0.000000 | 9.4 MB |
-| `task3/cases/case1` | T3 `part2step` — rendered views to part | `part_v1` | 1.000000 | **0.999957** | 0.189367 | 1.4 MB |
-| `task3/cases/case2` | T3 `part2step` | `part_v1` | 1.000000 | **0.999527** | 0.171160 | 1.4 MB |
+| `task3/cases/case1` | T3 `part2step` — rendered views to part | `part_v1` | 1.000000 | **0.999964** | 0.157033 | 1.4 MB |
+| `task3/cases/case2` | T3 `part2step` | `part_v1` | 1.000000 | **0.999595** | 0.141540 | 1.4 MB |
 | `task4/cases/case1` | T4 `parts2assembly` — supplied parts + views | `part_x_asm_v1` | 1.000000 | 1.000000 | 0.000000 | 13.6 MB |
-| `task5/cases/case1` | T5 `drawings2assembly` — every part drawing, no 3-D reference | `part_x_asm_v1` | 1.000000 | 1.000000 | 0.000000 | 11.5 MB |
+| `task5/cases/case1` | T5 `drawings2assembly` — five part drawings + supplied STEP parts | `part_x_asm_v1` | 1.000000 | 1.000000 | 0.000000 | 11.5 MB |
 | `task6/cases/case1` | T6 `pcb2schematic` — board renders to schematic graph | Metric V2 | 1.000000 | 1.000000 | 0.000000 | 0.2 MB |
 | `task6/cases/case2` | T6 `pcb2schematic` | Metric V2 | 1.000000 | 1.000000 | 0.000000 | 0.5 MB |
 

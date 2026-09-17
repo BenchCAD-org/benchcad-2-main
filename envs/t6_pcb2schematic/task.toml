@@ -1,4 +1,4 @@
-# t6_pcb2schematic -- six renders of an assembled 2-layer PCB -> terminal-net graph
+# t6_pcb2schematic -- renders of an assembled PCB (six views, plus one copper drawing per inner layer) -> terminal-net graph
 [task]
 id = "t6_pcb2schematic"
 kind = "ecad"
@@ -9,6 +9,14 @@ given = "renders_only"
 [tools]
 renderer = "none"
 inject = []
+
+[verifier]
+# The phi search's two walls (the ECAD repo's declaration, tasks/*/task.toml):
+# a search that hits either returns a lower bound with exact_search = false
+# and search_limit naming the wall. Boards of 40+ parts with few legible
+# designators are where it matters; the two ingested samples never get near.
+timeout_sec = 3600.0
+node_budget = 200000
 
 [verify]
 entry = "envs.verifiers.ecad:score"

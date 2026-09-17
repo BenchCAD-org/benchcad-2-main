@@ -286,8 +286,8 @@ def test_coverage_renormalises_when_a_term_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(pm, "render_composite", boom)
     r = pm.score_part_v1(gt, dumb, orientation="free", pose_mode="iou24_aligned")
     assert "pix_fg" not in r and r["missing"] == {"pix_fg": "RuntimeError: no GL context"}
-    assert r["coverage"] == pytest.approx(0.75)
-    assert r["score"] == pytest.approx((0.40 * full["iou_term"] + 0.35 * full["surf_f1"]) / 0.75)
+    assert r["coverage"] == pytest.approx(0.8)
+    assert r["score"] == pytest.approx((0.5 * full["iou_term"] + 0.3 * full["surf_f1"]) / 0.8)
     assert r["iou_term"] == full["iou_term"] and r["surf_f1"] == full["surf_f1"]
 
 
@@ -339,8 +339,9 @@ def test_normalise_iou_is_mains_norm_iou():
     assert pm.normalise_iou(0.5, 0.5) == 0.0            # a tie with the primitive earns nothing
     assert pm.normalise_iou(0.75, 0.5) == pytest.approx(0.5)
     assert pm.normalise_iou(0.2, 0.5) == 0.0
+    assert pm.WEIGHTS == {"iou_term": 0.5, "surf_f1": 0.3, "pix_fg": 0.2}     # the owner's, 2026-09-16
     assert pm.fuse({"iou_term": 1.0, "surf_f1": 1.0, "pix_fg": 1.0}) == (1.0, 1.0)
-    assert pm.fuse({"iou_term": 0.5}) == (pytest.approx(0.5), pytest.approx(0.40))
+    assert pm.fuse({"iou_term": 0.5}) == (pytest.approx(0.5), pytest.approx(0.5))
     assert pm.fuse({}) == (0.0, 0.0)
 
 
@@ -370,8 +371,8 @@ def test_lab_fixtures(row):
     full = pm.score_part_v1(ref, cand, orientation="free", pose_mode="lab")
     assert full["surf_f1"] == pytest.approx(exp["surf_f1_0.02"], abs=0.01)
     assert full["pix_fg"] == pytest.approx(exp["pix_fg"], abs=0.01)
-    assert full["score"] == pytest.approx(0.40 * full["iou_term"] + 0.35 * exp["surf_f1_0.02"]
-                                          + 0.25 * exp["pix_fg"], abs=0.02)
+    assert full["score"] == pytest.approx(0.5 * full["iou_term"] + 0.3 * exp["surf_f1_0.02"]
+                                          + 0.2 * exp["pix_fg"], abs=0.02)
 
 
 # The movement of the iou half, measured on this machine when change 40 replaced the
@@ -381,21 +382,32 @@ def test_lab_fixtures(row):
 # test goes GREEN and says so (strict: an unexpected pass is a failure).
 LAB_IOU_MOVED = {                    # row: (lab/old iou24, new iou24, lab/old norm, new norm)
     "row01_pan_head_screw_000035_s20260505_0": (0.1044, 0.1033, 0.0000, 0.0000),
-    "row02_bolt_000037_s20260505_0": (0.5432, 0.4919, 0.1088, 0.1301),
+    # row02 moved 0.4919 -> 0.4935 when geom.voxel started snapping vertices
+    # to a 2**-20 lattice (a bolt whose whole-millimetre faces sat on cell
+    # boundaries), and its norm 0.1328 -> 0.1565 when the primitive baseline
+    # went to the cube-touch test (the cylinder floor 0.4159 -> 0.3986).
+    "row02_bolt_000037_s20260505_0": (0.5432, 0.4935, 0.1088, 0.1577),
     "row03_rl__hex_nut_squash": (0.4629, 0.6000, 0.0000, 0.0000),
-    "row04_circlip_000175_s20260505_1": (0.4450, 0.8875, 0.0000, 0.7418),
+    "row04_circlip_000175_s20260505_1": (0.4450, 0.8875, 0.0000, 0.7453),   # norm 0.7418 -> 0.7453, cube-touch floor
     "row05_t1_part_1553_r1": (0.8122, 0.7777, 0.6369, 0.5900),
     "row06_t1_part_0393_r1": (0.9840, 0.9787, 0.9667, 0.9408),
 }
 
 
-@pytest.mark.xfail(strict=True, reason="the recorded iou values are the sampled estimator's; "
-                                       "BenchCAD-Lab is republishing the fixture set against the "
-                                       "true voxelisation. LAB_IOU_MOVED records the movement.")
+# The lab republished the six fixtures against the true voxelisation on
+# 2026-09-16 (benchcad-lab 60dcf29). With the 2**-20 snap on both sides and
+# the cube-touch primitives, all six agree to 0.02.
+LAB_UNSNAPPED: set[str] = set()
+
+
 @pytest.mark.parametrize("row", FIXTURE_ROWS or [pytest.param(
     None, marks=pytest.mark.skip(reason="lab fixtures not on disk"))],
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
-def test_lab_fixtures_iou_pending_republish(row):
+def test_lab_fixtures_iou_republished(row):
+    """The lab's republished iou family (true voxelisation, pad res + 5)
+    against ours, to 0.02."""
+    if row.name in LAB_UNSNAPPED:
+        pytest.xfail("voxelised by the lab without the 2**-20 snap")
     exp = json.loads((row / "expected.json").read_text())["expected"]
     r = pm.iou_terms(pm.load_shape(row / "ref.step"), pm.load_shape(row / "cand.step"), search=True)
     assert r["iou24"] == pytest.approx(exp["iou24"], abs=0.02)

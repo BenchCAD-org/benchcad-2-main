@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 # Headline metrics a task may declare under [verify] (docs/METRICS.md).
 #   legacy         raw 64^3 voxel IoU (parts) / orientation-aware IoU + hit + rubric (assemblies)
 #   asm_v1         per-part-type leave-one-TYPE-out IoU gain, normalised by (1 - baseline) (T2, change 24)
-#   part_v1        0.40 iou_term + 0.35 surf_f1 + 0.25 pix_fg (T1 / T3, change 26)
+#   part_v1        0.5 iou_term + 0.3 surf_f1 + 0.2 pix_fg (T1 / T3, change 26)
 #   part_x_asm_v1  avg_part x asm_v1: the per-instance part_v1 inside the aligned
 #                  assembly, averaged per part type, times asm_v1 (T4 / T5)
 #   ecad_v2        the terminal-net graph metric S_C * S_T * S_N * P_short * P_open (T6)

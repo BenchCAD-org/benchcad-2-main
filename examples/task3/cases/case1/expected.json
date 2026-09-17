@@ -1,10 +1,10 @@
 {
  "case": "case1",
- "computed_on": "47aceb803dc17a79008401bbdab38d7f1c5e4f2b",
+ "computed_on": "b889b1f537568257806264cf45117f83820f676b",
  "computed_with": {
   "metric": "part_v1",
   "verifier": "envs.verifiers.part:score",
-  "worktree_dirty": false
+  "worktree_dirty": true
  },
  "env": "t3_part2step",
  "kind": "part",
@@ -21,25 +21,25 @@
   "columns": {
    "iou": 1.0
   },
-  "seconds": 24.8,
+  "seconds": 23.3,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {
   "submission": "gt/gt.step imported and re-exported with cadquery -- what a submitted program necessarily produces",
-  "score": 0.999957,
+  "score": 0.999964,
   "columns": {
    "iou": 1.0
   },
-  "seconds": 36.4,
+  "seconds": 33.7,
   "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
  },
  "baseline": {
   "submission": "a solid block of the reference's bounding box, exported with cadquery",
-  "score": 0.189367,
+  "score": 0.157033,
   "columns": {
    "iou": 0.305141
   },
-  "seconds": 17.7,
+  "seconds": 16.0,
   "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
  },
  "gt_sha256": "292d96802a81dcd596e38c35d522ba02f994ce95b5b5c52d7be1f93d54980a8c",

@@ -84,3 +84,51 @@ def test_export_refuses_a_malformed_graph_with_the_reason(tmp_path):
     ''')
     assert r.returncode == 0, r.stderr
     assert r.stdout.split("\n")[:2] == ["pred_graph.json", "refused: True True True"]
+
+
+def test_exec_gate_bounds_concurrent_sandbox_runs(tmp_path, monkeypatch):
+    """CADENV_MAX_EXECS=1: two episodes' executions cannot overlap, however
+    many threads are in flight. Measured by wall time: two 1 s scripts take
+    >= 2 s under the gate, and without it clearly less than that (interpreter
+    start-up is paid by both, so only the difference is asserted)."""
+    import threading
+    import time
+    from envs.common import sandbox as S
+    monkeypatch.setenv("CADENV_LOCAL", "1")
+    monkeypatch.setattr(S, "_docker_ready", lambda: False)
+    case = ROOT / "tests/fixtures/t3/case1"
+    boxes = [S.Sandbox(case, tmp_path / f"w{i}") for i in range(2)]
+    code = "import time; time.sleep(1.0); print('done')"
+
+    def timed(gate):
+        monkeypatch.setattr(S, "EXEC_GATE", gate)
+        t0 = time.time()
+        ts = [threading.Thread(target=b.run, args=(code,), kwargs={"timeout": 30}) for b in boxes]
+        for t in ts: t.start()
+        for t in ts: t.join()
+        return time.time() - t0
+
+    monkeypatch.setenv("CADENV_MAX_EXECS", "1")
+    assert S._exec_gate() is not None
+    gated, free = timed(S._exec_gate()), timed(None)
+    assert gated >= 2.0, gated
+    assert free <= gated - 0.6, (free, gated)
+
+
+
+def test_a_tile_the_model_copies_or_touches_at_the_top_level_is_attached(tmp_path, monkeypatch):
+    """No tool for looking at a tile: the round attaches the PNGs the model
+    wrote or copied at the top level, and a copied tile -- or a staged one
+    it touches -- is exactly that."""
+    from envs.common import sandbox as S
+    monkeypatch.setenv("CADENV_LOCAL", "1")
+    monkeypatch.setattr(S, "_docker_ready", lambda: False)
+    case = ROOT / "tests/fixtures/t3/case1"
+    wd = tmp_path / "w"
+    box = S.Sandbox(case, wd)
+    (wd / "sub").mkdir()
+    (wd / "sub" / "drawing_tile_r1c2.png").write_bytes((wd / "views.png").read_bytes())
+    r = box.run("import shutil, pathlib\nshutil.copy('sub/drawing_tile_r1c2.png', 'r1c2.png')\n"
+                "pathlib.Path('views.png').touch()\n", timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert sorted(p.name for p in r.images) == ["r1c2.png", "views.png"]

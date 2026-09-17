@@ -162,6 +162,35 @@ class Submission:
 
 
 # ── finding a submission ───────────────────────────────────────────────────
+def reference_submission(case_dir: Path | str, out_dir: Path | str) -> Path:
+    """Write the case's own reference as a submission in this layout and
+    return the `submission/` directory: `parts/<part_id>.step` is a copy of
+    `caseformat.resolve_part(part_id)` for every type in gt/instances.json,
+    `assembly/instances.json` is gt/instances.json verbatim.
+
+    This is the oracle -- the perfect answer, in the form the task asks for
+    (harness/run.py `mock/oracle` builds the same thing through the sandbox
+    tools). Submitting `gt/gt.step` as one STEP is the deprecated path and
+    is NOT exact: its children come back through a STEP round trip, and on a
+    part with B-spline faces the re-read surfaces tessellate differently
+    from the placed part file (T2 case08 part_22: 10854 vs 10898 vertices at
+    the same deflection), so the per-part terms land 1e-4 under 1.0. File
+    against file is exact by construction.
+    """
+    import shutil
+    from .caseformat import resolve_part
+    case_dir, out_dir = Path(case_dir), Path(out_dir)
+    root = out_dir / SUB_ROOT
+    (root / PARTS).mkdir(parents=True, exist_ok=True)
+    (root / ASSEMBLY).mkdir(parents=True, exist_ok=True)
+    inst = json.loads((case_dir / "gt/instances.json").read_text())["instances"]
+    for pid in sorted({r["part_id"] for r in inst}):
+        shutil.copyfile(resolve_part(case_dir, pid), root / PARTS / f"{pid}.step")
+    recs = [{"part_id": r["part_id"], "instance_id": r["instance_id"], "transform": r["T"]} for r in inst]
+    (root / ASSEMBLY / INSTANCES).write_text(json.dumps({"instances": recs}, indent=1))
+    return root
+
+
 def locate(path: Path | str | None) -> Path | None:
     """The `submission/` directory `path` refers to, or None when `path` is a
     single-STEP submission (or nothing at all).

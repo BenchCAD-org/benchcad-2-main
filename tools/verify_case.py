@@ -8,7 +8,7 @@
                                                                 layout"); a single STEP is the old
                                                                 layout and still works
 
-e.g. python tools/verify_case.py envs/t1_drawing2part/cases/PART-0161 my.step
+e.g. python tools/verify_case.py examples/task1/cases/case1 my.step
 """
 
 from __future__ import annotations

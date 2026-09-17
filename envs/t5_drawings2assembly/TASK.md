@@ -5,10 +5,11 @@ Every sheet is shown to you downscaled -- layout clear, lettering not -- and
 is also cut into tiles, `<sheet>_tile_r<i>c<j>.png` (row i from the top,
 column j from the left, neighbours overlapping by 10 %), each at a resolution
 where every dimension is legible; a tile that would be blank paper is not
-written. Read the numbers on the tiles; use the sheet for where things are and
-for `tools.crop` coordinates. `part_drawings/part_NN.png` are the drawings of
-the parts to model, in millimetres, each with its tiles beside it, first-angle
-projection unless the sheet's title block says third-angle.
+written. The tiles are in the directory, not in this message. Use the sheet
+for where things are and for `tools.crop` coordinates.
+`part_drawings/part_NN.png` are the drawings of the parts to model, in
+millimetres, each with its tiles beside it, first-angle projection unless the
+sheet's title block says third-angle.
 `step_files/part_NN.step` are the supplied parts, each centred on its bounding
 box and given a random axis-aligned 90-degree rotation. `bom.json` gives each
 part's id, `name`, `source` (`drawing` or `step`), `quantity` and `item` (its
