@@ -520,3 +520,41 @@ def test_same_surface_under_another_triangulation_is_the_reference(tmp_path):
     mir = _export(loft.mirror("XZ").val(), tmp_path / "loft_mirror.step")
     m = pm.score_part_v1(ref, mir, orientation="pinned", pose_mode="expert-fit")
     assert not m["identical"], {k: m.get(k) for k in ("score", "identical", "identical_by")}
+
+
+# ------------------------------------------------ degenerate triangles ----
+def test_degenerate_triangles_never_reach_the_surface_distance():
+    """OCC's face mesher leaves collinear zero-area slivers along trimmed
+    edges (40-120 per T5 held-out reference), and vtkImplicitPolyDataDistance
+    dies on them with SIGBUS / SIGSEGV -- not an exception -- and not on every
+    sample (2026-09-18: two gpt-6-astra T5 submissions took the scorer down
+    twice each, inside the identity gate). They carry no area, so the
+    sampler never draws from them: dropping them changes no distance, and a
+    mesh with nothing else left is refused before VTK sees it."""
+    V = np.array([[x, y, z] for x in (0, 20) for y in (0, 20) for z in (0, 20)], dtype=float)
+    T = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1],
+                  [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]])
+    sliver = np.array([[0, 0, 0], [0, 0, 7], [0, 0, 20], [0, 5, 0], [0, 5, 0]], dtype=float)   # collinear, and coincident
+    Vd = np.vstack([V, sliver]); n = len(V)
+    Td = np.vstack([T, [[n, n + 1, n + 2]] * 30, [[n + 3, n + 4, n + 3]] * 10, [[n, n + 2, n + 1]] * 10])
+    kept = pm.surface_triangles(Vd, Td)
+    assert len(kept) == 12 and set(map(tuple, kept)) == set(map(tuple, T))
+    clean = pm.surface_distance(V, T, V + 0.01, T)
+    assert pm.surface_distance(Vd, Td, V + 0.01, T) == pytest.approx(clean)
+    assert pm.surface_distance(V + 0.01, T, Vd, Td) == pytest.approx(clean)
+    with pytest.raises(ValueError):
+        pm.surface_triangles(Vd, Td[12:])                          # nothing but slivers
+    with pytest.raises(ValueError):
+        pm.surface_triangles(V, np.array([[0, 1, 99]]))            # index out of range
+    with pytest.raises(ValueError):
+        pm.surface_triangles(np.vstack([V, [[np.nan, 0, 0]]]), np.array([[0, 1, 8]]))
+    # ... and the identity gate reports such a mesh, it does not raise or die.
+    import cadquery as cq, tempfile
+    box = pm.load_shape(_export(cq.Workplane("XY").box(20, 20, 20).val(), Path(tempfile.mkdtemp()) / "box.step"))
+    orig = pm.tessellate
+    try:
+        pm.tessellate = lambda shape, deflection: (Vd, Td[12:])    # every triangle a sliver
+        k, rec = pm.surface_identity(box, box, search=False)
+    finally:
+        pm.tessellate = orig
+    assert k is None and "unusable" in rec.get("note", ""), rec

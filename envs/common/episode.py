@@ -547,6 +547,14 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
             print(f"      round {rnd} call failed ({type(e).__name__}), "
                   f"round discarded, continuing "
                   f"[{dead}/{MAX_DEAD_ROUNDS}]", flush=True)
+            if type(e).__name__ == "CallOverBudget":
+                # The model was still answering when the budget ran out. The
+                # same context would draw the same answer, so the next
+                # request carries the fact -- an interface fact, not advice.
+                turns.append({"role": "user", "images": [],
+                              "text": f"Round {rnd}: your reply did not finish within the time "
+                                      f"budget for one call and was discarded. Round {rnd + 1} of "
+                                      f"{max_rounds}."})
             continue
         # The raw reply must be archived. When no parsable block comes back
         # (no_block), without it there is no way to tell whether the model

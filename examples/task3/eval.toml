@@ -33,7 +33,7 @@ inputs = ["views.png"]
 # tool protocol, so scores stay comparable across vendors.
 rounds = 30    # harness/run.py DEFAULT_ROUNDS; --rounds overrides
 effort = "provider's top level"    # harness/run.py: --effort takes one of none | low | medium | high | xhigh | max, sent verbatim and refused where the provider lacks it (OpenAI none..xhigh, Anthropic none..max); unset, the run uses the provider's top (OpenAI xhigh, Anthropic max) and records the level it used
-max_tokens_per_round = "model maximum"    # no cap on a reply, thinking included: OpenAI and Gemini get no limit, Anthropic gets the model's own ceiling from the Models API (harness/run.py DEFAULT_MAX_TOKENS = None; --max-tokens sets one)
+max_tokens_per_round = 128000    # the reply ceiling on both first-party endpoints: gpt-6-astra's own maximum and the Claude 5 family's (harness/run.py OPENAI_MAX_OUTPUT / ANTHROPIC_MAX_OUTPUT_DEFAULT; the Models API's max_tokens on Anthropic); thinking included; --max-tokens sets a lower one
 code_fence = "```python"    # runs in the working directory; stdout, stderr and new images come back
 submit_fence = "```submit"    # the final answer; ends the episode
 submission_variable = "result"    # a complete CadQuery program leaving the answer in `result`
@@ -48,12 +48,14 @@ forced_final_submission = false    # rounds that run out without a ```submit are
 failed_submission_retries = 0    # the submitted program runs once, as submitted; if it fails there is no answer (`submit_failed`, stderr recorded)
 call_retries = 4    # harness/run.py ATTEMPTS
 call_retry_backoff_seconds = 5    # harness/run.py BACKOFF_S, doubling
+rate_limit_waits = 10    # harness/run.py RATE_LIMIT_ATTEMPTS: a 429 is waited out for the endpoint's Retry-After (else 20 s doubling, at most 300 s) without spending a retry or a round
 max_consecutive_failed_calls = 3    # envs/common/episode.py MAX_DEAD_ROUNDS, then the case is abandoned
 
 [episode.timeouts]
 exec_seconds = 600    # one code block in the sandbox (envs/common/episode.py run_episode)
-model_call_seconds = 1800    # harness/run.py CALL_TIMEOUT_S
-stream_idle_seconds = 90    # harness/run.py READ_IDLE_S: no bytes for this long is a wedged stream
+model_call_seconds = 1800    # harness/run.py CALL_TIMEOUT_S, the transport's outer bound
+model_call_budget_seconds = "300 up to high, 600 at xhigh / max"    # harness/run.py CALL_BUDGET_S by effort: a reply still streaming past it is given up, the round is discarded (counts toward max_consecutive_failed_calls) and the next request says so in one sentence; a SILENT stream is re-requested up to STALL_RETRIES times instead
+stream_idle_seconds = 90    # harness/run.py READ_IDLE_S: no bytes for this long is a wedged stream -- on the gateways; OpenAI's own endpoint and the Anthropic API get FIRST_PARTY_IDLE_S = 60 (neither sends anything while a reasoning model thinks); a silent stream is re-requested up to STALL_RETRIES = 3 times before the round is discarded
 
 [sandbox]
 # The container submitted code runs in. Definition: sandbox/Dockerfile.

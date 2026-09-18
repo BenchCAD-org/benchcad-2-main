@@ -276,6 +276,34 @@ def geometry_identity(ref_shape, cand_shape, *, search: bool,
     return None
 
 
+# A triangle under this area (mm^2) is not a surface: OCC's face mesher
+# leaves collinear slivers along trimmed edges (the T5 held-out references
+# carry 40-120 each), and vtkImplicitPolyDataDistance dies on them -- its
+# cell normal is zero, the barycentric weights it derives are NaN, and the
+# NaN indexes memory: SIGBUS / SIGSEGV, not an exception, and not on every
+# sample (2026-09-18, two gpt-6-astra T5 submissions took the scorer down
+# twice each). The area-weighted sampler never draws from them, so dropping
+# them changes no distance.
+DEGENERATE_TRI_AREA = 1e-9
+
+
+def surface_triangles(V: np.ndarray, T: np.ndarray) -> np.ndarray:
+    """`T` without its degenerate triangles (area under DEGENERATE_TRI_AREA,
+    or a non-finite vertex). Raises ValueError when nothing is left: a
+    mesh with no surface cannot be compared, and must not reach VTK."""
+    V = np.asarray(V, dtype=np.float64); T = np.asarray(T, dtype=np.int64)
+    if len(T) == 0 or len(V) == 0:
+        raise ValueError("empty mesh")
+    if T.min() < 0 or T.max() >= len(V):
+        raise ValueError("triangle index out of range")
+    e = V[T[:, 1]] - V[T[:, 0]]; f = V[T[:, 2]] - V[T[:, 0]]
+    area = 0.5 * np.linalg.norm(np.cross(e, f), axis=1)
+    ok = np.isfinite(area) & (area >= DEGENERATE_TRI_AREA) & np.isfinite(V[T]).all(axis=(1, 2))
+    if not ok.any():
+        raise ValueError("no non-degenerate triangle")
+    return T[ok]
+
+
 def surface_distance(V1: np.ndarray, T1: np.ndarray, V2: np.ndarray, T2: np.ndarray,
                      n: int = 50_000, seed: int = SEED) -> tuple[float, float]:
     """(99.9th percentile, max) of the point-to-SURFACE distance between two
@@ -285,9 +313,11 @@ def surface_distance(V1: np.ndarray, T1: np.ndarray, V2: np.ndarray, T2: np.ndar
     vertices: an OCC face mesh keeps a few dozen sliver vertices 0.1-0.4 mm
     off the neighbouring face at the trimming boundaries (measured on
     patterned_ring: 44 of 124,145 vertices), and area weighting gives them
-    the weight they have -- none."""
+    the weight they have -- none. Degenerate triangles never reach VTK
+    (surface_triangles); a mesh with none left raises ValueError."""
     import vtk
     from vtk.util.numpy_support import numpy_to_vtk, numpy_to_vtkIdTypeArray, vtk_to_numpy
+    T1 = surface_triangles(V1, T1); T2 = surface_triangles(V2, T2)
 
     def poly(V, T):
         pts = vtk.vtkPoints(); pts.SetData(numpy_to_vtk(np.ascontiguousarray(V, dtype=np.float64), deep=True))
@@ -353,7 +383,11 @@ def surface_identity(ref_shape, cand_shape, *, search: bool, frame: str = "own",
     # surface moves samples by that much). Identity is "within what
     # re-meshing the reference does", never tighter than tol * longest.
     Vr2, Tr2 = tessellate(fresh_shape(ref_shape), deflection * IDENT_REMESH_FACTOR)
-    noise99, noise_max = surface_distance(R0, Tr, Vr2 - fr[0], Tr2)
+    try:
+        noise99, noise_max = surface_distance(R0, Tr, Vr2 - fr[0], Tr2)
+    except ValueError as exc:
+        rec["note"] = f"reference mesh unusable for the surface test: {exc}"
+        return None, rec
     limit = max(tol * fr[1], IDENT_NOISE_FACTOR * noise99)
     rec.update(limit_mm=limit, remesh_p999_mm=noise99, remesh_max_mm=noise_max)
     ext_ref = R0.max(0) - R0.min(0)
@@ -363,7 +397,11 @@ def surface_identity(ref_shape, cand_shape, *, search: bool, frame: str = "own",
         # only a rotation that carries the candidate's box onto the reference's can match
         if np.abs((Ck.max(0) - Ck.min(0)) - ext_ref).max() > IDENT_PRECHECK_TOL * fr[1]:
             continue
-        d99, dmax = surface_distance(R0, Tr, Ck, Tc)
+        try:
+            d99, dmax = surface_distance(R0, Tr, Ck, Tc)
+        except ValueError as exc:
+            rec["note"] = f"candidate mesh unusable for the surface test: {exc}"
+            return None, rec
         if best is None or d99 < best[1]:
             best = (k, d99, dmax)
         if d99 <= limit and dmax <= IDENT_SURF_MAX_FACTOR * limit:

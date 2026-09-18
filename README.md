@@ -65,20 +65,29 @@ per-case table, the mean per task and the mean of the task means, with the
 count of scored cases next to every mean.
 
 `--effort` follows the model: OpenAI takes `none | low | medium | high | xhigh`
-(`reasoning_effort`), Anthropic `none | low | medium | high | xhigh | max`
+(`reasoning.effort` on the Responses API, which is what OpenAI's own endpoint
+is spoken through), Anthropic `none | low | medium | high | xhigh | max`
 (`none` is thinking disabled; the rest is `output_config.effort` with adaptive
-thinking), OpenRouter `none | low | medium | high` (`reasoning.effort`). A level
-the provider does not have is refused at startup -- `max` on OpenAI is an
-error, not xhigh -- and with no `--effort` the run uses the provider's top
-level (OpenAI xhigh, Anthropic max), prints it and records it in the results.
-Anthropic requires `max_tokens`, so it is sent the model's own ceiling from the
-Models API (128k on Opus 5 / Sonnet 5 / Fable 5.1), and the same lookup's
-`max_input_tokens` is the window the summarisation works against;
-`--context-tokens` overrides. Both adapters share the client timeouts, the
-retry rules, the image handling and prompt caching (OpenAI's automatic prefix
-cache, Anthropic's top-level `cache_control`), and both log usage per call.
-Images go to OpenAI at `detail: high`. Every provider speaks the same
-text-and-images protocol, so scores compare across vendors.
+thinking), OpenRouter `none | low | medium | high` (`reasoning.effort` on
+`/chat/completions`, which the gateways keep). A level the provider does not
+have is refused at startup -- `max` on OpenAI is an error, not xhigh -- and
+with no `--effort` the run uses the provider's top level (OpenAI xhigh,
+Anthropic max), prints it and records it in the results. A reply's ceiling is
+128k tokens on both first-party endpoints, thinking included (gpt-6-astra's
+maximum and the Claude 5 family's; Anthropic's read from the Models API);
+`--max-tokens` sets a lower one. The context window is 1M on both (gpt-6-astra
+1.05M; the Claude 5 family's `max_input_tokens`), which is what the context
+summarisation works against; `--context-tokens` overrides. Both adapters share
+the clocks -- a 60 s idle limit on a stream (both carry reasoning progress while
+the model thinks), a wall budget per call of 300 s up to `high` and 600 s at
+`xhigh` / `max` past which the round is discarded and the model told in one
+sentence -- the retry rules (a 429 waits for the endpoint's own hint; a silent
+stream is re-requested three times), the image handling (every image kept; over
+20 images, 2000 px each) and prompt caching (OpenAI's automatic prefix cache,
+Anthropic's top-level `cache_control`); every usage record carries the call's
+seconds. Scoring runs in child processes from a separate pool, so a slow score
+never holds an episode. Images go to OpenAI at `detail: high`. Every provider
+speaks the same text-and-images protocol, so scores compare across vendors.
 
 Runs of any size:
 

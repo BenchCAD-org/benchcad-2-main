@@ -91,8 +91,28 @@ DEFAULT_ROUNDS = 30
 DEFAULT_MAX_TOKENS = None
 ANTHROPIC_MAX_OUTPUT = {"claude-haiku-4-5": 64_000}
 ANTHROPIC_MAX_OUTPUT_DEFAULT = 128_000
+# OpenAI's own endpoint gets the same ceiling as a reply: 128k, which is
+# gpt-6-astra's own maximum output and the Claude 5 family's -- so a reply
+# on either provider is bounded the same way. Decided 2026-09-17 after the
+# medium held-out run: a reasoning model can run for an hour on one prompt
+# (an earlier harness measured 14 % of effort-max calls doing so and bounded
+# them the same way), and an unbounded reply is an unbounded bill and an
+# unbounded wait. Not a thinking cap in the 16k sense: no measured reply
+# came near it (the longest, 48k output over a whole episode).
+OPENAI_MAX_OUTPUT = 128_000
 ATTEMPTS = 4
 BACKOFF_S = 5
+# A 429 is the endpoint saying "not now", not a failed call: it does not
+# spend the ATTEMPTS budget above and never counts as a dead round. The
+# wait is what the endpoint asks for (Retry-After, or OpenAI's
+# x-ratelimit-reset-tokens / -requests), else RATE_LIMIT_BACKOFF_S doubling,
+# capped; after RATE_LIMIT_ATTEMPTS waits in one call it is raised as a
+# failure. Measured 2026-09-17: 12 episodes in flight on one org key
+# (500k TPM) at ~100k prompt tokens a round drew a 429 every few calls,
+# and 5-20 s backoffs inside a 60 s window were mostly wasted.
+RATE_LIMIT_ATTEMPTS = 10
+RATE_LIMIT_BACKOFF_S = 20
+RATE_LIMIT_MAX_WAIT_S = 300
 # A reply with no content is retried once with this much more room, and on
 # OpenRouter with the thinking bounded to this fraction of it, so content
 # always has somewhere to go. See EmptyContent and openai_compat_call.
@@ -278,6 +298,46 @@ def bound_images(turns: list) -> tuple[list, int | None]:
 # actually wedged (no frame = no check), and it kills a stream that paused and
 # then RECOVERED, throwing away everything already received.
 READ_IDLE_S = 90      # no bytes for this long = wedged; > any keepalive gap
+# OpenAI's own endpoint and the Anthropic API send NOTHING while a reasoning
+# model thinks (no keepalive, no reasoning deltas on chat.completions), and
+# a round-one request with a dozen sheets at 100k prompt tokens can think
+# for minutes under load: measured 2026-09-17 on gpt-6-astra with 12
+# episodes in flight, T2/T5 round one timed out at 90 s three times running
+# and the cases were abandoned as dead. So on the first-party endpoints the
+# per-read clock is the whole call budget; the 90 s wedge detector stays for
+# the gateways (OpenRouter, xAI, OpenCode), which do send keepalives.
+# ... but not the whole 1800 s: streams DO wedge -- 2026-09-17 23:00, four
+# of four in flight went silent at once for 30+ minutes while a fresh
+# request with the same images answered in 3 s -- so a silent stream is
+# given up after FIRST_PARTY_IDLE_S and the request is simply made again,
+# STALL_RETRIES times, before the round is discarded. 300 s covers the
+# longest silent reasoning measured at high (< 60 s) with room for xhigh.
+# 2026-09-18: with OpenAI spoken through the Responses API, reasoning
+# summaries stream while the model thinks, and Anthropic streams its
+# thinking deltas, so on both first-party endpoints silence means a dead
+# stream, not a thinking one -- 60 s is plenty (the longest silence seen on a
+# live stream today was under 60 s, on chat.completions). And every call
+# gets a wall-clock budget by effort, CALL_BUDGET_S: nothing measured today
+# answered after 90 s except a dead stream (median ~40 s, p90 60-90 s across
+# ~400 calls at high and medium), so 5 minutes at high is a wide margin and
+# 10 at xhigh / max leaves room for reasoning ten times longer. A call over
+# budget is re-requested like a silent one (STALL_RETRIES), so the cost of a
+# rare misfire is the tokens of one reply, not a case.
+FIRST_PARTY_IDLE_S = 60
+STALL_RETRIES = 3
+CALL_BUDGET_S = {"none": 300, "low": 300, "medium": 300, "high": 300, "xhigh": 600, "max": 600}
+CALL_BUDGET_DEFAULT_S = 300
+
+
+class CallOverBudget(TimeoutError):
+    """A stream still open past CALL_BUDGET_S. Not re-requested (the model
+    would do the same reasoning again); the episode discards the round and
+    says so in the next observation."""
+
+
+def _over_budget(started: float, budget: float, what: str) -> None:
+    if time.time() - started > budget:
+        raise CallOverBudget(f"{what} still streaming after {budget:.0f} s; giving it up")
 # httpx has no total deadline. For the streamed providers this bounds the
 # other phases (write, pool) while READ_IDLE_S bounds each read; for gemini,
 # which does not stream, it is the per-read timeout too -- the only guard
@@ -321,6 +381,33 @@ def _status(e: BaseException) -> int | None:
     return None
 
 
+def _retry_after(e: BaseException) -> float | None:
+    """The wait an endpoint asked for on a 429, in seconds, or None:
+    `Retry-After` (seconds), else OpenAI's `x-ratelimit-reset-tokens` /
+    `x-ratelimit-reset-requests` ("1.2s", "250ms", "1m3s")."""
+    import re
+    headers = getattr(getattr(e, "response", None), "headers", None)
+    if not headers:
+        return None
+    v = headers.get("retry-after")
+    if v:
+        try:
+            return float(v)
+        except ValueError:
+            pass
+    best = None
+    for k in ("x-ratelimit-reset-tokens", "x-ratelimit-reset-requests"):
+        v = headers.get(k)
+        if not v:
+            continue
+        secs = 0.0
+        for num, unit in re.findall(r"([0-9.]+)(ms|s|m|h)", v):
+            secs += float(num) * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[unit]
+        if secs > 0:
+            best = max(best or 0.0, secs)
+    return best
+
+
 def _has_fence(text: str) -> bool:
     """Whether episode would find something executable in this reply."""
     from envs.common.episode import _blocks          # keep the rules in lockstep
@@ -345,19 +432,32 @@ def drive(send, what: str):
        truncated PNG got resent five times, each time with the same bad image,
        and the case was lost. Losing one round of observation images beats
        losing the case.
-    3. A stream that goes silent stays silent. Retrying the same context twice
-       wedged two cases for two hours each; give up the round instead.
+    3. A stream that goes silent stays silent: the per-read timeout ends it
+       and the request is made again on a fresh connection, STALL_RETRIES
+       times; only then is the round discarded.
     """
     def call(system: str, turns: list, plain: bool = False) -> str:
         """`plain`: the reply is prose (a summary, questions, answers --
         episode's context summarization), so rule 1 does not apply."""
         drop_images = False
-        for attempt in range(ATTEMPTS):
+        waits = 0                    # 429s waited out in this call; not attempts
+        stalls = 0                   # silent streams re-requested in this call; not attempts
+        attempt = 0
+        while attempt < ATTEMPTS:
             try:
                 text = send(system, turns, drop_images)
             except Exception as e:                               # noqa: BLE001
                 status = _status(e)
                 msg = str(e)
+                if status == 429 and waits < RATE_LIMIT_ATTEMPTS:
+                    wait = _retry_after(e) or min(RATE_LIMIT_MAX_WAIT_S,
+                                                  RATE_LIMIT_BACKOFF_S * 2 ** waits)
+                    wait = min(RATE_LIMIT_MAX_WAIT_S, max(1.0, wait + 1.0))
+                    waits += 1
+                    print(f"      rate limited ({msg[:160]}); waiting {wait:.0f} s "
+                          f"[{waits}/{RATE_LIMIT_ATTEMPTS}]", flush=True)
+                    time.sleep(wait)
+                    continue                                   # the attempt is not spent
                 code = getattr(e, "code", None)
                 if isinstance(code, str) and code not in msg:
                     msg = f"{code}: {msg}"       # a label, not a status: classify it
@@ -370,6 +470,7 @@ def drive(send, what: str):
                         print(f"      {status} names an image; dropping images "
                               f"and retrying once: {msg[:90]}", flush=True)
                         drop_images = True
+                        attempt += 1
                         continue
                     print(f"      deterministic {status}, not retrying: {msg[:100]}",
                           flush=True)
@@ -380,18 +481,36 @@ def drive(send, what: str):
                 # out.") nor httpx.ReadTimeout ("timed out") contains the
                 # string "ReadTimeout", so the old message test fired for none
                 # of them and a wedged stream got the full retry budget.
+                if isinstance(e, CallOverBudget):
+                    # Not a dead stream: the model was still answering. Asking
+                    # again re-runs the same reasoning (measured 2026-09-18:
+                    # T5 round one streamed for 43 minutes and ended in a
+                    # server error; the earlier re-requests of it each did
+                    # the same) -- so the round is given up at once and the
+                    # episode tells the model. See episode.run_episode.
+                    print(f"      {msg}; round given up", flush=True)
+                    raise
                 timeoutish = (isinstance(e, TimeoutError)
                               or "Timeout" in type(e).__name__
                               or "idle" in msg.lower())
-                if timeoutish and attempt >= 1:
-                    print(f"      stream stalled twice; giving up this round",
+                if timeoutish:
+                    # A wedged stream is not the model's doing: make the
+                    # request again, STALL_RETRIES times, each a fresh
+                    # connection, before the round is discarded.
+                    stalls += 1
+                    if stalls > STALL_RETRIES:
+                        print(f"      stream silent {STALL_RETRIES + 1} times; giving up this round",
+                              flush=True)
+                        raise
+                    print(f"      stream silent; making the request again [{stalls}/{STALL_RETRIES}]",
                           flush=True)
-                    raise
+                    continue                                   # not an attempt either
                 if attempt == ATTEMPTS - 1:
                     raise
-                print(f"      {what} failed ({type(e).__name__}: {msg[:110]}), "
+                print(f"      {what} failed ({type(e).__name__}: {msg[:110 if status != 429 else 400]}), "
                       f"retry {attempt + 1}/{ATTEMPTS - 1}", flush=True)
                 time.sleep(BACKOFF_S * 2 ** attempt)
+                attempt += 1
                 continue
             if plain or _has_fence(text) or attempt == ATTEMPTS - 1:
                 if not plain and not _has_fence(text):
@@ -402,6 +521,7 @@ def drive(send, what: str):
             print(f"      reply has no executable block (len {len(text or '')}, "
                   f"tail {(text or '')[-60:]!r}), retry {attempt + 1}", flush=True)
             time.sleep(BACKOFF_S)
+            attempt += 1
         # Unreachable: every branch above either returns or raises on the last
         # attempt. Raising rather than returning "" matters -- episode counts an
         # empty string as a successful call and resets its dead-round counter,
@@ -447,10 +567,11 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     import anthropic
     effort = effort or top_effort("anthropic/")
     check_effort("anthropic/", effort)
+    call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
     # The same clock as the openai client: a wedged stream is caught by the
     # per-read timeout, the other phases by CALL_TIMEOUT_S. (anthropic 1.x is
     # built on httpx2; anthropic.Timeout is its Timeout.)
-    client = anthropic.Anthropic(timeout=anthropic.Timeout(CALL_TIMEOUT_S, read=READ_IDLE_S,
+    client = anthropic.Anthropic(timeout=anthropic.Timeout(CALL_TIMEOUT_S, read=FIRST_PARTY_IDLE_S,
                                                            connect=30.0))
     info = _anthropic_model_info(client, model)
     # As on the openai path: set for exactly ONE attempt by the truncation
@@ -508,10 +629,13 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                   f"after the thinking", flush=True)
         while True:
             try:
+                started = time.time()
                 with client.messages.stream(model=model, system=system,
                                             max_tokens=budget, messages=messages,
                                             cache_control={"type": "ephemeral"},
                                             **knobs) as st:
+                    for _ in st:                                   # each event: the budget clock
+                        _over_budget(started, call_budget, "anthropic call")
                     msg = st.get_final_message()
                 break
             except anthropic.BadRequestError as e:
@@ -534,11 +658,12 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         # are also kept apart, so a results file shows what caching bought.
         cached = getattr(u, "cache_read_input_tokens", 0) or 0
         written = getattr(u, "cache_creation_input_tokens", 0) or 0
+        secs = round(time.time() - started, 1)
         usage.append({"input_tokens": u.input_tokens + cached + written,
                       "cached_tokens": cached, "cache_write_tokens": written,
-                      "output_tokens": u.output_tokens})
+                      "output_tokens": u.output_tokens, "seconds": secs})
         print(f"      usage: prompt {u.input_tokens + cached + written:,} (cached {cached:,}, "
-              f"cache write {written:,}), output {u.output_tokens:,}", flush=True)
+              f"cache write {written:,}), output {u.output_tokens:,}, {secs:.0f} s", flush=True)
         if msg.stop_reason == "refusal":
             cat = getattr(getattr(msg, "stop_details", None), "category", None)
             print(f"      refusal (category={cat}); treating as an empty turn", flush=True)
@@ -629,6 +754,119 @@ def _is_openrouter(base_url: str | None) -> bool:
     return "openrouter.ai" in (base_url or "")
 
 
+def openai_responses_call(model: str, max_tokens: int, usage: list,
+                          api_key: str, effort: str | None = DEFAULT_EFFORT):
+    """OpenAI's own endpoint, through the Responses API, streamed.
+
+    Why not /chat/completions here (measured 2026-09-17/18 on gpt-6-astra):
+    a round-one task request -- the system prompt that asks for the task
+    plus "Begin." and the sheets -- returned no byte for 15 minutes on
+    chat.completions, streamed or not, at low and at medium, while the same
+    request without the system prompt answered in 4 s and, through the
+    Responses API, answered in 10 s with its reasoning summaries streaming
+    from the second second. The Responses API is also what an earlier
+    harness of ours speaks. Its stream carries reasoning-summary deltas, so a
+    thinking model is visibly alive and the per-read timeout means what it
+    says; the summary text is never returned (it is not the answer).
+    """
+    import httpx
+    import openai
+    effort = effort or top_effort("openai/")
+    check_effort("openai/", effort)
+    client = openai.OpenAI(api_key=api_key,
+                           timeout=httpx.Timeout(CALL_TIMEOUT_S, read=FIRST_PARTY_IDLE_S, connect=30.0),
+                           max_retries=0)                 # drive() owns every retry, so the log says what happened
+    room = {"on": False}
+    knob = {"effort": OPENAI_EFFORT[effort]}
+    call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
+
+    def _step_down(err: str) -> bool:
+        if "effort" not in err or not knob["effort"]:
+            return False
+        was, knob["effort"] = knob["effort"], ("high" if knob["effort"] == "xhigh" else None)
+        print(f"      {model} rejected reasoning.effort={was}; "
+              + (f"sending {knob['effort']} instead" if knob["effort"] else "sending no reasoning.effort")
+              + " for the rest of this episode", flush=True)
+        return True
+
+    def send(system: str, turns: list, drop_images: bool) -> str:
+        turns, max_px = bound_images(turns)
+        items: list = []
+        for t in turns:
+            if t["role"] == "assistant":
+                items.append({"role": "assistant", "content": [{"type": "output_text", "text": t.get("text") or "(empty)"}]})
+                continue
+            parts = [{"type": "input_text", "text": t["text"]}] if t.get("text") else []
+            for img, lab in ([] if drop_images else labelled(t)):
+                parts.append({"type": "input_text", "text": image_label(img, lab)})
+                parts.append({"type": "input_image", "detail": "high",
+                              "image_url": "data:image/png;base64," + _b64(img, max_px)})
+            items.append({"role": "user", "content": parts or [{"type": "input_text", "text": "(empty)"}]})
+        budget = (max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens) if max_tokens else OPENAI_MAX_OUTPUT
+        if room["on"]:
+            print(f"      retrying with max_output_tokens={budget:,} so the content has room", flush=True)
+        while True:
+            reasoning = {"summary": "auto"}
+            if knob["effort"]:
+                reasoning["effort"] = knob["effort"]
+            try:
+                stream = client.responses.stream(model=model, instructions=system, input=items,
+                                                 reasoning=reasoning, max_output_tokens=budget)
+                break
+            except openai.BadRequestError as e:
+                if not _step_down(str(e)):
+                    raise
+        chunks, think, final, seen_usage, status, why_incomplete = [], [], None, None, None, None
+        started = time.time()
+        with stream as st:
+            for ev in st:
+                _over_budget(started, call_budget, "responses call")
+                k = ev.type
+                if k == "response.output_text.delta":
+                    chunks.append(ev.delta)
+                elif k == "response.reasoning_summary_text.delta":
+                    think.append(ev.delta)
+                elif k == "error":
+                    raise RuntimeError(f"responses stream error: {getattr(ev, 'message', ev)}")
+                elif k in ("response.completed", "response.incomplete", "response.failed"):
+                    final = ev.response
+            if final is None:
+                final = st.get_final_response()
+        status = getattr(final, "status", None)
+        inc = getattr(final, "incomplete_details", None)
+        why_incomplete = getattr(inc, "reason", None) if inc else None
+        u = getattr(final, "usage", None)
+        if u is not None:
+            cached = getattr(getattr(u, "input_tokens_details", None), "cached_tokens", 0) or 0
+            rtok = getattr(getattr(u, "output_tokens_details", None), "reasoning_tokens", None)
+            seen_usage = {"input_tokens": u.input_tokens, "cached_tokens": cached, "output_tokens": u.output_tokens,
+                          "seconds": round(time.time() - started, 1)}
+            usage.append(seen_usage)
+            print(f"      usage: prompt {u.input_tokens:,} (cached {cached:,}), completion {u.output_tokens:,}"
+                  + (f" (reasoning {rtok:,})" if rtok else "") + f", {seen_usage['seconds']:.0f} s", flush=True)
+        else:
+            print("      (provider reported no usage; token counts for this call are unknown, not zero)", flush=True)
+        if status == "failed":
+            err = getattr(final, "error", None)
+            raise RuntimeError(f"response failed: {getattr(err, 'message', err)}")
+        text, summary = "".join(chunks), "".join(think)
+        if summary or status != "completed":
+            print(f"      reasoning summary {len(summary):,} chars, content {len(text):,}"
+                  + (f", status={status}" + (f" ({why_incomplete})" if why_incomplete else "") if status != "completed" else ""),
+                  flush=True)
+        if text:
+            room["on"] = False
+            return text
+        why = f"content empty, status={status}, incomplete={why_incomplete}"
+        if not room["on"] and max_tokens:
+            room["on"] = True
+            raise EmptyContent(why)
+        room["on"] = False
+        print(f"      {why}; handing the empty reply back (this round is lost)", flush=True)
+        return ""
+    return drive(send, "responses call")
+
+
 def openai_compat_call(model: str, max_tokens: int, usage: list,
                        api_key: str, base_url: str | None,
                        effort: str | None = DEFAULT_EFFORT):
@@ -656,7 +894,8 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         check_effort(who, effort)
     client = openai.OpenAI(
         api_key=api_key, base_url=base_url,
-        timeout=httpx.Timeout(CALL_TIMEOUT_S, read=READ_IDLE_S, connect=30.0))
+        timeout=httpx.Timeout(CALL_TIMEOUT_S, read=FIRST_PARTY_IDLE_S if base_url is None else READ_IDLE_S,
+                              connect=30.0))
     # Set for exactly ONE attempt, by the EmptyContent raise below, and cleared
     # on every other outcome: the boost is never compounded, so
     # max_tokens * EMPTY_RETRY_BOOST is the ceiling however many rounds run.
@@ -665,6 +904,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
     # way down. Only OpenAI itself gets it: xAI and OpenCode are not measured
     # against it, and OpenRouter has its `reasoning` block below.
     knob = {"effort": OPENAI_EFFORT[effort] if base_url is None else None}
+    call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
 
     def _step_down(err: str) -> bool:
         """A 400 that names reasoning_effort: lower the knob one step, or drop
@@ -697,6 +937,8 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         extra: dict = {}
         if budget:
             extra["max_completion_tokens"] = budget
+        elif base_url is None:
+            extra["max_completion_tokens"] = OPENAI_MAX_OUTPUT       # the ceiling, not a cap to double
         if _is_openrouter(base_url):
             # The gateway's own effort knob, so "medium" means the same thing
             # here as it does on the anthropic path. It takes low | medium |
@@ -738,8 +980,10 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                     raise
         chunks, thinking = [], []
         seen_usage, rtokens, finish = None, None, None
+        started = time.time()
         try:
             for ch in stream:
+                _over_budget(started, call_budget, "chat.completions call")
                 # Usage can arrive on the final frame only (the spec) or on
                 # every frame (Google's compat shim, some OpenRouter
                 # providers). Keep the LAST one rather than summing, which
@@ -777,11 +1021,12 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
             print("      (provider reported no usage; token counts for this "
                   "call are unknown, not zero)", flush=True)
         else:
+            seen_usage["seconds"] = round(time.time() - started, 1)
             usage.append(seen_usage)
             print(f"      usage: prompt {seen_usage['input_tokens']:,} "
                   f"(cached {seen_usage['cached_tokens']:,}), completion "
                   f"{seen_usage['output_tokens']:,}"
-                  + (f" (reasoning {rtokens:,})" if rtokens else ""), flush=True)
+                  + (f" (reasoning {rtokens:,})" if rtokens else "") + f", {seen_usage['seconds']:.0f} s", flush=True)
         text, think = "".join(chunks), "".join(thinking)
         if think:
             # So a client reading the log can see where the budget went. The
@@ -935,8 +1180,13 @@ def mock_call(kind: str, case: Path):
 # within SUMMARIZE_FREE_TOKENS of this; a context-length error summarises
 # reactively whatever the number says, so a wrong entry costs one failed
 # call, not the case.
+# gpt-6-astra: 1,050,000 (OpenAI; requests over 272k input tokens are
+# billed at 2x input / 1.5x output for the whole request -- a 30-round
+# episode stays under that, a 100-round T2/T5 episode would not). The
+# Claude 5 family: 1M from the Models API. Both providers therefore
+# summarise at the same point.
 CONTEXT_TOKENS = {"claude-opus-5": 1_000_000, "claude-": 200_000,
-                  "gpt-6": 400_000, "gpt-5": 400_000, "o3": 200_000, "o4": 200_000,
+                  "gpt-6": 1_050_000, "gpt-5": 400_000, "o3": 200_000, "o4": 200_000,
                   "gemini": 1_000_000}
 DEFAULT_CONTEXT_TOKENS = 200_000
 
@@ -960,6 +1210,8 @@ def build_call(spec: str, max_tokens: int, usage: list, case: Path,
         key = resolve_key(prefix, prov)
         if prov.kind == "anthropic":
             call = anthropic_call(model_id, max_tokens, usage, effort)
+        elif prov.kind == "openai_compat" and prov.base_url is None:
+            call = openai_responses_call(model_id, max_tokens, usage, key, effort)
         elif prov.kind == "openai_compat":
             call = openai_compat_call(model_id, max_tokens, usage, key, prov.base_url, effort)
         elif prov.kind == "gemini":
@@ -1054,6 +1306,31 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+SCORE_TIMEOUT_S = 4200   # the T6 verifier's own 3600 s search deadline, with room to write its record
+
+
+def score_in_subprocess(case: Path, artifact: Path) -> dict:
+    """score_case in a child interpreter: the pixel term renders through
+    vtk, whose Cocoa window on macOS may only be created on a process's main
+    thread -- a child process has its own -- and the T6 graph search is pure
+    Python that can run to its 3600 s deadline, which held the GIL of this
+    process for 25 minutes on 2026-09-18 and starved every episode in
+    flight. Scoring therefore leaves this process entirely, and can run from
+    the worker that finished the episode."""
+    import subprocess
+    code = ("import json, sys\n"
+            "from pathlib import Path\n"
+            "from envs.common.score_case import score_case\n"
+            "print('\\n' + json.dumps(score_case(Path(sys.argv[1]), Path(sys.argv[2])), default=str))")
+    r = subprocess.run([sys.executable, "-c", code, str(case), str(artifact)],
+                       capture_output=True, text=True, timeout=SCORE_TIMEOUT_S,
+                       cwd=str(Path(__file__).resolve().parents[1]))
+    if r.returncode != 0:
+        raise RuntimeError(f"scorer exited {r.returncode}: {r.stderr.strip()[-600:]}")
+    line = r.stdout.strip().splitlines()[-1]
+    return json.loads(line)
+
+
 def _raise_fd_limit() -> None:
     """macOS starts a process at 256 descriptors. Twenty concurrent episodes
     (subprocess pipes, image files, HTTP streams) go straight through that,
@@ -1125,6 +1402,9 @@ def main() -> int:
                          "HTTP or on its sandbox almost all of the time). "
                          "Each sandbox exec may take 2 GB; size the docker "
                          "host for workers x 2 GB")
+    ap.add_argument("--score-workers", type=int, default=2,
+                    help="scores running at once, each in a child process (default 2); "
+                         "a worker hands its finished episode over and takes the next case")
     ap.add_argument("--max-execs", type=int, default=0,
                     help="at most this many sandbox executions at once in "
                          "this process, however many workers wait on the "
@@ -1243,22 +1523,24 @@ def main() -> int:
 
     done = 0
 
-    def finish(case: Path, rec: dict) -> None:
-        """Score and record. Runs on the MAIN thread only: the pixel term
-        renders through vtk, and on macOS vtk's Cocoa window may only be
-        created on the main thread -- from a worker thread it is an
-        NSInternalInconsistencyException that aborts the whole process
-        (measured: four episodes lost at once, results file empty)."""
-        nonlocal done
+    def score(case: Path, rec: dict) -> dict:
+        """Score in a child process (score_in_subprocess), from whichever
+        thread ran the episode: the process's GIL and main thread stay free
+        for the episodes still in flight."""
         if "error" not in rec and "skipped" not in rec:
             t0 = time.time()
             try:
                 artifact = rec.get("step")
-                rec["score"] = score_case(case, Path(artifact)) if artifact else None
+                rec["score"] = score_in_subprocess(case, Path(artifact)) if artifact else None
             except Exception as e:                               # noqa: BLE001
                 rec["error"] = f"{type(e).__name__}: {e}"
                 rec["traceback"] = traceback.format_exc()[-2000:]
             rec["seconds_score"] = round(time.time() - t0, 1)
+        return rec
+
+    def finish(case: Path, rec: dict) -> None:
+        """Record a scored episode and print its line."""
+        nonlocal done
         with lock:
             records[str(case)] = rec
             done += 1
@@ -1271,17 +1553,25 @@ def main() -> int:
         print(f"  [{n}/{len(todo)}] {case.name}: {line}  "
               f"({rec['seconds']}s)", flush=True)
 
-    if a.workers <= 1:
-        write()
-        for case in todo:
-            finish(case, one(case))
-    else:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        write()
-        with ThreadPoolExecutor(max_workers=a.workers) as ex:
-            futs = {ex.submit(one, c): c for c in todo}
-            for f in as_completed(futs):
-                finish(futs[f], f.result())
+    # Episodes and scoring are two pools: a worker hands its finished record
+    # to the scoring pool and takes the next case at once, so a slow score
+    # (T6's graph search can run to its 3600 s deadline) never idles an
+    # episode slot; the scores themselves run in child processes.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    write()
+    with ThreadPoolExecutor(max_workers=max(1, a.score_workers)) as scorers, \
+         ThreadPoolExecutor(max_workers=max(1, a.workers)) as ex:
+        episodes = {ex.submit(one, c): c for c in todo}
+        # Each score is recorded the moment it lands (a done-callback on the
+        # scoring thread), not after the last episode: the results file is
+        # current at every moment and a crash loses one case, not the run.
+        # Measured 2026-09-18 03:00: the earlier "score everything, then
+        # record" shape held 14 finished episodes unrecorded for an hour.
+        for f in as_completed(episodes):
+            case = episodes[f]
+            scorers.submit(score, case, f.result()).add_done_callback(
+                lambda sf, c=case: finish(c, sf.result()))
+        scorers.shutdown(wait=True)
     print(f"\n{len(records)} cases -> {out_path}")
     return 0
 

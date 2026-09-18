@@ -171,3 +171,30 @@ def test_context_summarization_replaces_the_history_the_terminus_way(tmp_path, m
     assert last["n_turns"] == 4 and last["images"] == 1 and "Here are the answers" in last["last"]
     assert [r["action"] for r in out["rounds"]] == ["exec", "summarize", "submit"]
     assert out["submitted"] and (tmp_path / "w_log" / "summary_01.json").exists()
+
+
+def test_an_over_budget_call_is_a_discarded_round_the_model_hears_about(tmp_path, monkeypatch):
+    """harness.run.CallOverBudget: the model was still answering when the
+    call's wall budget ran out. The round is discarded (counted like a failed
+    call) and the next request carries one sentence saying so, since the
+    same context would draw the same reasoning again."""
+    from envs.common import episode as E
+    from envs.common import sandbox as S
+    from harness.run import CallOverBudget
+    monkeypatch.setenv("CADENV_LOCAL", "1")
+    monkeypatch.setattr(S, "_docker_ready", lambda: False)
+    case = ROOT / "tests/fixtures/t3/case1"
+    seen = []
+
+    def call_fn(system, turns, plain=False):
+        seen.append(turns[-1]["text"])
+        if len(seen) == 1:
+            raise CallOverBudget("responses call still streaming after 300 s; giving it up")
+        return "```submit\nimport cadquery as cq\nresult = cq.Workplane('XY').box(10, 10, 10)\n```"
+    call_fn.usage = []
+    call_fn.context_tokens = 200_000
+    out = E.run_episode(case, tmp_path / "w", call_fn, max_rounds=5, exec_timeout=60)
+    assert [r["action"] for r in out["rounds"]] == ["call_failed", "submit"]
+    assert "CallOverBudget" in out["rounds"][0]["error"]
+    assert seen[1].startswith("Round 1: your reply did not finish within the time budget") and "Round 2 of 5" in seen[1]
+    assert out["submitted"]
