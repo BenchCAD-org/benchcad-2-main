@@ -56,7 +56,7 @@
       "properties": {
         "repo": {
           "type": "string",
-          "description": "Where the geometry came from (the data pipeline, benchcad-2, benchcad-2-heldout, synthetic)."
+          "description": "Where the geometry came from (drawings, parametric, ecad, synthetic)."
         },
         "split": {
           "enum": [
@@ -75,7 +75,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "No identity here: no upstream case ids, Drive ids, URLs or names. Provenance goes under provenance/, never staged."
+      "description": "No identity here: no upstream case ids, URLs or names. Provenance goes under provenance/, never staged."
     },
     "input": {
       "$ref": "#/$defs/filelist",

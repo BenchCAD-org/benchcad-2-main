@@ -19,6 +19,13 @@ result = {
   "incidences": [["C2.1", "N1"], ["C2.2", "GND"], ["U1.1", "N1"]]}
 ```
 
-`id` is the silkscreen designator where readable. Net ids are yours; name a
-power rail as the board does (`GND`, `VCC`, `3V3`). A terminal is in at most
-one net; leave out what you cannot see.
+`id` is the silkscreen designator where readable. `type` is one of
+`resistor`, `capacitor`, `capacitor_polarized`, `inductor`, `ferrite_bead`,
+`diode`, `led`, `transistor`, `ic`, `connector`, `crystal`, `switch`,
+`test_point`. `terminals` lists every pin, in order: pin 1 first for an `ic`
+or a keyed `connector`, anode then cathode for a `diode` or `led`, plus then
+minus for a `capacitor_polarized`; for a `resistor` or `capacitor` the order
+is free. `value` is a number in SI base units (ohm, farad, henry) when the
+board prints one and absent when it does not; `value_unit` is not read. Net
+ids are yours; name a power rail as the board does (`GND`, `VCC`, `3V3`). A
+terminal is in at most one net; leave out what you cannot see.

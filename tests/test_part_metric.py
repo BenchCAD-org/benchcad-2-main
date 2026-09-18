@@ -2,7 +2,7 @@
 
 Same discipline as test_examples.py -- synthetic geometry in git
 (tests/fixtures/t1/case1, tests/fixtures/t3/case1), no benchmark data -- plus
-six lab-scored STEP pairs that pin the numbers when they are on disk (skipped,
+six expert-scored STEP pairs that pin the numbers when they are on disk (skipped,
 loudly, when they are not).
 
   oracle        the reference submitted as-is scores 1.0 on every term
@@ -11,8 +11,7 @@ loudly, when they are not).
   quarter turn  T1 (free, iou24_aligned) repairs it on all three terms; T3 (pinned) does not
   background    the silhouette samples the frame corner, never assumes white
   coverage      a term that fails drops out with the weights renormalised
-  fixtures      lab mode reproduces BenchCAD-Lab's SURFACE and PIXEL numbers;
-                the iou half of those rows is parked until the lab republishes
+  fixtures      six reference pairs pin the SURFACE, PIXEL and iou numbers
                 its fixture set against the true voxelisation
   noise         the sampler the iou term used until change 40 disagrees with itself,
                 the voxeliser that replaced it does not -- both on record
@@ -60,7 +59,7 @@ def _gt_shape(case: Path):
 
 def _declared(case: Path) -> tuple[str, str]:
     v = load_task(case)["verify"]
-    return v["orientation"], v.get("pose_mode", "lab")
+    return v["orientation"], v.get("pose_mode", "expert-fit")
 
 
 def _dumb_block(case: Path, out: Path) -> Path:
@@ -92,18 +91,18 @@ def test_declared_not_sniffed():
     dispatches on the declaration, never on the task id."""
     t1, t3 = T.load("t1_drawing2part"), T.load("t3_part2step")
     assert (t1.metric, t1.pose_mode, t1.orientation) == ("part_v1", "iou24_aligned", "free")
-    assert (t3.metric, t3.pose_mode, t3.orientation) == ("part_v1", "lab", "pinned")
+    assert (t3.metric, t3.pose_mode, t3.orientation) == ("part_v1", "expert-fit", "pinned")
     # The assembly tasks declare their own headlines (asm_v1 on T2, avg_part x
     # asm_v1 on T4 / T5); their pose_mode is the per-instance part_v1's inside
-    # the assembly (free -> iou24_aligned, pinned -> lab). T6 has its own verifier.
+    # the assembly (free -> iou24_aligned, pinned -> expert-fit). T6 has its own verifier.
     assert T.load("t2_realparts2assembly").metric == "asm_v1"
     for tid in ("t4_parts2assembly", "t5_drawings2assembly"):
         assert T.load(tid).metric == "part_x_asm_v1", tid
     assert T.load("t6_pcb2schematic").metric == "ecad_v2"
     for tid in ("t2_realparts2assembly", "t4_parts2assembly", "t5_drawings2assembly", "t6_pcb2schematic"):
         assert T.load(tid).metric != "part_v1", tid
-    assert T.load("t4_parts2assembly").pose_mode == "lab" and T.load("t5_drawings2assembly").pose_mode == "iou24_aligned"
-    assert set(T.METRICS) == {"legacy", "asm_v1", "part_v1", "part_x_asm_v1", "ecad_v2"} and set(T.POSE_MODES) == {"lab", "iou24_aligned"}
+    assert T.load("t4_parts2assembly").pose_mode == "expert-fit" and T.load("t5_drawings2assembly").pose_mode == "iou24_aligned"
+    assert set(T.METRICS) == {"legacy", "asm_v1", "part_v1", "part_x_asm_v1", "ecad_v2"} and set(T.POSE_MODES) == {"expert-fit", "iou24_aligned"}
     # The scope of avg_part's mean over part types is declared the same way:
     # T5 averages the modelled types only (16 of its 21 types are supplied),
     # everything else averages over all of them (docs/METRICS.md).
@@ -164,10 +163,10 @@ def test_mirror_is_not_a_rotation(tmp_path):
     mirror)."""
     ref = _export(_chiral(), tmp_path / "chiral.step")
     mir = _export(_chiral().mirror("YZ"), tmp_path / "mirror.step")
-    same = pm.score_part_v1(ref, ref, orientation="free", pose_mode="lab")
+    same = pm.score_part_v1(ref, ref, orientation="free", pose_mode="expert-fit")
     assert same["iou24"] == 1.0 and same["iou_term"] == 1.0
 
-    r = pm.score_part_v1(ref, mir, orientation="free", pose_mode="lab")
+    r = pm.score_part_v1(ref, mir, orientation="free", pose_mode="expert-fit")
     assert r["iou24"] < 0.9 and r["iou_term"] < 0.5, r
 
     # The mirror is exact: undo it analytically and the surfaces coincide.
@@ -219,16 +218,16 @@ def test_quarter_turn_free_vs_pinned(quarter_turned):
 def test_pose_mode_iou24_aligned_vs_lab(quarter_turned):
     """The this repository deviation, on and off. In `iou24_aligned` the
     rotation iou24 found is applied before surf_f1 / pix_fg, so a
-    quarter-turned oracle scores 1.0 on both; in `lab` (the reference
+    quarter-turned oracle scores 1.0 on both; in `expert-fit` (the reference
     behaviour) those two see the delivered pose and do not."""
     gt = SYNTH_T1 / "gt/gt.step"
     aligned = pm.score_part_v1(gt, quarter_turned, orientation="free", pose_mode="iou24_aligned")
-    lab = pm.score_part_v1(gt, quarter_turned, orientation="free", pose_mode="lab")
-    assert aligned["rotation_applied"] is True and lab["rotation_applied"] is False
-    assert aligned["iou24"] == lab["iou24"]                    # the search itself is the same
+    plain = pm.score_part_v1(gt, quarter_turned, orientation="free", pose_mode="expert-fit")
+    assert aligned["rotation_applied"] is True and plain["rotation_applied"] is False
+    assert aligned["iou24"] == plain["iou24"]                    # the search itself is the same
     assert aligned["surf_f1"] >= 0.999 and aligned["pix_fg"] >= 0.999, aligned
-    assert lab["surf_f1"] < 0.7 and lab["pix_fg"] < 0.8, lab
-    assert aligned["score"] > 0.99 > 0.8 > lab["score"]
+    assert plain["surf_f1"] < 0.7 and plain["pix_fg"] < 0.8, plain
+    assert aligned["score"] > 0.99 > 0.8 > plain["score"]
     R = np.array(aligned["rotation"])
     assert round(float(np.linalg.det(R))) == 1 and not np.allclose(R, np.eye(3))
     # A pinned orientation has nothing to align to: the contradiction raises
@@ -311,7 +310,7 @@ def test_record_keys_follow_the_arguments(tmp_path):
     """`n_samples` in the record is the argument, not the constant; `fmt`
     prints the record's weights, not literals."""
     gt = SYNTH_T3 / "gt/gt.step"
-    r = pm.score_part_v1(gt, gt, orientation="pinned", pose_mode="lab", n_samples=5000)
+    r = pm.score_part_v1(gt, gt, orientation="pinned", pose_mode="expert-fit", n_samples=5000)
     assert r["n_samples"] == 5000 and "iou_n_samples" not in r
     r["weights"] = {"iou_term": 0.5, "surf_f1": 0.3, "pix_fg": 0.2}
     line = pm.fmt(r)
@@ -327,7 +326,7 @@ def test_unreadable_submission_scores_zero(tmp_path):
 
 
 def test_normalise_iou_is_mains_norm_iou():
-    """BenchCAD-main's `norm_iou`: clip((x - x0) / (1 - x0), 0, 1), with
+    """`norm_iou`: clip((x - x0) / (1 - x0), 0, 1), with
     x0 >= 1 -- a reference that IS its own primitive -- answered explicitly
     (1.0 only for a perfect x). change 40 dropped the variant that carried 1e-3 on
     both sides of the quotient to dodge the same division by zero: it moved
@@ -339,7 +338,7 @@ def test_normalise_iou_is_mains_norm_iou():
     assert pm.normalise_iou(0.5, 0.5) == 0.0            # a tie with the primitive earns nothing
     assert pm.normalise_iou(0.75, 0.5) == pytest.approx(0.5)
     assert pm.normalise_iou(0.2, 0.5) == 0.0
-    assert pm.WEIGHTS == {"iou_term": 0.5, "surf_f1": 0.3, "pix_fg": 0.2}     # the owner's, 2026-09-16
+    assert pm.WEIGHTS == {"iou_term": 0.5, "surf_f1": 0.3, "pix_fg": 0.2}     # 2026-09-16
     assert pm.fuse({"iou_term": 1.0, "surf_f1": 1.0, "pix_fg": 1.0}) == (1.0, 1.0)
     assert pm.fuse({"iou_term": 0.5}) == (pytest.approx(0.5), pytest.approx(0.5))
     assert pm.fuse({}) == (0.0, 0.0)
@@ -347,17 +346,16 @@ def test_normalise_iou_is_mains_norm_iou():
 
 # --------------------------------------------------------------- fixtures ----
 @pytest.mark.parametrize("row", FIXTURE_ROWS or [pytest.param(
-    None, marks=pytest.mark.skip(reason=f"lab fixtures not on disk at {FIXTURES} "
-                                        "(six cand.step / ref.step / expected.json rows from BenchCAD-Lab)"))],
+    None, marks=pytest.mark.skip(reason=f"expert-fit fixtures not on disk at {FIXTURES} "
+                                        "(six cand.step / ref.step / expected.json rows)"))],
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
-def test_lab_fixtures(row):
-    """Lab mode reproduces BenchCAD-Lab's SURFACE and PIXEL numbers: surf_f1
+def test_expert_fit_fixtures(row):
+    """The reference pairs' SURFACE and PIXEL numbers: surf_f1
     (every tau) and pix_fg within 0.01, at the delivered pose, which is what
-    the lab computed (pose_mode "lab"). change 40 did not touch either term.
+    were computed at the delivered pose (pose_mode "expert-fit").
 
-    The iou half of these rows is in `test_lab_fixtures_iou_pending_republish`:
-    the lab's recorded values were produced by the sampled estimator and the
-    lab is republishing them against the true voxelisation."""
+    The iou half of these rows is in `test_expert_fit_fixtures_iou_pending_republish`:
+    the recorded iou values are checked by the tests below."""
     exp = json.loads((row / "expected.json").read_text())["expected"]
     ref, cand = row / "ref.step", row / "cand.step"
     rp, cp = pm.surface_points(pm.load_shape(ref)), pm.surface_points(pm.load_shape(cand))
@@ -366,9 +364,9 @@ def test_lab_fixtures(row):
     a = pm.render_composite(*pm.render_mesh(pm.load_shape(ref)))
     b = pm.render_composite(*pm.render_mesh(pm.load_shape(cand)))
     assert pm.pix_fg(a, b) == pytest.approx(exp["pix_fg"], abs=0.01)
-    # And the whole thing through the scorer, in lab mode: the two terms the
-    # lab still pins, and the fused score from THIS repo's iou term.
-    full = pm.score_part_v1(ref, cand, orientation="free", pose_mode="lab")
+    # And the whole thing through the scorer, in expert-fit mode: the two terms the
+    # reference pins, and the fused score from THIS repo's iou term.
+    full = pm.score_part_v1(ref, cand, orientation="free", pose_mode="expert-fit")
     assert full["surf_f1"] == pytest.approx(exp["surf_f1_0.02"], abs=0.01)
     assert full["pix_fg"] == pytest.approx(exp["pix_fg"], abs=0.01)
     assert full["score"] == pytest.approx(0.5 * full["iou_term"] + 0.3 * exp["surf_f1_0.02"]
@@ -377,10 +375,10 @@ def test_lab_fixtures(row):
 
 # The movement of the iou half, measured on this machine when change 40 replaced the
 # sampled estimator with the true voxelisation. Recorded here, not asserted:
-# the lab's recorded values describe the estimator, and the lab is republishing
+# the recorded values described the old estimator; the republished set is checked
 # the set. Left as an xfail so that the day the republished fixtures land the
 # test goes GREEN and says so (strict: an unexpected pass is a failure).
-LAB_IOU_MOVED = {                    # row: (lab/old iou24, new iou24, lab/old norm, new norm)
+EXPERT_FIT_IOU_MOVED = {                    # row: (expert-fit/old iou24, new iou24, expert-fit/old norm, new norm)
     "row01_pan_head_screw_000035_s20260505_0": (0.1044, 0.1033, 0.0000, 0.0000),
     # row02 moved 0.4919 -> 0.4935 when geom.voxel started snapping vertices
     # to a 2**-20 lattice (a bolt whose whole-millimetre faces sat on cell
@@ -394,20 +392,20 @@ LAB_IOU_MOVED = {                    # row: (lab/old iou24, new iou24, lab/old n
 }
 
 
-# The lab republished the six fixtures against the true voxelisation on
-# 2026-09-16 (benchcad-lab 60dcf29). With the 2**-20 snap on both sides and
+# The six fixtures were republished against the true voxelisation on
+# 2026-09-16. With the 2**-20 snap on both sides and
 # the cube-touch primitives, all six agree to 0.02.
-LAB_UNSNAPPED: set[str] = set()
+EXPERT_FIT_UNSNAPPED: set[str] = set()
 
 
 @pytest.mark.parametrize("row", FIXTURE_ROWS or [pytest.param(
-    None, marks=pytest.mark.skip(reason="lab fixtures not on disk"))],
+    None, marks=pytest.mark.skip(reason="expert-fit fixtures not on disk"))],
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
-def test_lab_fixtures_iou_republished(row):
-    """The lab's republished iou family (true voxelisation, pad res + 5)
+def test_expert_fit_fixtures_iou_republished(row):
+    """The republished iou family (true voxelisation, pad res + 5)
     against ours, to 0.02."""
-    if row.name in LAB_UNSNAPPED:
-        pytest.xfail("voxelised by the lab without the 2**-20 snap")
+    if row.name in EXPERT_FIT_UNSNAPPED:
+        pytest.xfail("voxelised without the 2**-20 snap")
     exp = json.loads((row / "expected.json").read_text())["expected"]
     r = pm.iou_terms(pm.load_shape(row / "ref.step"), pm.load_shape(row / "cand.step"), search=True)
     assert r["iou24"] == pytest.approx(exp["iou24"], abs=0.02)
@@ -417,13 +415,13 @@ def test_lab_fixtures_iou_republished(row):
 
 
 @pytest.mark.parametrize("row", FIXTURE_ROWS or [pytest.param(
-    None, marks=pytest.mark.skip(reason="lab fixtures not on disk"))],
+    None, marks=pytest.mark.skip(reason="expert-fit fixtures not on disk"))],
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
-def test_lab_fixtures_iou_is_what_we_recorded(row):
-    """What CAN be pinned without the lab: the new iou numbers are the ones
+def test_expert_fit_fixtures_iou_is_what_we_recorded(row):
+    """The iou numbers are the ones
     change 40 measured and wrote down, to 1e-3, so a later change to the term shows
-    up here even while the lab's own values are in flight."""
-    want = LAB_IOU_MOVED.get(row.name)
+    up here."""
+    want = EXPERT_FIT_IOU_MOVED.get(row.name)
     if want is None:
         pytest.skip(f"no recorded movement for {row.name}")
     r = pm.iou_terms(pm.load_shape(row / "ref.step"), pm.load_shape(row / "cand.step"), search=True)
@@ -480,3 +478,45 @@ def test_iou_sampling_noise_is_on_record():
     b = pm.paste(pm.world_indices(*pm.occupancy(*fine, frame=fr)))
     assert pm.grid_iou(a, b) == 1.0, pm.grid_iou(a, b)
     assert "seed" not in pm.iou_terms.__doc__
+
+
+# ------------------------------------------------------ surface identity ----
+def _spline_loft():
+    """A lofted B-spline solid, 2.5 mm thick and 40 mm long."""
+    import cadquery as cq
+    pts = [(0, 0), (10, 4), (22, 5), (34, 3), (40, 0), (34, -3), (22, -5), (10, -4)]
+    return (cq.Workplane("XY").spline(pts, includeCurrent=False).close()
+            .workplane(offset=2.5).spline([(x * 0.7, y * 0.7 + 1.5) for x, y in pts], includeCurrent=False).close()
+            .loft(ruled=False))
+
+
+def test_same_surface_under_another_triangulation_is_the_reference(tmp_path):
+    """Identity level 3 (`surface_identity`). The three held-out T3 parts
+    whose oracle scored 0.995-0.999 (2026-09-17) came back from the STEP
+    round trip with every B-spline edge re-approximated and every face
+    re-triangulated: same surface to a few um, vertices 1-3 mm apart, so the
+    vertex-identical gate (level 1) did not fire and the triangulation-
+    sensitive terms lost 0.5 %. A synthetic loft round-trips bit-exact, so
+    the different triangulation is made here by rebuilding the same solid
+    from two halves fused back (the faces are split, the mesh is not the
+    reference's). It must score exactly 1.0 by the surface gate; a mirror
+    and a 2 mm feature change must not pass it."""
+    import cadquery as cq
+    loft = _spline_loft()
+    ref = _export(loft.val(), tmp_path / "loft.step")
+    left = loft.intersect(cq.Workplane("XY").box(20, 100, 100, centered=(False, True, True)))
+    right = loft.intersect(cq.Workplane("XY").box(100, 100, 100, centered=(False, True, True)).translate((20, 0, 0)))
+    same = _export(left.union(right, clean=True).val(), tmp_path / "loft_rebuilt.step")
+    r = pm.score_part_v1(ref, same, orientation="pinned", pose_mode="expert-fit")
+    assert r["score"] == 1.0 and r["identical"] and r["identical_by"] == "surface", \
+        {k: r.get(k) for k in ("score", "identical", "identical_by", "surface_identity")}
+    si = r["surface_identity"]
+    assert si["distance_p999_mm"] <= si["limit_mm"]
+
+    cut = _export(loft.cut(cq.Workplane("XY").box(2, 2, 2).translate((22, 0, 1))).val(), tmp_path / "loft_cut.step")
+    c = pm.score_part_v1(ref, cut, orientation="pinned", pose_mode="expert-fit")
+    assert not c["identical"] and c["score"] < 1.0, {k: c.get(k) for k in ("score", "identical", "identical_by")}
+
+    mir = _export(loft.mirror("XZ").val(), tmp_path / "loft_mirror.step")
+    m = pm.score_part_v1(ref, mir, orientation="pinned", pose_mode="expert-fit")
+    assert not m["identical"], {k: m.get(k) for k in ("score", "identical", "identical_by")}

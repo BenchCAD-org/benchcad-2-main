@@ -190,11 +190,11 @@ def test_headlines_are_declared():
     t = T.load("t1_drawing2part")
     assert (t.metric, t.orientation, t.pose_mode) == ("part_v1", "free", "iou24_aligned")
     t = T.load("t3_part2step")
-    assert (t.metric, t.orientation, t.pose_mode) == ("part_v1", "pinned", "lab")
+    assert (t.metric, t.orientation, t.pose_mode) == ("part_v1", "pinned", "expert-fit")
     t = T.load("t2_realparts2assembly")
     assert (t.metric, t.orientation, t.pose_mode) == ("asm_v1", "free", "iou24_aligned")
     t = T.load("t4_parts2assembly")
-    assert (t.metric, t.orientation, t.pose_mode) == ("part_x_asm_v1", "pinned", "lab")
+    assert (t.metric, t.orientation, t.pose_mode) == ("part_x_asm_v1", "pinned", "expert-fit")
     t = T.load("t5_drawings2assembly")
     assert (t.metric, t.orientation, t.pose_mode) == ("part_x_asm_v1", "free", "iou24_aligned")
     assert T.load("t6_pcb2schematic").metric == "ecad_v2"       # the ecad verifier's own Metric V2
@@ -467,7 +467,7 @@ def test_every_score_in_unit_interval(t4_case, t5_case, tmp_path):
 
 def test_avg_part_without_alignment_scores_zero(t4_case):
     """No asm_v1 alignment to reuse -> 0 with the reason, never an exception."""
-    r = avg_part(t4_case, t4_case / "gt/gt.step", orientation="pinned", pose_mode="lab",
+    r = avg_part(t4_case, t4_case / "gt/gt.step", orientation="pinned", pose_mode="expert-fit",
                  asm={"asm_v1": 0.0, "error": "no submission instances"})
     assert r["avg_part"] == 0.0 and "no alignment" in r["error"]
     assert all(t["mean"] == 0.0 for t in r["per_type"])

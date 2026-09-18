@@ -28,10 +28,10 @@ DEFAULT_METRIC = "legacy"
 # How part_v1 poses the candidate for surf_f1 / pix_fg (docs/METRICS.md, "Pose").
 # Read by the part verifier (T1 / T3) and by the per-instance part_v1 inside
 # assemblies (avg_part: T2 / T4 / T5).
-#   lab            the lab's reference behaviour: terms at the delivered pose
+#   expert-fit     every term at the delivered pose, as in the expert-preference fit
 #   iou24_aligned  the best-of-24 proper rotation iou24 found is applied first (T1, T2, T5)
-POSE_MODES = ("lab", "iou24_aligned")
-DEFAULT_POSE_MODE = "lab"
+POSE_MODES = ("expert-fit", "iou24_aligned")
+DEFAULT_POSE_MODE = "expert-fit"
 # Which part TYPES avg_part averages over (docs/METRICS.md, "The T5 scope rule").
 #   all        every reference part type. T2 (a diagnostic column: every part is
 #              supplied there) and T4 (half the headline, and every part is
@@ -99,11 +99,8 @@ class Task:
     band_exclude_families: list[str]
     band_exclude_cases: list[str]
     band_exclude_reason: str
-    source_repo: str          # benchcad-2 | benchcad-2-heldout | the data pipeline | the ECAD source repository
+    source_repo: str          # drawings | parametric | ecad -- what the cases are made from
     split: str                # open | heldout -- mixing them contaminates, irreversibly
-    data_root: Path
-    default_dataset: str
-    generator: str
     # Headline metric and its pose handling. Declared, never inferred from the
     # task id or the case directory; omitted means legacy. See METRICS above.
     metric: str = DEFAULT_METRIC
@@ -136,8 +133,6 @@ class Task:
         import importlib
         return getattr(importlib.import_module(mod), fn)
 
-    def dataset(self, name: str | None = None) -> Path:
-        return REPO / self.data_root / (name or self.default_dataset) / "cases"
 
 
 def load(task_id: str) -> Task:
@@ -158,9 +153,6 @@ def load(task_id: str) -> Task:
                 band_exclude_cases=v.get("band_exclude_cases", []),
                 band_exclude_reason=v.get("band_exclude_reason", ""),
                 source_repo=d["data"]["source_repo"], split=d["data"]["split"],
-                data_root=Path(d["data"]["root"]),
-                default_dataset=d["data"]["default_dataset"],
-                generator=d["data"]["generator"],
                 metric=v.get("metric", DEFAULT_METRIC),
                 pose_mode=v.get("pose_mode", DEFAULT_POSE_MODE),
                 avg_part_types=v.get("avg_part_types", DEFAULT_AVG_PART_TYPES),

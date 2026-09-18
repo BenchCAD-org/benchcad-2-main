@@ -593,7 +593,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     # out without a ```submit has no answer, and is scored as such (the
     # record says `no_submission`). The budget is in the prompt and every
     # observation counts the rounds; asking on the model's behalf measured
-    # the harness, not the model (BenchCAD-main PR 53: the two rescues were
+    # the harness, not the model (the two rescues were
     # the whole apparent advantage over mini-swe-agent).
     if not submitted and rounds:
         rounds.append({"round": len(rounds) + 1, "action": "no_submission"})
@@ -601,7 +601,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     # The submitted program runs once, exactly as submitted. If it fails to
     # execute, or leaves no answer, there is no answer: no resubmission with
     # the error shown, no "last complete submission in the log", no "newest
-    # STEP anywhere". Those were rescues (BenchCAD-main PR 53 removed the same
+    # STEP anywhere". Those were rescues (an earlier harness removed the same
     # ones): a model whose final program does not run has not answered, and
     # the record says so -- `submit_failed` with the stderr tail -- so the
     # reader can tell a crash from a wrong shape.

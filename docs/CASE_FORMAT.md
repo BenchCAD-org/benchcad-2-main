@@ -28,8 +28,8 @@ One layout for every task. A case is a directory; what the model sees is
 for the ECAD cases, minus `alignment/`), **plus `expected.json`**. Those are the
 dev samples: eight real cases that DO live in git, so that a client can set up a
 scoring run and align it against ours before anyone touches the formal bank.
-`provenance/` is exactly what must not travel -- Drive ids and links, delivery
-reports, source case numbers, account names -- and nothing in it is needed to
+`provenance/` is exactly what must not travel -- source links and ids,
+delivery reports, account names -- and nothing in it is needed to
 reproduce a score, so a sample ships `case.json` + `input/` + `gt/` +
 `expected.json` and nothing else. `expected.json` records the headline metric,
 the score the reference itself gets, the score the same reference gets after a
@@ -96,11 +96,13 @@ and notes stay (`sandbox.reading_area`) -- and, hidden under `_hires/`, a
 2x master of the same area that `tools.crop` cuts from. Tiles
 `<stem>_tile_r<i>c<j>.png` exist only for a sheet whose smallest dimension
 lettering would still be under 10 px cap height after the API's downscale
-of the reading area (2576 px long edge): the smallest grid that lifts it,
+of the reading area (2048 px long edge, the strictest provider's): the smallest grid that lifts it,
 each tile rendered from the PDF at 2300 px on its long edge, neighbours
 overlapping by 10 %, blank tiles not written (`sandbox.tile_grid`).
-Measured on the held-out bank: no T1 or T2 sheet needs tiles, four A2 part
-drawings with coordinate tables need two each. The sheet and
+At the 2048 px edge an A3 part drawing lettered under 2.9 mm and an A0
+assembly sheet get two tiles, an A2 part drawing at 2.8 mm four; A2
+assembly sheets at 6.2 mm get none. A tile is judged at the size the API
+shows it (2048 px), not at the 2300 px it is rendered at. The sheet and
 `part_drawings/<id>.png` are prompt images; the tiles are in the working
 directory for the model to open. Rasters are derived, never stored. T3 and T4 ship PNGs because their inputs are
 renders of the reference that have no PDF source.
@@ -118,7 +120,7 @@ T3/T4 renders follow one rule: of the four views in `views.png` only the
 top-right one, from direction (1,1,1), is exact; the other three are rendered
 from their nominal tetrahedral directions rotated by a random 3-8 degrees
 (`envs.common.bench_views.perturbation`), and T4's per-part sheets use the
-same four cameras: each is a 524x524 2x2 composite laid out like `views.png`,
+same four cameras: each is a 1412x1412 2x2 composite (700 px per view) laid out like `views.png`,
 `_alone` one instance normalised on its own box (its shape), `_in_assembly`
 at assembly scale with the type solid red and the rest ghosted (its size
 and place). One sheet per part at the size of `views.png` is what the model
@@ -270,7 +272,7 @@ marks scorer fixtures that have no drawing.
 Writers do not hand-edit `case.json`; `envs.common.caseformat.write_manifest`
 computes it from what is on disk.
 
-`case.json` carries **no identity**: no URLs, Drive ids, source case numbers,
+`case.json` carries **no identity**: no URLs, source ids or case numbers,
 account or author names, vendor strings, delivery hashes. The validator rejects
 the keys `drive`, `drive_id`, `drive_url`, `url`, `href`, `account`, `author`,
 `owner`, `source_case`, `delivery_bom`, `email` and any string with `://`,
@@ -291,7 +293,7 @@ the source case number as their title and an account id as their author).
 A PDF whose text is drawn as outlines cannot be read here at all. It is
 admitted only with the delivery gate's report, `provenance/redaction_report.json`,
 `status = "pass"`: the DXF-entity-level CJK and identity scan, symbol
-conservation, parts list vs BOM, and the pixel comparison, all measured in
+conservation, parts list vs BOM, and the pixel comparison, all measured by
 the data pipeline on the deliverable's own bytes. `case.json.redaction.report_sha256`
 pins the copy; the report must be English like everything else here.
 
@@ -360,6 +362,5 @@ become `step_files/` for T2/T5 and `gt/parts/` for T4, which supplies no 3-D;
 the table is `LEGACY_RENAMES` in the tool), drops stored rasters, rewrites
 `parts_map.json` / `instances.json` (T2, T5) and `poses.json` (T4) into one
 `instances.json`, moves T5's `gt/protos/` for drawing parts to `gt/parts/`,
-writes `bom.json` and `case.json`, and validates. Verified on one case per task at rebuild IoU 1.0000
-(T2 ASM-07, ASM-03, ASM-06; T4 gn866/00; T5 DRW-01). Real-case trees are migrated
-in place by their owners with `--deep`; `tests/fixtures/` are already in the format.
+writes `bom.json` and `case.json`, and validates. Real-case trees are migrated in place with `--deep`; `tests/fixtures/` are
+already in the format.

@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "cad-agent-envs",
+  "repo": "drawings",
   "split": "example"
  },
  "input": [

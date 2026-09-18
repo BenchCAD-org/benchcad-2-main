@@ -33,44 +33,15 @@ entry = "envs.verifiers.part:score"
 orientation = "pinned"
 # Headline metric (docs/METRICS.md, change 26): part_v1 = 0.5 iou_norm + 0.3 surf_f1
 # + 0.2 pix_fg, every term at the given pose -- pinned means no rotation search
-# and nothing to align, so pose_mode is "lab". The raw 64^3 IoU stays as `iou`.
+# and nothing to align, so pose_mode is "expert-fit". The raw 64^3 IoU stays as `iou`.
 metric = "part_v1"
-pose_mode = "lab"
-# Band exclusions (cases that cannot measure anything) are **per case**, not per family
-# -- and that was measured, not reasoned.
-# Of slotted_din_rail's 10 variants, 8 have a shortest axis under 2 voxels (5 have only
-# 0.80, with a floor of exactly 1.0000: at 64^3 GT simply **is** its own bounding box),
-# but /02 (4.80 voxels, floor 0.3410) and /03 (9.60 voxels, floor 0.2609) are perfectly
-# measurable tasks.
-# Whether a case is thin is decided by its sampled parameters, not by its family, so
-# excluding the whole family would throw away two good tasks.
-# Raising the resolution does not rescue it: 0.80 voxels only reaches 6.4 at 512^3, and
-# 512^3 means 134 million voxels per comparison.
-band_exclude_cases = [
-  "slotted_din_rail/00", "slotted_din_rail/01", "slotted_din_rail/04",
-  "slotted_din_rail/05", "slotted_din_rail/06", "slotted_din_rail/07",
-  "slotted_din_rail/08", "slotted_din_rail/09",
-]
-band_exclude_reason = "shortest axis <2 voxels; at 64^3 GT is indistinguishable from its own bounding box (5 cases have a floor of exactly 1.0000)"
-oracle = "data/t3_part2step/_oracle"
+pose_mode = "expert-fit"
+
+# The dev samples: the reference of each scores 1.0 and expected.json records it.
+oracle = "examples/task3"
 
 [data]
-# ⚠️ **The source corpus must be written down in the task declaration; it must never be
-# inferred from a directory name or a runtime argument.**
-# The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `benchcad-2-heldout` and is **a different set of families**.
-# Family names overlap between the two (one part family has a copy in each corpus), so
-# the case name alone cannot tell them apart -- and once a held-out case is mixed into a
-# batch of results, the held-out set is contaminated, irreversibly: a question that has
-# appeared on a public leaderboard is spent.
-# To produce a held-out variant: copy this task.toml and change `id` (append a _heldout
-# suffix), `source_repo` and `split`. The authoring script picks families by
-# `source_repo`, and the result file names carry `split` too.
-source_repo = "benchcad-2"
-split = "open"
-root = "data/t3_part2step"
-default_dataset = "v1"
-# The generator lives in the data tree, not in this repo; there is no
-# generator for T3/T4 here.
-generator = "~/Projects/the data tree/tools/make_open_source.py"
-generator_args = "--benchcad2 <repo> --out <dir> --families all --n 10 --workers 4"
+# What the cases are made from and which split this declaration is: the
+# scorer reads neither, the bank tooling and the result files record both.
+source_repo = "parametric"     # drawings | parametric | ecad
+split = "open"               # open | heldout

@@ -479,18 +479,21 @@ HIRES_FACTOR = 2
 # sheets letter dimensions at 6.2 mm (19 px after the API's downscale),
 # the part drawings at 2.4-2.9 mm (11-17 px on A4/A3).
 # Text below CONTENT_TEXT_MM is a table, a watermark or a stamp, never a
-# dimension; it neither extends the reading area nor asks for tiles.
+# dimension; it does not ask for tiles.
 CONTENT_TEXT_MM = 2.3
 CONTENT_MARGIN = 0.01        # of the long edge, around the reading area
 FOOTER_BAND = 0.955          # of the page height: the footer line lives below it
 # Tiles exist only for the sheet whose smallest dimension lettering would
 # still be under TILE_MIN_CAP px cap height after the API's downscale of the
-# reading area (the API keeps API_LONG_PX on the long edge): four A2 part
-# drawings with coordinate tables in the whole held-out bank, two tiles
-# each; no T2 sheet, no T1 sheet. A tile is a piece of the reading area
-# rendered from the PDF with its long edge at TILE_PX, neighbours
-# overlapping by TILE_OVERLAP, on the smallest grid that reaches the cap.
-API_LONG_PX = 2576
+# reading area. API_LONG_PX is the long edge the STRICTEST provider keeps:
+# OpenAI's 2048 (Anthropic keeps 2576), so a sheet that needs tiles has
+# them whoever runs -- a tile is a file on disk, never a seed image, so
+# tiling for the smaller edge costs nothing at the prompt. Measured on the
+# 2026-09-17 examples run: T2's A0 sheet reached gpt-6-astra at 2048 px with
+# its 5.3 mm text at 6 px. A tile is a piece of the reading area rendered
+# from the PDF with its long edge at TILE_PX, neighbours overlapping by
+# TILE_OVERLAP, on the smallest grid that reaches the cap.
+API_LONG_PX = 2048
 TILE_MIN_CAP = 10.0          # px; the BOM table at 8.4 px read, at 6.6 px did not
 TILE_PX = 2300
 TILE_OVERLAP = 0.10
@@ -506,33 +509,40 @@ BLANK_MARGIN_MM = 15.0
 BLANK_INK = 0.003
 
 
+INK_DPI = 40                 # the reading area is measured on a coarse render of the page
+INK_THRESHOLD = 200          # 8-bit grey below this is ink
+FRAME_RUN = 0.6              # a row / column inked over this share of its length is a frame line
+
+
 def reading_area(page, fitz):
-    """The part of `page` worth showing: every drawing path except the frame
-    and full-width rules, plus every text span of CONTENT_TEXT_MM em or more,
-    both excluding the footer band; grown by CONTENT_MARGIN. The whole page
-    when nothing is found (a scanned sheet has no paths and no text)."""
+    """The part of `page` worth showing, measured on the INK of a coarse
+    render, not on the PDF's text: every drawing element -- text drawn as
+    outlines, views embedded as images, hatches -- is ink, whereas text spans
+    and vector paths are not always there (two held-out T1 sheets have
+    outline lettering only, and their area collapsed to the notes block).
+    Frame lines (a row or column inked over FRAME_RUN of its length) and the
+    footer band are cleared first; the bounding box of what is left, grown by
+    CONTENT_MARGIN, is the area. The whole page when nothing is left."""
+    import numpy as np
     R = page.rect
-    W, H = R.width, R.height
-    boxes = []
-    for d in page.get_drawings():
-        r = d["rect"]
-        if r.width > 0.9 * W or r.height > 0.9 * H:
-            continue
-        if r.y0 > FOOTER_BAND * H or (r.width < 1 and r.height < 1):
-            continue
-        boxes.append(r)
-    for b in page.get_text("dict")["blocks"]:
-        for line in b.get("lines", []):
-            for sp in line["spans"]:
-                if sp["size"] * 25.4 / 72 >= CONTENT_TEXT_MM and sp["text"].strip():
-                    bb = fitz.Rect(sp["bbox"])
-                    if bb.y0 <= FOOTER_BAND * H:
-                        boxes.append(bb)
-    if not boxes:
+    k = INK_DPI / 72.0
+    pix = page.get_pixmap(matrix=fitz.Matrix(k, k), alpha=False, colorspace=fitz.csGRAY)
+    g = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+    ink = g < INK_THRESHOLD
+    rows = ink.mean(axis=1) > FRAME_RUN
+    cols = ink.mean(axis=0) > FRAME_RUN
+    for i in np.flatnonzero(rows):
+        ink[max(0, i - 2):i + 3, :] = False
+    for j in np.flatnonzero(cols):
+        ink[:, max(0, j - 2):j + 3] = False
+    ink[int(FOOTER_BAND * pix.height):, :] = False
+    ys, xs = np.nonzero(ink)
+    if len(ys) == 0:
         return R
-    m = CONTENT_MARGIN * max(W, H)
-    return fitz.Rect(max(R.x0, min(b.x0 for b in boxes) - m), max(R.y0, min(b.y0 for b in boxes) - m),
-                     min(R.x1, max(b.x1 for b in boxes) + m), min(R.y1, max(b.y1 for b in boxes) + m))
+    m = CONTENT_MARGIN * max(R.width, R.height)
+    x0, x1 = R.x0 + xs.min() / k - m, R.x0 + (xs.max() + 1) / k + m
+    y0, y1 = R.y0 + ys.min() / k - m, R.y0 + (ys.max() + 1) / k + m
+    return fitz.Rect(max(R.x0, x0), max(R.y0, y0), min(R.x1, x1), min(R.y1, y1))
 
 
 def smallest_lettering_mm(page, area, fitz) -> float | None:
@@ -549,19 +559,24 @@ def smallest_lettering_mm(page, area, fitz) -> float | None:
     return min(sizes) if sizes else None
 
 
+DEFAULT_LETTERING_MM = 2.5   # assumed when the sheet's lettering is outlines (no text spans)
+
+
 def tile_grid(area_w_mm: float, area_h_mm: float, lettering_mm: float | None) -> tuple[int, int]:
     """(rows, cols) for a reading area: (1, 1) when its smallest lettering
     reaches TILE_MIN_CAP px after the API's downscale, else the smallest grid
-    of TILE_GRIDS whose tiles do."""
+    of TILE_GRIDS whose tiles do. A sheet whose lettering is drawn as
+    outlines has no text spans; it is taken at DEFAULT_LETTERING_MM."""
     if lettering_mm is None:
-        return 1, 1
+        lettering_mm = DEFAULT_LETTERING_MM
     cap = CAP_PER_EM * lettering_mm * API_LONG_PX / max(area_w_mm, area_h_mm)
     if cap >= TILE_MIN_CAP:
         return 1, 1
+    shown = min(TILE_PX, API_LONG_PX)          # a 2300 px tile reaches the model at the API's edge
     for rows, cols in TILE_GRIDS:
         tw = area_w_mm / cols * (1 + TILE_OVERLAP if cols > 1 else 1)
         th = area_h_mm / rows * (1 + TILE_OVERLAP if rows > 1 else 1)
-        if CAP_PER_EM * lettering_mm * TILE_PX / max(tw, th) >= TILE_MIN_CAP:
+        if CAP_PER_EM * lettering_mm * shown / max(tw, th) >= TILE_MIN_CAP:
             return rows, cols
     return TILE_GRIDS[-1]
 

@@ -54,7 +54,7 @@ def score(case_dir: Path, step: Path, task=None) -> dict:
     from envs.common.part_metric import score_part_v1
     r = score_part_v1(gt, Path(step),
                       orientation=_verify_field(task, "orientation", "pinned"),
-                      pose_mode=_verify_field(task, "pose_mode", "lab"))
+                      pose_mode=_verify_field(task, "pose_mode", "expert-fit"))
     return {**out, **r}
 
 

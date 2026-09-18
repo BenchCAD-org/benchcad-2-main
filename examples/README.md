@@ -168,30 +168,14 @@ about the case, and they are recorded, not rounded away, because **a client who
 reproduces 1.0 where we get 0.999527 is not running our ruler** — which is the
 entire point of these samples. Reproduce the digits, within `tolerance`.
 
-- **round trip** is the reference imported and written back out with cadquery.
-  This is what a *perfect* submission looks like on disk: a model cannot hand
-  over our file, it hands over a program, and `tools.export` writes the result
-  through cadquery's STEP writer. It is also exactly what `mock/oracle`
-  submits, so it is the column an end-to-end run reproduces.
-- On both **T3** samples the round trip used to cost about 0.15 of the
-  headline, all of it `part_v1`'s voxel term (0.786 / 0.808) while the legacy
-  raw 64³ `iou` stayed at 1.0000. That term is now a true solid voxelisation
-  and reaches exactly 1.0 on both re-exports (the same cell count on both
-  sides), so the round trip is 0.999957 / 0.999527. What is left is the lab's
-  sampled `surf_f1` (0.9999 / 0.9986) and `pix_fg` (0.99997 / 1.0) —
-  20,000 surface samples and a 524² render are not bit-stable under
-  re-tessellation, and neither term was changed. The synthetic fixtures under
-  `tests/fixtures/` are boxes and cylinders whose re-export is
-  vertex-identical, so they do not show it at all — which is why having real
-  cases in git is worth something.
-- **T5**'s oracle is now exactly 1.0. It was 0.999202: one purchased part type
-  scored 0.983244 against itself inside `avg_part`, on geometry that is
-  literally identical, because the voxel term was a Monte-Carlo estimate of the
-  solid. Note that `envs/verifiers/assembly.py` still records that era's 0.9891
-  oracle floor in a comment. See "provisional numbers" below.
-- The **assembly floors are 0.000000**, not small. A single bounding-box block
-  places no part type at all, and `asm_v1` is scored per part type, so the
-  trivial answer earns nothing rather than a little.
+- **round trip** is the reference imported and written back out with cadquery:
+  what a *perfect* submission looks like on disk, and exactly what
+  `mock/oracle` submits, so it is the column an end-to-end run reproduces.
+  The two T3 round trips are a few ten-thousandths short because the surface
+  and pixel terms sample and render a re-tessellated solid; the iou term is
+  exact.
+- The **assembly floors are 0.000000**, not small: a single bounding-box
+  block places no part type at all, and `asm_v1` is scored per part type.
 
 `mock/dumb` submits a 10 mm box (or, for T6, the empty graph) — a *different*
 trivial answer from the bounding-box block, so its scores need not equal the
@@ -209,7 +193,7 @@ One per case, and the thing to diff your own run against:
  "case": "case1", "env": "t3_part2step", "kind": "part",
  "metric": "part_v1",                               as declared in envs/<env>/task.toml
  "score_key": "score",                              which key of the result record is the headline
- "orientation": "pinned", "pose_mode": "lab",
+ "orientation": "pinned", "pose_mode": "expert-fit",
  "verifier": "envs.verifiers.part:score",
  "metric_reference": "docs/METRICS.md",
  "tolerance": 0.0001,                               how far your number may be from ours
@@ -251,45 +235,14 @@ nothing else, so the shipped case bytes cannot move when the numbers do:
 uv run python tools/make_dev_samples.py --scores-only
 ```
 
-**The oracle-exactness fix has landed**, and these files are its
-re-measurement. `part_v1`'s voxel term is now BenchCAD-main's true solid
-voxelisation rather than a Monte-Carlo estimate of it, and `avg_part` decides
-instance identity on analytic invariants (`docs/METRICS.md`, "What the iou term
-replaced, and why"). What moved: T5's oracle and round trip 0.999202 → 1.0,
-the T2 sample's `avg_part` column 0.992628 → 1.0 (measured on the T2 sample
-that has since been replaced, below; the two that replaced it were measured
-after the fix and never carried the old number), and both T3 round trips
-0.849 / 0.850 → 0.999957 / 0.999527. Every baseline, T1, T4 and both T6 samples are unchanged.
-**Every iou number of every task is different from before that fix** — it is a
-change of metric, not a repair with no consequences. Everything else in a
-sample — the inputs, the reference, the manifest — is unaffected by it.
-
 ### T2's two samples
 
-T2 shipped one sample until 2026-09-11 and now ships two, **replacing** it
-rather than adding to it. Both are contributed, audited cases:
+- `task2/cases/case1` — 26 instances, 26 solids, 21 part types.
+- `task2/cases/case2` — 36 instances, 37 solids, 20 part types; `part_11.step`
+  holds two solids placed together under one instance transform, which
+  `avg_part` pairs as one type.
 
-- `task2/cases/case1` — the clean standard example: 26 semantic instances,
-  26 solids, 21 part types. This is the **same assembly** the replaced sample
-  was built from (all 20 geometry classes and the per-`part_id` (class,
-  quantity, n_solids) map are identical, and it is the same assembly sheet),
-  independently de-posed. Shipping both would have cost 9.5 MB for a second
-  de-posing of one assembly and no new coverage, so the older one is gone.
-- `task2/cases/case2` — a **multi-solid semantic part**: 36 instances,
-  37 solids, 20 part types, with `part_11.step` holding two solids that are
-  placed together under one instance transform. It is here because
-  `envs/common/score_asm.py` warns that over-splitting a multi-solid part
-  wrecks the per-part numbers, and nothing in git exercised that until now.
-  `avg_part` pairs `part_11` as one type, `n = 1`, `mean = 1.000000`.
-
-Part ids and source geometries are preserved; whole supplied parts are de-posed
-with `tools/asmlib.py` (seed 20260911) and the named reference leaves are
-written by its `write_gt`. The contributor's audit reversed the rigid
-transforms and measured zero symmetric-difference volume against the canonical
-references. Only the English parts-table font and the PDF metadata are
-normalised for publication.
-
-Both were validated on macOS with the unmodified checker, deep:
+Both validate with the checker, deep:
 
 ```sh
 uv run python tools/check_cases.py examples/task2/cases/case1 examples/task2/cases/case2 --deep

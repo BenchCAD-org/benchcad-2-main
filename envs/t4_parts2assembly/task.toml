@@ -51,9 +51,9 @@ orientation = "pinned"
 #             every type counts, because every type had to be modelled
 #   asm_v1    per-part-type leave-one-type-out IoU gain, normalised by (1 - baseline)
 # The views pin the orientation, so the per-instance comparison is the given
-# pose: no rotation search, pose_mode "lab". `iou` / `hit` stay as diagnostics.
+# pose: no rotation search, pose_mode "expert-fit". `iou` / `hit` stay as diagnostics.
 metric = "part_x_asm_v1"
-pose_mode = "lab"
+pose_mode = "expert-fit"
 # T4 is SCALE-INVARIANT (envs.tasks.SCALES, docs/METRICS.md "The scale rule").
 # The rule, not an exception for this task: a task is scale-invariant exactly
 # when it supplies no 3-D geometry. T4's whole input is views.png, the
@@ -78,25 +78,12 @@ pose_mode = "lab"
 # declarations, so older numbers stay comparable; the free figures ride along
 # as iou_scale_free / hit_scale_free.
 scale = "free"
-oracle = "data/t4_parts2assembly/_oracle"
+
+# The dev samples: the reference of each scores 1.0 and expected.json records it.
+oracle = "examples/task4"
 
 [data]
-# ⚠️ **The source corpus must be written down in the task declaration; it must never be
-# inferred from a directory name or a runtime argument.**
-# The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `benchcad-2-heldout` and is **a different set of families**.
-# Family names overlap between the two (one part family has a copy in each corpus), so
-# the case name alone cannot tell them apart -- and once a held-out case is mixed into a
-# batch of results, the held-out set is contaminated, irreversibly: a question that has
-# appeared on a public leaderboard is spent.
-# To produce a held-out variant: copy this task.toml and change `id` (append a _heldout
-# suffix), `source_repo` and `split`. The authoring script picks families by
-# `source_repo`, and the result file names carry `split` too.
-source_repo = "benchcad-2"
-split = "open"
-root = "data/t4_parts2assembly"
-default_dataset = "v1"
-# The generator lives in the data tree, not in this repo; there is no
-# generator for T3/T4 here.
-generator = "~/Projects/the data tree/tools/make_open_source.py"
-generator_args = "--benchcad2 <repo> --out <dir> --families all --n 10 --workers 4"
+# What the cases are made from and which split this declaration is: the
+# scorer reads neither, the bank tooling and the result files record both.
+source_repo = "parametric"     # drawings | parametric | ecad
+split = "open"               # open | heldout

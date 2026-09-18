@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "benchcad-ecad-tasks",
+  "repo": "ecad",
   "split": "example",
   "board_class": "2-layer, all routing on outer copper"
  },

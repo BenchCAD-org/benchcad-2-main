@@ -7,13 +7,13 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "benchcad-2",
+  "repo": "parametric",
   "split": "open"
  },
  "input": [
   {
    "path": "input/views.png",
-   "sha256": "40cf90d61509142a3d5aeb3a27c5e4cafa55c468b8a36e0cd0210e3daae8c8dc"
+   "sha256": "82d16cf24a6e8f57385bfc8fdb1ab5ad81fb090a85099fedac421a724c877f7a"
   }
  ],
  "gt": [
@@ -31,7 +31,7 @@
   "family": "minifix_cam_housing",
   "tier": "hard",
   "variant": 5,
-  "geometry": "benchcad-2 main, commit 5d47436 (PR #224 merged 2026-09-10)",
+  "geometry": "parametric family, pinned source commit",
   "views": {
    "tool": "tools/render_views.py",
    "seed": 1748589562
@@ -46,5 +46,5 @@
  "redaction": {
   "status": "unknown"
  },
- "notes": "Catalogue row 5, hard-tier defaults. One of the three variants shown in the task 3 figure on the 2.0 preview page. Geometry from benchcad-2 main, commit 5d47436 (PR #224 merged 2026-09-10)."
+ "notes": ""
 }

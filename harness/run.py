@@ -87,8 +87,7 @@ DEFAULT_ROUNDS = 30
 # and everything not listed, 64k for Haiku 4.5, Anthropic's own numbers; a
 # model with a lower ceiling answers 400 and anthropic_call halves until
 # accepted). A 16k cap was the thinking's cap at effort max, and every
-# round that filled it lost its answer. BenchCAD-main's harness sends 512k
-# for the same reason. --max-tokens still sets one when a run wants it.
+# round that filled it lost its answer. 512k is the same reasoning. --max-tokens still sets one when a run wants it.
 DEFAULT_MAX_TOKENS = None
 ANTHROPIC_MAX_OUTPUT = {"claude-haiku-4-5": 64_000}
 ANTHROPIC_MAX_OUTPUT_DEFAULT = 128_000

@@ -47,27 +47,15 @@ orientation = "free"
 metric = "part_v1"
 # A T1 candidate is a CadQuery program built in its own axis-aligned frame and
 # the drawing fixes no world frame, so the best-of-24 proper rotation iou24
-# finds is applied to the candidate before surf_f1 / pix_fg. "lab" would score
-# those two at the delivered pose (the lab's reference behaviour).
+# finds is applied to the candidate before surf_f1 / pix_fg. "expert-fit" would score
+# those two at the delivered pose (no alignment).
 pose_mode = "iou24_aligned"
-oracle = "data/t1_drawing2part/_oracle"
+
+# The dev samples: the reference of each scores 1.0 and expected.json records it.
+oracle = "examples/task1"
 
 [data]
-# ⚠️ **The source corpus must be written down in the task declaration; it must never be
-# inferred from a directory name or a runtime argument.**
-# The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `benchcad-2-heldout` and is **a different set of families**.
-# Family names overlap between the two (one part family has a copy in each corpus), so
-# the case name alone cannot tell them apart -- and once a held-out case is mixed into a
-# batch of results, the held-out set is contaminated, irreversibly: a question that has
-# appeared on a public leaderboard is spent.
-# To produce a held-out variant: copy this task.toml and change `id` (append a _heldout
-# suffix), `source_repo` and `split`. The authoring script picks families by
-# `source_repo`, and the result file names carry `split` too.
-source_repo = "the data pipeline"
-split = "open"
-# Case data is not in git. Cases are produced by the data-gathering line
-# (the data pipeline) and brought into the case format with tools/migrate_case.py.
-root = "data/t1_drawing2part"
-default_dataset = "v3"
-generator = "tools/migrate_case.py or the data-gathering line"
+# What the cases are made from and which split this declaration is: the
+# scorer reads neither, the bank tooling and the result files record both.
+source_repo = "drawings"     # drawings | parametric | ecad
+split = "open"               # open | heldout

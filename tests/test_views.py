@@ -20,7 +20,7 @@ os.environ.setdefault("CADENV_LOCAL", "1")       # docker is used when present; 
 
 from envs.common import bench_views as bv  # noqa: E402
 from envs.common.caseformat import load_case  # noqa: E402
-from envs.common.views import (VIEWS_JSON, default_seed, perturbation, render_case_views,  # noqa: E402
+from envs.common.views import (COMPOSITE_SIZE, VIEWS_JSON, default_seed, perturbation, render_case_views,  # noqa: E402
                                render_part_sheets, sheet_names)
 
 T3 = REPO / "tests/fixtures/t3/case1"
@@ -98,8 +98,8 @@ def test_fixtures_record_the_draw_under_gt_only():
         assert seed == default_seed(m["env"], m["id"])
         assert rec == perturbation(seed)
     from PIL import Image
-    assert Image.open(T3 / "input/views.png").size == (524, 524)
-    assert Image.open(T4 / "input/views.png").size == (524, 524)
+    assert Image.open(T3 / "input/views.png").size == (1412, 1412)
+    assert Image.open(T4 / "input/views.png").size == (1412, 1412)
 
 
 def _t4_sheets() -> list[str]:
@@ -120,16 +120,17 @@ def test_t4_ships_one_sheet_pair_per_part_type():
     assert len(sheets) == 2 * len(m["parts"]) == 6
     for rel in sheets:
         assert f"input/{rel}" in listed, rel
-        assert Image.open(T4 / "input" / rel).size == (524, 524), rel
+        assert Image.open(T4 / "input" / rel).size == (1412, 1412), rel
     assert sorted(listed) == sorted(["input/bom.json", "input/views.png"] + [f"input/{r}" for r in sheets])
     assert not (T4 / "input/parts_views.png").exists()
     # the layout is views.png's: white gutters of the 2x2 composite at the same places
     import numpy as np
     for rel in ["views.png"] + sheets:
         a = np.asarray(Image.open(T4 / "input" / rel).convert("RGB"))
-        for y in (0, 3, 260, 263, 520, 523):
+        s, g = COMPOSITE_SIZE, 4                                    # gutters: 0..3, s+4..s+7, 2s+8..2s+11
+        for y in (0, g - 1, s + g, s + 2 * g - 1, 2 * s + 2 * g, 2 * s + 3 * g - 1):
             assert (a[y] == 255).all(), (rel, y)
-        for x in (0, 3, 260, 263, 520, 523):
+        for x in (0, g - 1, s + g, s + 2 * g - 1, 2 * s + 2 * g, 2 * s + 3 * g - 1):
             assert (a[:, x] == 255).all(), (rel, x)
 
 
@@ -169,7 +170,7 @@ def test_part_sheets_use_the_recorded_cameras(tmp_path):
     b = render_part_sheets(T4, perturbation(8), tmp_path / "b")
     c = render_part_sheets(T4, perturbation(7), tmp_path / "c")
     assert sorted(a) == sorted(b) == sorted(c) == sorted(_t4_sheets())
-    s, g = 256, 4
+    s, g = COMPOSITE_SIZE, 4
     quad = [(g, g), (2 * g + s, g), (g, 2 * g + s), (2 * g + s, 2 * g + s)]
     for rel in a:
         A, B, C = (np.asarray(Image.open(d[rel]).convert("RGB")) for d in (a, b, c))

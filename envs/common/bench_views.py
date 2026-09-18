@@ -1,4 +1,4 @@
-# The four-view reference renderer, vendored from BenchCAD-main
+# The four-view reference renderer
 # (benchcad_core/scoring/views.py, the renderer behind Vision2Code in an earlier change):
 # four cameras at the corners of a regular tetrahedron, parallel projection,
 # a normalised mesh, a 2x2 composite.
@@ -52,8 +52,7 @@ from pathlib import Path
 import numpy as np
 
 # Four cameras at the corners of a REGULAR TETRAHEDRON, laid out 2x2
-# top-left -> bottom-right. See open_source/CAMERAS.md in the data tree
-# and benchcad-2 an earlier change for the derivation.
+# top-left -> bottom-right.
 #
 #   top-left (-1,-1, 1)   top-right ( 1, 1, 1)
 #   bot-left (-1, 1,-1)   bot-right ( 1,-1,-1)
@@ -74,7 +73,7 @@ CAMERA_DISTANCE = -0.9
 # farthest any vertex can be from LOOKAT is the half-diagonal sqrt(3)/2 = 0.866,
 # and the cameras look down cube diagonals where that bound is approached. A
 # viewport of 0.55 therefore cuts off anything blockier than a rod: measured
-# over the 392 preference-lab references, 117 of them (30 %) needed more room
+# over the 392 preference-expert-fit references, 117 of them (30 %) needed more room
 # than the frame gave, the worst asking 0.746 — and the same renderer draws the
 # image the model is asked to reconstruct in Vision2Code, so those parts were
 # posed as questions that could not be seen in full.
@@ -173,7 +172,7 @@ def style(color_rgb01, *, opacity: float = 1.0, edge_rgb01=EDGE_RGB, edge_width:
     `merge_points` runs vtkCleanPolyData before vtkFeatureEdges (2026-09-15,
     so a blade of 80 ruled patches is not drawn as stripes). The part
     metric's pixel term passes False together with `edge_rgb01=None`: it
-    renders with the look its weights were fitted and lab-checked under, and
+    renders with the look its weights were fitted and expert-fit-checked under, and
     a presentation change must not move a score."""
     return {"color": tuple(color_rgb01), "opacity": float(opacity), "merge_points": bool(merge_points),
             "edge_color": None if edge_rgb01 is None else tuple(edge_rgb01),

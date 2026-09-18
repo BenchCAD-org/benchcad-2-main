@@ -349,7 +349,7 @@ def pdf_metadata(pdf: Path) -> dict:
 def redaction_report(case: Path) -> dict | None:
     """provenance/redaction_report.json: the delivery gate's verification of the
     drawings (DXF-entity CJK and identity, symbol conservation, parts list vs
-    BOM), produced in the data pipeline. This repo keeps only the PDFs the
+    BOM), produced by the data pipeline. This repo keeps only the PDFs the
     model sees; the DXF-level facts travel as this report."""
     p = case / "provenance" / "redaction_report.json"
     if not p.exists():
@@ -445,7 +445,7 @@ class Report:
 
 
 # case.json is a shared artifact (it is what a reviewer or a runner reads first), so it
-# carries no identity at all: no URLs, no Drive ids, no source case numbers, no accounts,
+# carries no identity at all: no URLs, no source ids, no source case numbers, no accounts,
 # no vendor strings. Provenance that must survive goes under provenance/ (never staged).
 IDENTITY_KEYS = {"drive", "drive_id", "drive_url", "url", "urls", "href", "account", "author",
                  "owner", "source_case", "delivery_bom", "email"}
@@ -473,7 +473,7 @@ def dev_sample_admission(manifest: dict) -> tuple[dict | None, str | None]:
     sample that pins the delivery report it was admitted on, else `(None, None)`.
 
     A dev sample under `examples/` is a copy of a real case minus `provenance/`,
-    because that directory is what carries the Drive ids, the delivery reports,
+    because that directory is what carries the source ids, the delivery reports,
     the source case numbers and the account names -- the whole reason the old
     `examples/` tree had to be purged from git. An outline PDF (text drawn as
     line art, so nothing here can read it) is admitted only on the delivery

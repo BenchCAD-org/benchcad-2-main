@@ -32,14 +32,18 @@ def test_search_walls_come_from_the_task_and_name_the_wall_they_hit(tmp_path):
     wall, so the reader knows whether more time would move the number."""
     case = CASES[0]
     task = {"verifier": {"timeout_sec": 3600.0, "node_budget": 1}}
-    # A submission that leaves the anchors unusable forces a search: every
-    # designator renamed, connectivity kept.
+    # A submission that leaves the anchors unusable AND cannot be proven
+    # optimal at once forces a search: every designator renamed, and every
+    # terminal moved to the next incidence's net. (The matcher since the ECAD
+    # repo's change 57 proves a renamed-but-correct graph from its bound before any
+    # node is spent, so connectivity kept no longer reaches the wall.)
     g = json.loads((case / "gt/gt_graph.json").read_text())
     ren = {c["id"]: f"X{i}" for i, c in enumerate(g["components"])}
     for c in g["components"]:
         c["terminals"] = [t.replace(c["id"] + ".", ren[c["id"]] + ".", 1) for t in c["terminals"]]
         c["id"] = ren[c["id"]]
-    g["incidences"] = [[next(ren[k] + t[len(k):] for k in ren if t.startswith(k + ".")), n] for t, n in g["incidences"]]
+    inc = [[next(ren[k] + t[len(k):] for k in ren if t.startswith(k + ".")), n] for t, n in g["incidences"]]
+    g["incidences"] = [[t, n] for (t, _), (_, n) in zip(inc, inc[1:] + inc[:1])]
     sub = tmp_path / "pred_graph.json"; sub.write_text(json.dumps(g))
     r = score(case, sub, task)
     assert r["exact_search"] is False and r["search_limit"] == "node_budget", r

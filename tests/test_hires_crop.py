@@ -149,12 +149,15 @@ def test_blank_tiles_are_skipped_but_content_tiles_kept(tmp_path):
 
 def test_tile_grid_follows_the_lettering_not_the_paper():
     from envs.common.sandbox import tile_grid
-    assert tile_grid(594, 420, 6.2) == (1, 1)          # the A2 assembly sheets: 19 px, no tiles
-    assert tile_grid(594, 420, 2.8) == (1, 2)          # an A2 part drawing with 2.8 mm lettering: two
-    assert tile_grid(420, 297, 2.4) == (1, 1)          # A3 at 2.4 mm: 10.4 px, just enough
+    # Cap heights at the 2048 px edge the strictest provider keeps (OpenAI).
+    assert tile_grid(594, 420, 6.2) == (1, 1)          # the A2 assembly sheets: 15 px, no tiles
+    assert tile_grid(594, 420, 2.8) == (2, 2)          # an A2 part drawing with 2.8 mm lettering: four (a 1x2 tile shows 9.6 px at 2048)
+    assert tile_grid(420, 297, 2.4) == (1, 2)          # A3 at 2.4 mm: 8.2 px, two tiles (10.4 px at 2576 was none)
+    assert tile_grid(420, 297, 3.0) == (1, 1)          # A3 at 3.0 mm: 10.2 px, just enough
     assert tile_grid(1189, 841, 2.5) == (3, 4)         # A0 at 2.5 mm: 12 tiles of ~330 mm
-    assert tile_grid(210, 297, 2.4) == (1, 1)          # A4
-    assert tile_grid(594, 420, None) == (1, 1)         # no lettering found: nothing to read closer
+    assert tile_grid(210, 297, 2.4) == (1, 1)          # A4: 11.6 px
+    assert tile_grid(594, 420, None) == (2, 2)         # outline lettering: taken at 2.5 mm, an A2 tiles (four at 2048)
+    assert tile_grid(420, 297, None) == (1, 2)         # ... an A3 at 2.5 mm: 8.5 px at 2048, two
 
 
 def test_staged_bom_names_the_png_not_the_pdf(tmp_path, wd):

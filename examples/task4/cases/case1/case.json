@@ -7,7 +7,7 @@
  "units": "mm",
  "synthetic": false,
  "source": {
-  "repo": "benchcad-2",
+  "repo": "parametric",
   "split": "open"
  },
  "input": [
@@ -17,63 +17,63 @@
   },
   {
    "path": "input/parts/body_alone.png",
-   "sha256": "3fefa3dbe3c1fe753ce602299b304ea1702deef3400f78d81b4f15dd1eb9da14"
+   "sha256": "7445191d4798767f9a642737faf05b2eec12847dc9e9940d6f6aa7d3d4e77376"
   },
   {
    "path": "input/parts/body_in_assembly.png",
-   "sha256": "56560b273114bd7fa6ba967620c2479900e24f435fa4de22359fdf59c8efb501"
+   "sha256": "65e7d4a728b10d76eafe6b9627f071bb02073864cffbe9089acaf5a455bd4bbe"
   },
   {
    "path": "input/parts/cover_alone.png",
-   "sha256": "cb4f7bd22009abecfc85ce88b37ecf5df36e075ce56ab1661103900e7aeafdaa"
+   "sha256": "775758c08622eb3f9b336fed8a05026f9ec09d607e6b6922315b3469686c657f"
   },
   {
    "path": "input/parts/cover_in_assembly.png",
-   "sha256": "4b992a8e05b206e840f043a897105daaa1ea7b9623295d006405ec9836c7b347"
+   "sha256": "e5e341f084411eba29588c4c55080b597eee5ac385df642d75b96eea03b40b27"
   },
   {
    "path": "input/parts/jaw_1_alone.png",
-   "sha256": "2eea8a4ed6f7d33f64076558d27263d2d989ee0529133b138f4880f5f6597c1c"
+   "sha256": "573f3c044e3d4a6db851483404ef5c87f32ae23c31af48d2f6fbeaafca3fa79d"
   },
   {
    "path": "input/parts/jaw_1_in_assembly.png",
-   "sha256": "1920dda2ea73d51c590ad706e21ed3ee57819b43605a81dbf087c399a977f6cd"
+   "sha256": "df9599c008aa7e79f3c5a43c2108610d92035e576fc121cd733a1a99f29432c4"
   },
   {
    "path": "input/parts/jaw_2_alone.png",
-   "sha256": "4f602d61b5d76d5f30eb10688720330df539156e8bf02e8d43144221f1f2f9aa"
+   "sha256": "468899934b92977f290afb43248f029c7e86eb3379fa2b64e95a151ec05fb8be"
   },
   {
    "path": "input/parts/jaw_2_in_assembly.png",
-   "sha256": "58b99cd549023eed3285a0c521257d52b874c4025c3ceeed292784a65c54a16f"
+   "sha256": "6939c9352edf10dedde3e1b0b337b74647e94ff35b3cb8cbadf470c44dbc829d"
   },
   {
    "path": "input/parts/jaw_3_alone.png",
-   "sha256": "ae2ebeef2062e07a49c64c4ace4e9e606717cc31bf767e05679f7563f47da154"
+   "sha256": "bd4f739142b9d287ec48dd58dfe19334ad3bb8d3677dae102cb4cf736b224549"
   },
   {
    "path": "input/parts/jaw_3_in_assembly.png",
-   "sha256": "03a8d63094257fca2796911efc988c0ba8ab659f52f9a273ec9e3f07ed3838ad"
+   "sha256": "50e89efbfe4a5e50e5d5fe5f8c853a16529596439a0cdd1af01cd2ef598bfd71"
   },
   {
    "path": "input/parts/pinion_alone.png",
-   "sha256": "a089c59b2b4be57cc19e97423ec978bdc38d9ca1a12b296b7ee427f6f7bc1ae3"
+   "sha256": "bfc2992707cef5e9d31d2d0ef1c98157ccf3d5f983ab897a6c4c1120965a2784"
   },
   {
    "path": "input/parts/pinion_in_assembly.png",
-   "sha256": "10b506c4c091f52a3a23fb767590410f6f14e4082ab58c39d1267a2a8b947a25"
+   "sha256": "e9cddf275a7999bca1e83273a529b4d6ae948b862b0757d368bdb893dc04be30"
   },
   {
    "path": "input/parts/scroll_plate_alone.png",
-   "sha256": "9fbcb73458b2b2250ba90947ca2fb54279cd31b67709cc7e96bb489834a2a006"
+   "sha256": "8218536b7f71e91ee1eeb0b5da3987fec19856055ec666156561f0ef4f338fe2"
   },
   {
    "path": "input/parts/scroll_plate_in_assembly.png",
-   "sha256": "fa83ea50c413f9893985fa0d89a73be289b467c15ead163468eea46d8afa4da6"
+   "sha256": "49b1b849764e2642fd09d2a4b7a67912c5b9bae3a2612d87a9c71f1d31eb397c"
   },
   {
    "path": "input/views.png",
-   "sha256": "f36352ae0357175ea8dc9a57ece879da5007f82be44da516588248f06d35740f"
+   "sha256": "f07f22134df232e0ac9efc8a4befe0e107ab0ee89caed6a2b7b555c77bcbd84c"
   }
  ],
  "gt": [

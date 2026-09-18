@@ -29,13 +29,12 @@ orientation = "n/a"
 # The oracle for this scorer is the fixture set itself: tests/test_t6_ecad.py pins
 # a perfect, a partial and a dumb tier on tests/fixtures/t6 (0.47619 / 0.0 on the
 # mutated graphs). A scorer change that moves those numbers is a different ruler.
-oracle = "tests/fixtures/t6"
+
+# The dev samples: the reference of each scores 1.0 and expected.json records it.
+oracle = "examples/task6"
 
 [data]
-# Cases come from the ECAD source repository (tasks/pcb2schematic-*) through
-# tools/ingest_ecad_case.py; the source bundles and truth-building scripts stay there.
-source_repo = "the ECAD source repository"
-split = "open"
-root = "data/t6_pcb2schematic"
-default_dataset = "v1"
-generator = "tools/ingest_ecad_case.py"
+# What the cases are made from and which split this declaration is: the
+# scorer reads neither, the bank tooling and the result files record both.
+source_repo = "ecad"     # drawings | parametric | ecad
+split = "open"               # open | heldout

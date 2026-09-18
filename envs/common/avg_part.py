@@ -548,7 +548,7 @@ def main(argv=None) -> int:
     v1 = asm_v1(case / "gt/gt.step", sub, case, pinned=pinned,
                 scale="free" if "--scale-free" in args else "fixed")
     r = avg_part(case, sub, orientation="pinned" if pinned else "free",
-                 pose_mode="lab" if pinned else "iou24_aligned", asm=v1,
+                 pose_mode="expert-fit" if pinned else "iou24_aligned", asm=v1,
                  types=MODELLED if "--modelled" in args else ALL)
     print(json.dumps(r, indent=1))
     return 0

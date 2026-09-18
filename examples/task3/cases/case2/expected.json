@@ -11,7 +11,7 @@
  "metric": "part_v1",
  "score_key": "score",
  "orientation": "pinned",
- "pose_mode": "lab",
+ "pose_mode": "expert-fit",
  "verifier": "envs.verifiers.part:score",
  "metric_reference": "docs/METRICS.md",
  "tolerance": 0.0001,

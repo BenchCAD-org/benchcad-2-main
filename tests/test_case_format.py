@@ -43,7 +43,7 @@ def test_gt_never_in_input():
 
 def test_manifest_carries_no_identity(tmp_path):
     """case.json is the shared artifact, so it names nothing about where the
-    case came from: an old-style source block with a Drive link, an upstream
+    case came from: an old-style source block with a source link, an upstream
     case number, an e-mail in a note or a home path is rejected, and the
     fixtures themselves are clean."""
     import json
@@ -54,7 +54,7 @@ def test_manifest_carries_no_identity(tmp_path):
     d = tmp_path / "case1"
     shutil.copytree(REPO / "tests/fixtures/t1/case1", d)
     m = json.loads((d / "case.json").read_text())
-    m["source"] = {"repo": "the data pipeline", "split": "example", "source_case": "T1 / case 23",
+    m["source"] = {"repo": "drawings", "split": "example", "source_case": "T1 / case 23",
                    "drive": {"case": "https://drive.google.com/drive/folders/xyz"}}
     m["notes"] = "see /Users/somebody/Desktop"
     m["redaction"] = {"status": "clean", "note": "author was someone@example.com"}

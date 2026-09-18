@@ -60,24 +60,12 @@ pose_mode = "iou24_aligned"
 # T2 and T4 keep "all": every part is supplied there, so there is nothing else
 # to average.
 avg_part_types = "modelled"
-oracle = "data/t5_drawings2assembly/_oracle"
+
+# The dev samples: the reference of each scores 1.0 and expected.json records it.
+oracle = "examples/task5"
 
 [data]
-# ⚠️ **The source corpus must be written down in the task declaration; it must never be
-# inferred from a directory name or a runtime argument.**
-# The T3/T4 families come from the open corpus `benchcad-2`; the held-out set comes from
-# `benchcad-2-heldout` and is **a different set of families**.
-# Family names overlap between the two (one part family has a copy in each corpus), so
-# the case name alone cannot tell them apart -- and once a held-out case is mixed into a
-# batch of results, the held-out set is contaminated, irreversibly: a question that has
-# appeared on a public leaderboard is spent.
-# To produce a held-out variant: copy this task.toml and change `id` (append a _heldout
-# suffix), `source_repo` and `split`. The authoring script picks families by
-# `source_repo`, and the result file names carry `split` too.
-source_repo = "the data pipeline"
-split = "open"
-root = "data/t5_drawings2assembly"
-default_dataset = "v1"
-# Cases are produced by the data-gathering line (the data pipeline) and brought
-# into the case format with tools/migrate_case.py.
-generator = "tools/migrate_case.py or the data-gathering line"
+# What the cases are made from and which split this declaration is: the
+# scorer reads neither, the bank tooling and the result files record both.
+source_repo = "drawings"     # drawings | parametric | ecad
+split = "open"               # open | heldout
