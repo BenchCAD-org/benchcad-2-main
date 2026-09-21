@@ -146,10 +146,13 @@ def _seed_images(root: Path) -> list[Path]:
     PNG it writes or copies at the top level of the directory is attached
     next round -- so a round carries one image per sheet instead of one per
     tile (a T2 case seeded 13 images, a T5 case 20, every round)."""
+    from .sandbox import HIRES_DIR
     top = [p for p in sorted(root.iterdir()) if _visible(p) and p.suffix == ".png" and not _is_tile(p)]
     sub = []
     for d in sorted(root.iterdir()):
-        if d.is_dir() and _visible(d) and d.name not in _SUMMARIZE_DIRS:
+        # hires/ is listed and readable like any input, but its 2x masters are
+        # never seeds: the sheet is the overview, crops are the magnifier.
+        if d.is_dir() and _visible(d) and d.name not in _SUMMARIZE_DIRS and d.name != HIRES_DIR:
             sub += [x for x in sorted(d.iterdir()) if _visible(x) and x.suffix == ".png" and not _is_tile(x)]
     return top + sub
 
@@ -287,7 +290,7 @@ def tools_help(case_dir: Path) -> str:
     has_sheets = any(str(i).endswith(".pdf") or "drawing" in str(i)
                      for i in (task.get("task") or {}).get("inputs", []))
     lines.append("  crop(png, (l, t, r, b)[, out]) -> a PNG of that box, in the file's own pixel coordinates"
-                 + (" (a sheet file is larger than shown; the crop is cut from a 2x master)" if has_sheets else ""))
+                 + (" (a sheet file is larger than shown; the crop is cut from the 2x master under hires/)" if has_sheets else ""))
     return "\n".join(lines)
 
 

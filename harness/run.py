@@ -243,6 +243,14 @@ def check_effort(prefix: str, effort: str | None) -> None:
 MANY_IMAGES = 20
 MANY_IMAGE_PX = 2000
 HARD_IMAGE_CAP = 600
+# Both first-party APIs refuse a request over 32 MB, and a long episode's
+# observation images are what fills it (Anthropic's review of the public
+# harness, 2026-09-21: errors on the longest trajectories). The images of one
+# request are bounded to this many bytes as they will be sent (PNG, base64
+# adds a third), oldest observation images dropped first, seeds never; the
+# log says how many. With the compaction point at COMPACT_TOKENS this rarely
+# fires -- it is the wall behind the wall.
+REQUEST_IMAGE_BYTES = 20_000_000
 
 
 def _b64(path: Path, max_px: int | None = None) -> str:
@@ -278,27 +286,63 @@ def labelled(t: dict):
     return list(zip(imgs, labels))
 
 
+def _sent_bytes(path: Path, max_px: int | None) -> int:
+    """What one image costs a request: its PNG bytes, scaled by the area
+    ratio when it will be downscaled to max_px, times base64's 4/3."""
+    try:
+        size = path.stat().st_size
+        if max_px:
+            from PIL import Image
+            with Image.open(path) as im:
+                m = max(im.size)
+            if m > max_px:
+                size = int(size * (max_px / m) ** 2)
+    except OSError:
+        size = 0
+    return size * 4 // 3
+
+
 def bound_images(turns: list) -> tuple[list, int | None]:
     """The turns as a request should carry them: every image stays. Returns
     the turns and the per-image pixel limit to encode with (None under the
-    many-image threshold). Only past HARD_IMAGE_CAP are the oldest
-    observation images left out, oldest first, seeds never."""
+    many-image threshold). Past HARD_IMAGE_CAP images, or past
+    REQUEST_IMAGE_BYTES of image payload, the oldest observation images are
+    left out, oldest first, seeds never."""
     n = sum(len(t.get("images") or []) for t in turns)
-    if n <= HARD_IMAGE_CAP:
-        return turns, (MANY_IMAGE_PX if n > MANY_IMAGES else None)
+    max_px = MANY_IMAGE_PX if n > MANY_IMAGES else None
     user_idx = [i for i, t in enumerate(turns) if t.get("role") != "assistant"]
-    over = n - HARD_IMAGE_CAP
     out = [dict(t) for t in turns]
+    dropped = 0
+    over = n - HARD_IMAGE_CAP
     for i in user_idx[1:]:                                   # never the seed turn
         if over <= 0:
             break
         imgs = list(out[i].get("images") or []); labs = list(out[i].get("image_labels") or [])
         k = min(over, len(imgs))
         out[i]["images"], out[i]["image_labels"] = imgs[k:], labs[k:] if labs else labs
-        over -= k
-    print(f"      request had {n} images, over the API's {HARD_IMAGE_CAP}; the oldest "
-          f"{n - HARD_IMAGE_CAP} observation images are left out of this request", flush=True)
-    return out, MANY_IMAGE_PX
+        over -= k; dropped += k
+    if dropped:
+        max_px = MANY_IMAGE_PX
+        print(f"      request had {n} images, over the API's {HARD_IMAGE_CAP}; the oldest "
+              f"{dropped} observation images are left out of this request", flush=True)
+    total = sum(_sent_bytes(Path(img), max_px) for t in out for img in (t.get("images") or []))
+    seed = sum(_sent_bytes(Path(img), max_px) for img in (out[user_idx[0]].get("images") or [])) if user_idx else 0
+    if total > REQUEST_IMAGE_BYTES:
+        dropped_b = 0
+        for i in user_idx[1:]:
+            if total <= REQUEST_IMAGE_BYTES:
+                break
+            imgs = list(out[i].get("images") or []); labs = list(out[i].get("image_labels") or [])
+            while imgs and total > REQUEST_IMAGE_BYTES:
+                total -= _sent_bytes(Path(imgs.pop(0)), max_px)
+                if labs:
+                    labs.pop(0)
+                dropped_b += 1
+            out[i]["images"], out[i]["image_labels"] = imgs, labs
+        print(f"      request's images would exceed {REQUEST_IMAGE_BYTES // 1_000_000} MB "
+              f"(seeds alone {seed // 1_000_000} MB); the oldest {dropped_b} observation "
+              f"images are left out of this request", flush=True)
+    return out, max_px
 
 
 # A wedged stream is silent, so the clock that matters is httpx's PER-READ
@@ -643,7 +687,12 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         # top-level cache_control asks the API to mark the last cacheable
         # block itself, so the longest stable prefix -- system prompt, seed
         # images, every earlier turn, the bulk of a round's input from round
-        # two on -- is read at 0.1x the input price (writes 1.25x).
+        # two on -- is read at 0.1x the input price. The one-hour TTL (writes
+        # 2x instead of 1.25x; Anthropic's review of the public harness,
+        # 2026-09-21) keeps that prefix through a long sandbox exec, a
+        # scoring pause or a rate-limit wait -- the five-minute default let
+        # an agentic round re-buy the whole transcript after any such gap,
+        # and at a 94 % cache-hit rate the dearer writes cost ~5 %.
         # Stream: max_tokens this large trips the SDK's HTTP timeout otherwise.
         if room["on"]:
             print(f"      retrying with max_tokens={budget:,} so the answer has room "
@@ -653,7 +702,7 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                 started = time.time()
                 with client.messages.stream(model=model, system=system,
                                             max_tokens=budget, messages=messages,
-                                            cache_control={"type": "ephemeral"},
+                                            cache_control={"type": "ephemeral", "ttl": "1h"},
                                             **knobs) as st:
                     for _ in st:                                   # each event: the budget clock
                         _over_budget(started, call_budget, "anthropic call")
@@ -1206,6 +1255,17 @@ def mock_call(kind: str, case: Path):
 # episode stays under that, a 100-round T2/T5 episode would not). The
 # Claude 5 family: 1M from the Models API. Both providers therefore
 # summarise at the same point.
+# Where the episode summarises, whatever the window: a request that carries
+# 180k tokens of transcript and observation images is close to the 32 MB
+# request-size limit both first-party APIs enforce, and a run that compacts
+# at the same point on every provider is comparable across them, which a
+# run that compacts at each provider's own window is not (Anthropic's review
+# of the public harness, 2026-09-21; OpenAI's own agents compact at about
+# the same size). --context-tokens overrides in either direction. Measured
+# on the gpt-6-astra sweep before this: the largest request of an episode
+# was 90k tokens at the median, 142k at p90, 188k at most, so on 30-round
+# episodes the point moves only the longest few.
+COMPACT_TOKENS = 180_000
 CONTEXT_TOKENS = {"claude-opus-5": 1_000_000, "claude-": 200_000,
                   "gpt-6": 1_050_000, "gpt-5": 400_000, "o3": 200_000, "o4": 200_000,
                   "gemini": 1_000_000}
@@ -1244,8 +1304,9 @@ def build_call(spec: str, max_tokens: int, usage: list, case: Path,
     # else as the provider reported it (anthropic's Models API), else the
     # table.
     call.usage = usage                                   # type: ignore[attr-defined]
-    call.context_tokens = (context_tokens or getattr(call, "context_hint", None)   # type: ignore[attr-defined]
-                           or context_tokens_for(model_id))
+    window = getattr(call, "context_hint", None) or context_tokens_for(model_id)
+    call.context_window = window                         # type: ignore[attr-defined]
+    call.context_tokens = context_tokens or min(window, COMPACT_TOKENS)   # type: ignore[attr-defined]
     return call
 
 
@@ -1427,10 +1488,11 @@ def main() -> int:
                     help="cap on one reply (thinking included). Default: none "
                          "-- the model's own maximum")
     ap.add_argument("--context-tokens", type=int, default=None,
-                    help="the model's context window; the episode summarises "
-                         "its history (Terminus 2's way) when the last prompt "
-                         "comes within 8000 tokens of it. Default from the "
-                         "model id (harness/run.py CONTEXT_TOKENS)")
+                    help="where the episode summarises its history (Terminus "
+                         "2's way): when the last prompt comes within 8000 "
+                         "tokens of this. Default: the smaller of the model's "
+                         "window (harness/run.py CONTEXT_TOKENS) and "
+                         "COMPACT_TOKENS (180000, the same point on every provider)")
     ap.add_argument("--work", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None,
                     help="default results/<model>_<timestamp>.json")

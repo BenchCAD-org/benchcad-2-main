@@ -318,7 +318,7 @@ def crop(image_path, box, out_png=None):
     src = Path(image_path)
     out = Path(out_png or ("crop_" + src.stem + ".png"))
     l, t, r, b = (float(x) for x in box)
-    hires = src.parent / "_hires" / src.name
+    hires = src.parent / "hires" / src.name
     if hires.exists():
         with Image.open(src) as shown, Image.open(hires) as master:
             k = master.width / shown.width
@@ -460,13 +460,16 @@ def _docker_ready() -> bool:
 STAGE_DPI = 300          # matches the 300 dpi sheets the legacy cases shipped
 STAGE_MAX_EDGE = 4200    # px; an A0 sheet at 300 dpi is ~14000 px, far beyond what a prompt can carry
 # The master `tools.crop` cuts from: the same page at twice the resolution,
-# under _hires/ beside the sheet (an underscore name: never listed in the
-# prompt, never a seed image). The sheet itself is what the model is shown
+# under hires/ beside the sheet -- listed in the prompt like every other file
+# (it is an input, and every model gets the same one: until 2026-09-21 it
+# hid under an underscore name that the listing skipped but any `ls -a`
+# found, which Anthropic's review of the public harness rightly called an
+# undocumented path), never a seed image. The sheet itself is what the model is shown
 # and what it measures on -- the API downscales a 4200 px sheet to ~2300 px
 # before the model sees it, so 2-3 mm lettering on a crowded assembly
 # drawing lands at 13-20 px and is at the edge of legibility; a crop of the
 # 300 dpi sheet cannot add detail, a crop of the 600 dpi master can.
-HIRES_DIR = "_hires"
+HIRES_DIR = "hires"
 HIRES_FACTOR = 2
 # The sheet the model is shown is the sheet's READING AREA, not the whole
 # piece of paper: the drawing frame, the footer line (BenchCAD / format /
@@ -743,7 +746,7 @@ class Sandbox:
             # have PNGs to work with. gt/ and case.json never come across.
             shutil.copytree(self.case / "input", self.dir, dirs_exist_ok=True)
             # The model sees a drawing as PNG only: the sheet, its four tiles,
-            # and (hidden) the master tools.crop cuts from. The PDF is the
+            # and the 2x master under hires/ that tools.crop cuts from. The PDF is the
             # case's storage format, not an input; it is rendered and removed,
             # so there is exactly one form of every drawing in the directory.
             for pdf in sorted(self.dir.rglob("*.pdf")):

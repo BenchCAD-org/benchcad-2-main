@@ -57,6 +57,30 @@ def test_only_the_api_ceiling_leaves_images_out_oldest_first():
     assert user_turns[-1]["images"] == turns[-1]["images"]             # the newest is whole
 
 
+def test_the_request_byte_budget_leaves_the_oldest_observations_out(tmp_path, monkeypatch):
+    """Both APIs refuse a request over 32 MB. When the images of one request
+    would exceed REQUEST_IMAGE_BYTES as sent, the oldest observation images are
+    left out first and the seeds never (Anthropic's review, 2026-09-21)."""
+    from PIL import Image
+    import harness.run as run
+    big = tmp_path / "big.png"
+    Image.effect_noise((900, 900), 64).convert("RGB").save(big)      # noise: incompressible, ~2 MB
+    size = run._sent_bytes(big, None)
+    assert size > 1_000_000
+    seeds = [str(big)] * 2
+    turns = [{"role": "user", "text": "Begin.", "images": seeds}]
+    for r in range(6):
+        turns.append({"role": "assistant", "text": "```python\n```", "images": []})
+        turns.append({"role": "user", "text": f"Round {r}", "images": [str(big)] * 2})
+    monkeypatch.setattr(run, "REQUEST_IMAGE_BYTES", size * 5)         # room for the seeds and a round and a half
+    out, _ = bound_images(turns)
+    assert out[0]["images"] == seeds
+    kept = [t["images"] for t in out if t["role"] == "user"][1:]
+    assert kept[-1] == [str(big)] * 2                                   # the newest round is whole
+    assert kept[0] == []                                                # the oldest went first
+    assert sum(len(k) for k in kept) + 2 <= 5
+
+
 def test_b64_downscales_only_when_asked_and_only_when_larger(tmp_path):
     big, small = tmp_path / "big.png", tmp_path / "small.png"
     Image.new("RGB", (4200, 2970), "white").save(big)

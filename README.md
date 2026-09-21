@@ -76,8 +76,11 @@ endpoints), prints it and records it in the results. A reply's ceiling is
 128k tokens on both first-party endpoints, thinking included (gpt-6-astra's
 maximum and the Claude 5 family's; Anthropic's read from the Models API);
 `--max-tokens` sets a lower one. The context window is 1M on both (gpt-6-astra
-1.05M; the Claude 5 family's `max_input_tokens`), which is what the context
-summarisation works against; `--context-tokens` overrides. Both adapters share
+1.05M; the Claude 5 family's `max_input_tokens`); the context summarisation
+works against the smaller of that window and 180k tokens (`COMPACT_TOKENS`),
+the same point on every provider -- a request that size is near the 32 MB
+request limit of both APIs, and runs that compact at one point are comparable
+across providers; `--context-tokens` overrides either way. Both adapters share
 the clocks -- a 60 s idle limit on a stream (both carry reasoning progress while
 the model thinks), a wall budget per call of 300 s up to `high` and 600 s at
 `xhigh` / `max` past which the round is discarded and the model told in one
