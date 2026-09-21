@@ -92,8 +92,10 @@ each drawing: the sheet's **reading area** `<stem>.png` (`<stem>_p2.png` per
 further page; 300 dpi, long edge capped at 4200 px) -- the drawing frame,
 the footer line and the parts-list table (lettering under 2.3 mm, and the
 rows of `bom.json`) are cropped away, the header line, views, dimensions
-and notes stay (`sandbox.reading_area`) -- and, hidden under `_hires/`, a
-2x master of the same area that `tools.crop` cuts from. Tiles
+and notes stay (`sandbox.reading_area`) -- and, under `hires/`, a 2x master
+of the same area that `tools.crop` cuts from (listed in the prompt like any
+input; it is not a seed image, and opening it whole buys nothing a crop does
+not, since the API downscales what the model views). Tiles
 `<stem>_tile_r<i>c<j>.png` exist only for a sheet whose smallest dimension
 lettering would still be under 10 px cap height after the API's downscale
 of the reading area (2048 px long edge, the strictest provider's): the smallest grid that lifts it,

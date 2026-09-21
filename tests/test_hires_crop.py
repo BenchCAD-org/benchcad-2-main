@@ -11,7 +11,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
 
 import pytest
 
@@ -31,7 +30,7 @@ def wd(tmp_path):
     the directory into docker, and the VM shares only $HOME: a tmp_path under
     /private/var mounts as an empty directory and Sandbox refuses it."""
     import shutil
-    d = REPO / "work" / "pytest" / tmp_path.name / "wd"
+    d = ROOT / "work" / "pytest" / tmp_path.name / "wd"
     d.parent.mkdir(parents=True, exist_ok=True)
     yield d
     shutil.rmtree(d.parent, ignore_errors=True)
@@ -70,14 +69,17 @@ def test_crop_without_a_master_is_unchanged(tmp_path):
         assert im.size == (100, 50)
 
 
-def test_master_is_hidden_from_the_prompt():
+def test_master_is_listed_in_the_prompt():
+    """Every model gets the same inputs: the 2x master is a listed file, not
+    a name the listing skips and `ls -a` finds (Anthropic's review of the
+    public harness, 2026-09-21)."""
     from envs.common.episode import _visible
-    assert not _visible(Path(HIRES_DIR))
+    assert _visible(Path(HIRES_DIR)) and not HIRES_DIR.startswith("_")
 
 
 def test_staged_drawings_are_png_only_with_tiles(tmp_path, wd):
     """The sandbox holds one form of every drawing: the sheet, its four tiles
-    and the hidden master. The PDF is rendered and removed."""
+    and the 2x master under hires/. The PDF is rendered and removed."""
     import os
     from envs.common.sandbox import Sandbox, tile_grid
     os.environ["CADENV_LOCAL"] = "1"
@@ -87,7 +89,7 @@ def test_staged_drawings_are_png_only_with_tiles(tmp_path, wd):
     assert not any(n.endswith(".pdf") for n in names), names
     assert "drawing.png" in names
     assert not [n for n in names if n.startswith("drawing_tile_")]    # an A4 sheet: no tiles
-    assert "_hires/drawing.png" in names
+    assert "hires/drawing.png" in names
 
 
 def _sheet(tmp_path, w_mm, h_mm, shapes, text=()):
