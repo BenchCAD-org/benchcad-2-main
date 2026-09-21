@@ -15,7 +15,7 @@ dependencies = [
 [dependency-groups]
 harness = [
     "anthropic",
-    "openai==2.35.1",
+    "openai>=3.16,<4",       # 3.x: its ReasoningEffort has "max" (gpt-6-astra's top); 2.35.1 cannot parse a max response
     "google-genai>=2.23",    # harness/run.py gemini/ provider
 ]
 dev = [
