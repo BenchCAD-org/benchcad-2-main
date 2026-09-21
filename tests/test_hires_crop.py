@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parents[1]
+
 import pytest
 
 from PIL import Image
@@ -29,7 +31,7 @@ def wd(tmp_path):
     the directory into docker, and the VM shares only $HOME: a tmp_path under
     /private/var mounts as an empty directory and Sandbox refuses it."""
     import shutil
-    d = Path.home() / "cad-agent-work" / "pytest" / tmp_path.name / "wd"
+    d = REPO / "work" / "pytest" / tmp_path.name / "wd"
     d.parent.mkdir(parents=True, exist_ok=True)
     yield d
     shutil.rmtree(d.parent, ignore_errors=True)

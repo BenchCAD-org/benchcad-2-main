@@ -64,15 +64,15 @@ every case's working directory and transcript; `summarize.py` prints the
 per-case table, the mean per task and the mean of the task means, with the
 count of scored cases next to every mean.
 
-`--effort` follows the model: OpenAI takes `none | low | medium | high | xhigh`
+`--effort` follows the model: OpenAI takes `none | low | medium | high | xhigh | max`
 (`reasoning.effort` on the Responses API, which is what OpenAI's own endpoint
-is spoken through), Anthropic `none | low | medium | high | xhigh | max`
-(`none` is thinking disabled; the rest is `output_config.effort` with adaptive
-thinking), OpenRouter `none | low | medium | high` (`reasoning.effort` on
-`/chat/completions`, which the gateways keep). A level the provider does not
-have is refused at startup -- `max` on OpenAI is an error, not xhigh -- and
-with no `--effort` the run uses the provider's top level (OpenAI xhigh,
-Anthropic max), prints it and records it in the results. A reply's ceiling is
+is spoken through; `max` needs the openai SDK 3.x the lock file pins), Anthropic
+`none | low | medium | high | xhigh | max` (`none` is thinking disabled; the rest
+is `output_config.effort` with adaptive thinking), OpenRouter `none | low |
+medium | high` (`reasoning.effort` on `/chat/completions`, which the gateways
+keep). A level the provider does not have is refused at startup, and with no
+`--effort` the run uses the provider's top level (`max` on both first-party
+endpoints), prints it and records it in the results. A reply's ceiling is
 128k tokens on both first-party endpoints, thinking included (gpt-6-astra's
 maximum and the Claude 5 family's; Anthropic's read from the Models API);
 `--max-tokens` sets a lower one. The context window is 1M on both (gpt-6-astra

@@ -52,28 +52,33 @@ from envs.common.score_case import fmt, score_case     # noqa: E402
 #               none = thinking.type=disabled (on Opus 5 not at xhigh / max).
 #               A model without effort (Haiku 4.5) answers 400 and the case
 #               fails; that is intended, drive() treats it as deterministic.
-#   openai      reasoning_effort none | low | medium | high | xhigh, measured
-#               2026-09-15 on gpt-5.4 and gpt-5.5 (`minimal` and `max` are
-#               400s). Older families take fewer values (gpt-5: minimal..high,
-#               gpt-5.1: none..high, the o-series: low..high) and gpt-4.1 has
-#               no such parameter at all ("Unrecognized request argument
-#               supplied: reasoning_effort"), so a 400 that names the
-#               parameter steps the value down -- xhigh -> high -> not sent --
-#               and the call is repeated; the step is remembered for the rest
-#               of the episode.
+#   openai      reasoning_effort none | low | medium | high | xhigh | max.
+#               gpt-6-astra takes low..max and answers 400 to none (its model
+#               page, read 2026-09-20: "reasoning.effort supports low, medium,
+#               high, xhigh, and max"); gpt-5.4 and gpt-5.5 take none..xhigh
+#               (measured 2026-09-15: `minimal` and `max` are 400s). Older
+#               families take fewer values (gpt-5: minimal..high, gpt-5.1:
+#               none..high, the o-series: low..high) and gpt-4.1 has no such
+#               parameter at all ("Unrecognized request argument supplied:
+#               reasoning_effort"), so a 400 that names the parameter steps
+#               the value down -- max -> xhigh -> high -> not sent -- and the
+#               call is repeated; the step is remembered for the rest of the
+#               episode.
 #   openrouter  reasoning.effort low | medium | high, and none.
 #
 # Unset, the level is the provider's top (top_effort): Anthropic max, OpenAI
-# xhigh, OpenRouter high. Leaving it unset at the API is not the top -- both
+# max, OpenRouter high. Leaving it unset at the API is not the top -- both
 # APIs default to high (measured 2026-09-11 on claude-opus-5: 32 thinking
 # tokens unset, 111 at max) -- and the level actually run is what the
 # banner and every record carry.
 EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = None
 PROVIDER_EFFORTS = {"anthropic/": EFFORTS,
-                    "openai/": ("none", "low", "medium", "high", "xhigh"),
+                    "openai/": EFFORTS,
                     "openrouter/": ("none", "low", "medium", "high")}
 OPENAI_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openai/"]}
+# What an OpenAI 400 naming the effort lowers the knob to: one step, then off.
+EFFORT_STEP_DOWN = {"max": "xhigh", "xhigh": "high"}
 OR_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openrouter/"]}
 # The rounds an episode gets when --rounds is not given; the eval.toml the
 # examples ship quotes it (tools/make_dev_samples.py). 30, since 2026-09-17:
@@ -100,7 +105,13 @@ ANTHROPIC_MAX_OUTPUT_DEFAULT = 128_000
 # unbounded wait. Not a thinking cap in the 16k sense: no measured reply
 # came near it (the longest, 48k output over a whole episode).
 OPENAI_MAX_OUTPUT = 128_000
-ATTEMPTS = 4
+# Transient failures (connection errors, 5xx) are re-requested ATTEMPTS
+# times with BACKOFF_S doubling -- 5/10/20/40/80 s, ~2.5 min of outage --
+# before the round is given up. Measured 2026-09-18 over ~2,500 calls on
+# two machines: 224 "Connection error." retries, and the 4-attempt budget
+# (35 s) still burned 5 rounds; an outage of a minute or two is not the
+# model's doing and a 30-round episode should not pay for it.
+ATTEMPTS = 6
 BACKOFF_S = 5
 # A 429 is the endpoint saying "not now", not a failed call: it does not
 # spend the ATTEMPTS budget above and never counts as a dead round. The
@@ -201,7 +212,7 @@ def top_effort(prefix: str) -> str | None:
 
 def check_effort(prefix: str, effort: str | None) -> None:
     """Refuse a level the provider at `prefix` does not have, before any
-    call is made: no remapping, a run at `max` on OpenAI is an error."""
+    call is made: no remapping, a run at `xhigh` on OpenRouter is an error."""
     levels = PROVIDER_EFFORTS.get(prefix)
     name = prefix.rstrip("/")
     if levels is None:
@@ -384,11 +395,14 @@ def _status(e: BaseException) -> int | None:
 def _retry_after(e: BaseException) -> float | None:
     """The wait an endpoint asked for on a 429, in seconds, or None:
     `Retry-After` (seconds), else OpenAI's `x-ratelimit-reset-tokens` /
-    `x-ratelimit-reset-requests` ("1.2s", "250ms", "1m3s")."""
+    `x-ratelimit-reset-requests` ("1.2s", "250ms", "1m3s"), else the
+    "Please try again in 1.2s" / "in 250ms" an OpenAI error body says (an
+    in-stream frame has no headers)."""
     import re
     headers = getattr(getattr(e, "response", None), "headers", None)
     if not headers:
-        return None
+        m = re.search(r"try again in ([0-9.]+)\s*(ms|s)\b", str(e))
+        return float(m.group(1)) * (0.001 if m.group(2) == "ms" else 1) if m else None
     v = headers.get("retry-after")
     if v:
         try:
@@ -421,11 +435,11 @@ def drive(send, what: str):
     see git history), all provider-neutral:
 
     1. A reply with no executable fence is a FAILED call, not a turn. Measured
-       on T3 gn866: a model that trails off on a channel marker reported
+       on T3 one case: a model that trails off on a channel marker reported
        status=completed with no fence, and 100 consecutive rounds burned 3M
        tokens on nothing. Retry it -- but never raise on the last attempt: the
        model may simply be writing prose, and killing the case there turned
-       PART-0214 from scoring every round into a flat zero. Hand the text back
+       part case 0214 from scoring every round into a flat zero. Hand the text back
        and let the episode run its nudge round, which exists for this.
     2. A deterministic 4xx is not worth repeating, with one exception: if it
        names an image, drop the images and try once more. Measured: a 41-byte
@@ -449,7 +463,15 @@ def drive(send, what: str):
             except Exception as e:                               # noqa: BLE001
                 status = _status(e)
                 msg = str(e)
-                if status == 429 and waits < RATE_LIMIT_ATTEMPTS:
+                code = getattr(e, "code", None)
+                # The Responses stream reports an org rate limit as an SSE
+                # error frame on an HTTP 200 -- a bare APIError with code
+                # "rate_limit_exceeded", no status, no Retry-After -- not as
+                # a 429. Measured 2026-09-18: 86 such frames in one log went
+                # through the 5-20 s transient backoffs and burned rounds
+                # ("round 25 call failed (APIError), round discarded").
+                limited = status == 429 or code == "rate_limit_exceeded"
+                if limited and waits < RATE_LIMIT_ATTEMPTS:
                     wait = _retry_after(e) or min(RATE_LIMIT_MAX_WAIT_S,
                                                   RATE_LIMIT_BACKOFF_S * 2 ** waits)
                     wait = min(RATE_LIMIT_MAX_WAIT_S, max(1.0, wait + 1.0))
@@ -458,7 +480,6 @@ def drive(send, what: str):
                           f"[{waits}/{RATE_LIMIT_ATTEMPTS}]", flush=True)
                     time.sleep(wait)
                     continue                                   # the attempt is not spent
-                code = getattr(e, "code", None)
                 if isinstance(code, str) and code not in msg:
                     msg = f"{code}: {msg}"       # a label, not a status: classify it
                 if status is None and _looks_deterministic(msg):
@@ -783,7 +804,7 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
     def _step_down(err: str) -> bool:
         if "effort" not in err or not knob["effort"]:
             return False
-        was, knob["effort"] = knob["effort"], ("high" if knob["effort"] == "xhigh" else None)
+        was, knob["effort"] = knob["effort"], EFFORT_STEP_DOWN.get(knob["effort"])
         print(f"      {model} rejected reasoning.effort={was}; "
               + (f"sending {knob['effort']} instead" if knob["effort"] else "sending no reasoning.effort")
               + " for the rest of this episode", flush=True)
@@ -911,7 +932,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         it, and say so. False when there is nothing left to lower."""
         if "reasoning_effort" not in err or not knob["effort"]:
             return False
-        was, knob["effort"] = knob["effort"], ("high" if knob["effort"] == "xhigh" else None)
+        was, knob["effort"] = knob["effort"], EFFORT_STEP_DOWN.get(knob["effort"])
         print(f"      {model} rejected reasoning_effort={was}; "
               + (f"sending {knob['effort']} instead" if knob["effort"]
                  else "sending no reasoning_effort")
@@ -942,7 +963,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         if _is_openrouter(base_url):
             # The gateway's own effort knob, so "medium" means the same thing
             # here as it does on the anthropic path. It takes low | medium |
-            # high, and an upstream is free to ignore it (measured: Novita's
+            # high, and an upstream is free to ignore it (measured: one host's
             # free models do).
             extra["extra_body"] = {"reasoning": {"effort": OR_EFFORT[effort]}}
         if room["on"] and budget:
@@ -1272,7 +1293,7 @@ def case_key(case: Path) -> str:
     inputs, final.step and pred_graph.json -- a correct ECAD submission scored
     0.0 because the last-usable-STEP fallback handed it the previous case's
     box. The former batch runner carried the same fix with the same reason
-    (170 prodata cases sharing one work directory).
+    (170 parametric cases sharing one work directory).
 
     The last three path components are the readable part; they are not unique
     on their own (envs/<env>/cases/<family>/<nn> drops <env>, and T1 and T3
@@ -1306,7 +1327,18 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-SCORE_TIMEOUT_S = 4200   # the T6 verifier's own 3600 s search deadline, with room to write its record
+# The T6 verifier's own search deadline is 3600 s (task.toml); every other
+# scorer is done in minutes -- unless a submitted part cannot be meshed:
+# measured 2026-09-18, a swept B-spline wire clip (BRepCheck invalid) took
+# 64 s at deflection 0.1 and never returned at the metric's, holding the
+# scorer for 79 min. So a part/assembly score gets SCORE_TIMEOUT_S and a
+# timeout is recorded as an error the case can be re-scored from later.
+# 3600 since 2026-09-21 (was 900): a T5 assembly whose bought-in parts
+# tessellate to 10^7 triangles (coil springs, caster assemblies) takes
+# 15-30 min to score honestly, and a submission on it should not be
+# recorded as an error for that.
+SCORE_TIMEOUT_S = 3600
+SCORE_TIMEOUT_ECAD_S = 4200
 
 
 def score_in_subprocess(case: Path, artifact: Path) -> dict:
@@ -1322,9 +1354,14 @@ def score_in_subprocess(case: Path, artifact: Path) -> dict:
             "from pathlib import Path\n"
             "from envs.common.score_case import score_case\n"
             "print('\\n' + json.dumps(score_case(Path(sys.argv[1]), Path(sys.argv[2])), default=str))")
-    r = subprocess.run([sys.executable, "-c", code, str(case), str(artifact)],
-                       capture_output=True, text=True, timeout=SCORE_TIMEOUT_S,
-                       cwd=str(Path(__file__).resolve().parents[1]))
+    ecad = (case / "gt/gt_graph.json").exists()
+    try:
+        r = subprocess.run([sys.executable, "-c", code, str(case), str(artifact)],
+                           capture_output=True, text=True,
+                           timeout=SCORE_TIMEOUT_ECAD_S if ecad else SCORE_TIMEOUT_S,
+                           cwd=str(Path(__file__).resolve().parents[1]))
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"scorer timed out after {e.timeout:.0f} s (re-score later)") from None
     if r.returncode != 0:
         raise RuntimeError(f"scorer exited {r.returncode}: {r.stderr.strip()[-600:]}")
     line = r.stdout.strip().splitlines()[-1]
@@ -1381,9 +1418,9 @@ def main() -> int:
                     help="thinking effort, sent as it is and only to a provider "
                          "that has it: anthropic output_config.effort "
                          "none..max (none = thinking disabled); openai "
-                         "reasoning_effort none..xhigh; openrouter "
+                         "reasoning_effort none..max; openrouter "
                          "reasoning.effort none..high. Default: the "
-                         "provider's top level (max, xhigh, high)")
+                         "provider's top level (max, max, high)")
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
                     help=f"rounds per episode (default: {DEFAULT_ROUNDS})")
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
@@ -1404,7 +1441,10 @@ def main() -> int:
                          "host for workers x 2 GB")
     ap.add_argument("--score-workers", type=int, default=2,
                     help="scores running at once, each in a child process (default 2); "
-                         "a worker hands its finished episode over and takes the next case")
+                         "a worker hands its finished episode over and takes the next case. "
+                         "0 records the episodes UNSCORED (score null, unscored true) for "
+                         "tools/rescore.py on another machine -- the T6 matcher can take an "
+                         "hour a board and need not hold the box that runs the episodes")
     ap.add_argument("--max-execs", type=int, default=0,
                     help="at most this many sandbox executions at once in "
                          "this process, however many workers wait on the "
@@ -1435,7 +1475,7 @@ def main() -> int:
     out_path = a.out or (Path("results") /
                          f"{a.model.replace('/', '_')}_{stamp}.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    work_root = a.work or (Path.home() / "cad-agent-work" / f"run_{stamp}")
+    work_root = a.work or (REPO / "work" / f"run_{stamp}")
     if a.workers > 1:
         _raise_fd_limit()
     if a.max_execs:
@@ -1528,6 +1568,13 @@ def main() -> int:
         thread ran the episode: the process's GIL and main thread stay free
         for the episodes still in flight."""
         if "error" not in rec and "skipped" not in rec:
+            if a.score_workers == 0:
+                # Judged later, elsewhere: the record is final for --resume
+                # (it has a "score" key) and tools/rescore.py fills it in.
+                rec["score"] = None
+                rec["unscored"] = bool(rec.get("step"))
+                rec["seconds_score"] = 0.0
+                return rec
             t0 = time.time()
             try:
                 artifact = rec.get("step")
@@ -1549,7 +1596,7 @@ def main() -> int:
         score = rec.get("score")
         line = (show(score) if score
                 else rec.get("skipped") and f"skipped: {rec['skipped']}"
-                or rec.get("error") or "no submission")
+                or rec.get("error") or ("unscored" if rec.get("unscored") else "no submission"))
         print(f"  [{n}/{len(todo)}] {case.name}: {line}  "
               f"({rec['seconds']}s)", flush=True)
 

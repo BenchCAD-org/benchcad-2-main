@@ -35,7 +35,7 @@ SANDBOX_CQ_VERSION = "2.3.0"
 # Permissive fence matching. Models write ```py / ```cadquery / ```Python, and
 # also truncate a reply on a channel marker so the closing ``` is lost. The
 # original strict regex classified all of those as no_block -- measured: T3
-# gn866 produced 100 consecutive no_block rounds and wasted 3M tokens.
+# one case produced 100 consecutive no_block rounds and wasted 3M tokens.
 #   - language tag is case-insensitive; python|py|submit|cadquery accepted
 #   - if the closing ``` is missing, take text to the end (a truncated block
 #     still beats discarding the round)
@@ -518,7 +518,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
             summaries += 1
             turns = _summarize(call_fn, system, turns, task_brief, box, rounds, "proactive", summaries)
         # A failed call should waste THIS ROUND, not the whole case. Measured
-        # in v2: PART-0043 / -0199 / -0211 all hit a stream interruption on
+        # in v2: part case 0043 / -0199 / -0211 all hit a stream interruption on
         # the first call (the provider never sent response.completed), the
         # exception propagated out, and the case scored 0 with none of its 30
         # rounds used -- that is the network's score, not the model's.
@@ -576,7 +576,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
             # This nudge must RESTATE THE FORMAT IN FULL, not just say "not
             # found". A first-round parse failure is self-reinforcing: the
             # model receives a nudge instead of an observation, stays in prose
-            # mode, and fails again. Measured in another session: 64-76% of
+            # mode, and fails again. Measured: 64-76% of
             # episodes failed to parse round one, dropping to 1.3-2.5% once
             # inside the tool loop (a 30-65x difference) -- so spending a few
             # dozen tokens to push the model into the loop is worth it.
