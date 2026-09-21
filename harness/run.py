@@ -749,7 +749,12 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
             # Truncated before (or inside) the answer: a failed call, not a
             # turn. With a --max-tokens cap: once more, with room; at the
             # model's own ceiling there is no room to give, and the reply is
-            # handed back as it is.
+            # handed back as it is. Either way the call is marked, so the
+            # record counts how many rounds an episode lost this way
+            # (tokens.truncated_replies): a lab reviewing the samples saw
+            # Claude spend the whole 128k ceiling thinking on four of nine,
+            # and the count is what says whether that costs a result.
+            usage[-1]["truncated"] = True
             if not room["on"] and max_tokens:
                 room["on"] = True
                 raise EmptyContent(f"stop_reason=max_tokens at {budget:,} tokens with no "
@@ -911,6 +916,8 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
             rtok = getattr(getattr(u, "output_tokens_details", None), "reasoning_tokens", None)
             seen_usage = {"input_tokens": u.input_tokens, "cached_tokens": cached, "output_tokens": u.output_tokens,
                           "seconds": round(time.time() - started, 1)}
+            if why_incomplete == "max_output_tokens" and not _has_fence("".join(chunks)):
+                seen_usage["truncated"] = True                # the same mark as the Anthropic path
             usage.append(seen_usage)
             print(f"      usage: prompt {u.input_tokens:,} (cached {cached:,}), completion {u.output_tokens:,}"
                   + (f" (reasoning {rtok:,})" if rtok else "") + f", {seen_usage['seconds']:.0f} s", flush=True)
@@ -1620,7 +1627,11 @@ def main() -> int:
             "input": sum(u.get("input_tokens", 0) for u in usage),
             "cached": sum(u.get("cached_tokens", 0) for u in usage),
             "output": sum(u.get("output_tokens", 0) for u in usage),
-            "calls": len(usage)}
+            "calls": len(usage),
+            # Replies that stopped at the output ceiling before an executable
+            # block (the thinking used it all): each is a round the episode
+            # lost to its nudge, and the count is the measure of it.
+            "truncated_replies": sum(1 for u in usage if u.get("truncated"))}
         return rec
 
     done = 0
