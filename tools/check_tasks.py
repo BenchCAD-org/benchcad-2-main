@@ -2,7 +2,7 @@
 """Contract gate: every task must declare completely, resolve its verifier,
 and name an oracle.
 
-Modelled on the ecad session's check_all.py, which fails any task without an
+Modelled on an earlier contract gate, which fails any task without an
 oracle. Without one, a change to the scorer leaves nothing that can tell us
 whether it is still the same ruler. The gate goes up first; oracles are filled
 in per task.

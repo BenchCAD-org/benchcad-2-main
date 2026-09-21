@@ -25,7 +25,7 @@ inject = []
 entry = "envs.verifiers.assembly:score"
 # The input is 2-D, so orientation must not cost points.
 orientation = "free"
-# Headline metric (docs/METRICS.md, change 24): per-part-type leave-one-out IoU gain,
+# Headline metric (docs/METRICS.md): per-part-type leave-one-out IoU gain,
 # normalised by (1 - baseline). T4 / T5 declare part_x_asm_v1 (avg_part x asm_v1)
 # instead. Omitting the field means "legacy".
 metric = "asm_v1"

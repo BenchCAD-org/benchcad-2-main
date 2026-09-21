@@ -32,7 +32,7 @@ inputs = ["drawing.png", "drawing_tile_*.png", "bom.json", "part_drawings/*.png"
 # One fenced block per reply, text and images only -- never a provider's own
 # tool protocol, so scores stay comparable across vendors.
 rounds = 30    # harness/run.py DEFAULT_ROUNDS; --rounds overrides
-effort = "provider's top level"    # harness/run.py: --effort takes one of none | low | medium | high | xhigh | max, sent verbatim and refused where the provider lacks it (OpenAI none..xhigh, Anthropic none..max); unset, the run uses the provider's top (OpenAI xhigh, Anthropic max) and records the level it used
+effort = "provider's top level"    # harness/run.py: --effort takes one of none | low | medium | high | xhigh | max, sent verbatim and refused where the provider lacks it (OpenAI none..max, Anthropic none..max); unset, the run uses the provider's top (OpenAI max, Anthropic max) and records the level it used
 max_tokens_per_round = 128000    # the reply ceiling on both first-party endpoints: gpt-6-astra's own maximum and the Claude 5 family's (harness/run.py OPENAI_MAX_OUTPUT / ANTHROPIC_MAX_OUTPUT_DEFAULT; the Models API's max_tokens on Anthropic); thinking included; --max-tokens sets a lower one
 code_fence = "```python"    # runs in the working directory; stdout, stderr and new images come back
 submit_fence = "```submit"    # the final answer; ends the episode
@@ -46,7 +46,7 @@ observation_images_kept_for_rounds = "all"    # nothing leaves the request; past
 many_image_downscale_px = 2000    # harness/run.py: a request over 20 images has every image downscaled to this on its longest side (the API's many-image rule)
 forced_final_submission = false    # rounds that run out without a ```submit are an episode with no answer (`no_submission`); nothing is asked on the model's behalf
 failed_submission_retries = 0    # the submitted program runs once, as submitted; if it fails there is no answer (`submit_failed`, stderr recorded)
-call_retries = 4    # harness/run.py ATTEMPTS
+call_retries = 6    # harness/run.py ATTEMPTS
 call_retry_backoff_seconds = 5    # harness/run.py BACKOFF_S, doubling
 rate_limit_waits = 10    # harness/run.py RATE_LIMIT_ATTEMPTS: a 429 is waited out for the endpoint's Retry-After (else 20 s doubling, at most 300 s) without spending a retry or a round
 max_consecutive_failed_calls = 3    # envs/common/episode.py MAX_DEAD_ROUNDS, then the case is abandoned

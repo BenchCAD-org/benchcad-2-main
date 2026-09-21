@@ -144,7 +144,12 @@ relative to `input/`: `"step"` with `step_files/<id>.step` (supplied 3-D),
 with no `file` at all (T4, modelled from the reference views -- there is no
 per-part input file to name).
 Quantities are the ground truth; a drawing's own parts list may show standard
-hardware that is neither supplied nor in the reference.
+hardware that is neither supplied nor in the reference. One geometry placed
+`n` times is one part type of quantity `n`, never `n` types of quantity 1:
+`tools/merge_instances.py <case>` folds a case exported the second way (one
+file per placed solid, each in a frame of its own) into the first, registering
+the copies onto one file exactly (every face matched by centroid and area)
+and rewriting the instances, the BOM and `gt.step`.
 
 ## Parts, instances and frames
 
@@ -183,7 +188,7 @@ and the reference can therefore not disagree.
 
 A submission uses the same ids, in the same two files (see "Submission layout"
 below): `submission/parts/<part_id>.step` and one `instances.json` record per
-placed instance. T2's headline metric `asm_v1` (`docs/METRICS.md`, change 24) reads
+placed instance. T2's headline metric `asm_v1` (`docs/METRICS.md`) reads
 the instance names first to attribute instances to part types and falls back to
 geometry (invariants against the supplied part files) when a submission has no
 usable names -- with the fixed layout the names are generated from the part
@@ -191,12 +196,12 @@ file names, so the fallback is only reached by an old single-STEP submission.
 The legacy scorers (`rubric_asm`, `score_asm`) still pair GT and submission
 instances by geometric cost (a Hungarian assignment); there the names are
 used for reporting and, in the T2 integrity path, as a class constraint.
-Name-first pairing in those paths is change 21.
+Name-first pairing in those paths is a separate rule.
 
 `case.json` lists every part type with a `geometry_class` — a hash of
 pose-free invariants (volume, area, face count, principal moments) at four
 significant digits. Two part types with the same class are one geometry under
-two names (ASM-07 ships a 1620 mm bar as both `part_01` and `part_07`); scorers
+two names (assembly case 7 ships a 1620 mm bar as both `part_01` and `part_07`); scorers
 treat instances of equal classes as interchangeable.
 
 ## Submission layout
@@ -283,7 +288,7 @@ never staged and never shared with the case.
 ## Drawings: proving there is no CJK, and tying the parts list to the parts
 
 This repo carries only the PDFs the model sees; DXF-level checks belong to
-the data pipeline's delivery gate. For every PDF under `input/` the validator
+the data pipeline's redaction gate of the producing pipeline. For every PDF under `input/` the validator
 reads the extractable text (CJK is an error), the embedded font names (a CJK
 font subset is text even when extraction fails: error) and the Info
 dictionary as stored (creator, producer, author, title, subject, keywords:
@@ -291,7 +296,7 @@ CJK is an error; any value present is reported -- two preview PDFs carried
 the source case number as their title and an account id as their author).
 
 A PDF whose text is drawn as outlines cannot be read here at all. It is
-admitted only with the delivery gate's report, `provenance/redaction_report.json`,
+admitted only with the producing pipeline's redaction gate's report, `provenance/redaction_report.json`,
 `status = "pass"`: the DXF-entity-level CJK and identity scan, symbol
 conservation, parts list vs BOM, and the pixel comparison, all measured by
 the data pipeline on the deliverable's own bytes. `case.json.redaction.report_sha256`
@@ -362,5 +367,6 @@ become `step_files/` for T2/T5 and `gt/parts/` for T4, which supplies no 3-D;
 the table is `LEGACY_RENAMES` in the tool), drops stored rasters, rewrites
 `parts_map.json` / `instances.json` (T2, T5) and `poses.json` (T4) into one
 `instances.json`, moves T5's `gt/protos/` for drawing parts to `gt/parts/`,
-writes `bom.json` and `case.json`, and validates. Real-case trees are migrated in place with `--deep`; `tests/fixtures/` are
+writes `bom.json` and `case.json`, folds a T4 export's one-type-per-solid
+listing into types with quantities (`tools/merge_instances.py`), and validates. Real-case trees are migrated in place with `--deep`; `tests/fixtures/` are
 already in the format.

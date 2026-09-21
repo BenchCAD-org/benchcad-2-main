@@ -55,7 +55,7 @@ def _docker() -> bool:
 def test_no_part_geometry_reaches_the_sandbox(tmp_path):
     from envs.common.sandbox import Sandbox
     # docker can only mount paths under $HOME (see Sandbox._mount_works)
-    root = Path.home() / "cad-agent-work" / "dryrun" if _docker() else tmp_path
+    root = REPO / "work" / "dryrun" if _docker() else tmp_path
     root.mkdir(parents=True, exist_ok=True)
     wd = Path(tempfile.mkdtemp(prefix="t4_no3d_", dir=root))
     Sandbox(T4, wd)

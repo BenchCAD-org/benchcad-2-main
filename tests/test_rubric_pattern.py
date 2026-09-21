@@ -8,7 +8,7 @@ instances of the same part placed in the wrong spots must not get away with it",
 "a missing part must be charged against GT's count, not against the count that is
 there".
 
-Both holes were found by measurement (ASM-01, 5 duplicate part types / 18 instances):
+Both holes were found by measurement (assembly case 1, 5 duplicate part types / 18 instances):
 * orient used to take "the most similar one of the same type" within a group, so all 3
   instances of one part type placed in the same single orientation counted as three
   correct ones -- the collapsed answer scored a perfect 1.00 on orientation. Changed to

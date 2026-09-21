@@ -41,7 +41,7 @@ entry = "envs.verifiers.part:score"
 # is a measurable ability -- but failure is a cliff (geometry entirely correct, merely
 # rotated about an axis -> 0.99 drops to 0.02). Report both columns, never just one.
 orientation = "free"
-# Headline metric (docs/METRICS.md, change 26): part_v1 = 0.5 iou24_norm + 0.3 surf_f1
+# Headline metric (docs/METRICS.md): part_v1 = 0.5 iou24_norm + 0.3 surf_f1
 # + 0.2 pix_fg. The raw 64^3 IoU stays in the record as `iou`, a diagnostic.
 # Omitting the field means "legacy" (raw IoU is the headline).
 metric = "part_v1"

@@ -1,10 +1,10 @@
 # The four-view reference renderer
-# (benchcad_core/scoring/views.py, the renderer behind Vision2Code in an earlier change):
+# (the upstream harness's scoring/views.py, the renderer behind Vision2Code in):
 # four cameras at the corners of a regular tetrahedron, parallel projection,
 # a normalised mesh, a 2x2 composite.
 #
 # It is the ONLY renderer for reference views in this repo. Do not write a
-# second one: an earlier change recorded the cost of rendering the prompt with one
+# second one: recorded the cost of rendering the prompt with one
 # projection (a 60-degree perspective "lite" renderer) and the sandbox with
 # another -- the model compared two projections of one solid and could never
 # fit them. A home-grown "four azimuths about Z" variant is self-consistent
@@ -75,7 +75,7 @@ CAMERA_DISTANCE = -0.9
 # viewport of 0.55 therefore cuts off anything blockier than a rod: measured
 # over the 392 preference-expert-fit references, 117 of them (30 %) needed more room
 # than the frame gave, the worst asking 0.746 — and the same renderer draws the
-# image the model is asked to reconstruct in Vision2Code, so those parts were
+# image the model is asked to reconstruct, so those parts were
 # posed as questions that could not be seen in full.
 #
 # sqrt(3)/2 is a bound, not a fit, so it holds for shapes not yet in the corpus.

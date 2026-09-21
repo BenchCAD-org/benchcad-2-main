@@ -175,7 +175,7 @@ def geometry_class(sols) -> str:
     """Hash of the invariants at 4 significant digits, over every solid of the
     part file (a multi-solid part is one part type). Two part types with the
     same class are the same geometry under two names and are interchangeable
-    for pairing (ASM-07 ships one bar as part_01 and part_07)."""
+    for pairing (assembly case 7 ships one bar as part_01 and part_07)."""
     if not isinstance(sols, (list, tuple)):
         sols = [sols]
     def sig(x): return 0.0 if x == 0 else float(f"{x:.4g}")
@@ -347,7 +347,7 @@ def pdf_metadata(pdf: Path) -> dict:
 
 
 def redaction_report(case: Path) -> dict | None:
-    """provenance/redaction_report.json: the delivery gate's verification of the
+    """provenance/redaction_report.json: the producing pipeline's redaction gate's verification of the
     drawings (DXF-entity CJK and identity, symbol conservation, parts list vs
     BOM), produced by the data pipeline. This repo keeps only the PDFs the
     model sees; the DXF-level facts travel as this report."""
@@ -607,7 +607,7 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
     # names (a CJK subset is text even when extraction fails), and the Info
     # dictionary (creator / producer / author / title / subject / keywords).
     # Text drawn as outlines cannot be read here at all: such a PDF is admitted
-    # only with the delivery gate's redaction report (provenance/redaction_report.json,
+    # only with the producing pipeline's redaction gate's redaction report (provenance/redaction_report.json,
     # status = pass), which carries the DXF-entity-level facts from the data pipeline.
     drawing_texts: dict[str, tuple[str, str]] = {}
     report = redaction_report(d)
@@ -645,7 +645,7 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
             elif report is None:
                 (W if m.get("synthetic") else E)(
                     f"{rel}: text is drawn as outlines and provenance/redaction_report.json is absent -- "
-                    "the DXF-level checks live in the data pipeline's delivery gate; ship its report")
+                    "the DXF-level checks live in the data pipeline's redaction gate of the producing pipeline; ship its report")
             elif str(report.get("status", "")).lower() != "pass":
                 E(f"{rel}: provenance/redaction_report.json status is {report.get('status')!r}, not pass")
             else:

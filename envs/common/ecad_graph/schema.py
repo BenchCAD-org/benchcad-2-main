@@ -1,6 +1,6 @@
 """Frozen graph + observability schema for the pcb2schematic family.
 
-Three artifacts, deliberately separate (an earlier change):
+Three artifacts, deliberately separate:
 
   electrical_truth.json  what the source says — the full netlist, values, pin
                          names. Never scored directly, never shown to an agent.

