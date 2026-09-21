@@ -2,7 +2,7 @@
 conservation and vendor identifiers in model-facing JSON.
 
 Drawings whose text is outlines cannot be read here; they are admitted only
-with the delivery gate's report (provenance/redaction_report.json, status pass)."""
+with the producing pipeline's redaction gate's report (provenance/redaction_report.json, status pass)."""
 import json
 import shutil
 import sys
@@ -99,7 +99,7 @@ def test_parts_list_item_numbers_are_checked(tmp_path):
 
 
 def test_symbol_conservation_on_text_pdf(tmp_path):
-    """#16: declared counts are checked on the PDF's own text; fewer is an
+    """the symbol-conservation rule: declared counts are checked on the PDF's own text; fewer is an
     error, more needs a gain_note."""
     c = _t1_case(tmp_path, outline=False, text="\u00b10.05  5 X 45\u00b0  \u00d8 12")
     m = json.loads((c / "case.json").read_text())

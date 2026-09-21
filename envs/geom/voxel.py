@@ -4,7 +4,7 @@ one for another**.
 ⚠️ `surface_voxels` is **surface sampling**, not solid. The assembly side once switched
 whole-assembly IoU from `solid_voxels` to `surface_voxels` + `binary_fill_holes`, an
 order of magnitude faster (13.1s -> 5.5s), and the result was **the oracle falling from
-8/8 to 5/8**, with a minimum IoU of 0.9045 and ASM-04's per-instance hits going
+8/8 to 5/8**, with a minimum IoU of 0.9045 and assembly case 4's per-instance hits going
 40/40 -> 6/40. The reason: at res=64 the shell from surface sampling has gaps, so fill
 cannot fill the interior and the volume comes out wrong.
 The "the fast and slow versions differ by only 0.5%" that was reported at the time had
@@ -21,10 +21,10 @@ cell intermittently:
            the proportions diverge (the whole machine rotated by 90 degrees, or a
            submitted shape far from GT), integer division gives a different offset on
            each axis, and half a cell of difference becomes one cell of misalignment.
-           Measured: after rotating ASM-02's whole machine by 90 degrees, self's best of
+           Measured: after rotating assembly case 2's whole machine by 90 degrees, self's best of
            the 24 orientations was only 0.8152 while world gave 1.0000; on T1 single
-           parts, 28 of 30 tasks differ by <0.005 between the two, but PART-1213 differs
-           by 0.23 and PART-0166 by 0.09.
+           parts, 28 of 30 tasks differ by <0.005 between the two, but part case 1213 differs
+           by 0.23 and part case 0166 by 0.09.
            **Intermittent, up to 0.23 in magnitude, and not signed consistently** -- it
            cannot be patched with a correction term, it can only be recomputed.
            score.py having always used self is history, not design.

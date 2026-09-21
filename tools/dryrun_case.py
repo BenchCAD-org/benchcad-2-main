@@ -89,7 +89,7 @@ def dryrun(case_dir: Path, *, deep: bool, work: Path | None) -> dict:
 
     t0 = time.time()
     from envs.common.sandbox import Sandbox
-    root = work or Path.home() / "cad-agent-work" / "dryrun"
+    root = work or REPO / "work" / "dryrun"
     root.mkdir(parents=True, exist_ok=True)
     wd = Path(tempfile.mkdtemp(prefix=case.name + "_", dir=root))
     stage = {"ok": False, "work": str(wd)}

@@ -56,12 +56,16 @@ def tessellate_all(step_path: Path, tol: float | None = None):
         bb = cq.Compound.makeCompound(solids).BoundingBox()
         diag = (bb.xlen ** 2 + bb.ylen ** 2 + bb.zlen ** 2) ** 0.5
         tol = max(0.05, diag / 800.0)
+    # Meshed in the guarded worker (envs.geom.meshguard): a solid whose mesh
+    # does not finish within the budget raises UnmeshableShape, which the
+    # submission side of iou_step_vs_step turns into 0.0 with the reason.
+    from envs.geom.meshguard import tessellate as _guarded
     V, T, off = [], [], 0
     for s in solids:
-        verts_raw, tris_raw = s.tessellate(tol)
-        V.append(np.array([[v.x, v.y, v.z] for v in verts_raw], dtype=float))
-        T.append(np.array(tris_raw, dtype=np.int64) + off)
-        off += len(verts_raw)
+        verts, tris = _guarded(s, tol)
+        V.append(verts)
+        T.append(tris + off)
+        off += len(verts)
     verts, tris = np.concatenate(V), np.concatenate(T)
     if len(verts) == 0 or len(tris) == 0:
         raise ValueError(f"empty tessellation for {step_path}")

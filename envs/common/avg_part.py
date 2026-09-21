@@ -191,7 +191,7 @@ def scope_mean(per_type: list[dict]) -> float | None:
     np.mean, not sum()/len(): with every type in scope this has to be the same
     arithmetic to the last bit as the mean it replaced, or the T2 / T4 numbers
     already measured move by an ulp for no reason (numpy sums pairwise above
-    eight elements; ASM-04 has 17 part types).
+    eight elements; assembly case 4 has 17 part types).
     """
     import numpy as np
     from .part_metric import clip01

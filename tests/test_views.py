@@ -240,7 +240,7 @@ def test_no_renderer_reaches_the_sandbox(case, tmp_path):
     for s in FORBIDDEN:
         assert s not in TOOLS_PY, s
     # docker can only mount paths under $HOME (see Sandbox._mount_works)
-    root = Path.home() / "cad-agent-work" / "dryrun" if _docker() else tmp_path
+    root = REPO / "work" / "dryrun" if _docker() else tmp_path
     root.mkdir(parents=True, exist_ok=True)
     wd = Path(tempfile.mkdtemp(prefix="views_", dir=root))
     Sandbox(case, wd)

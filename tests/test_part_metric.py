@@ -1,4 +1,4 @@
-"""part_v1 (envs/common/part_metric.py, change 26): the ruler for T1 / T3.
+"""part_v1 (envs/common/part_metric.py): the ruler for T1 / T3.
 
 Same discipline as test_examples.py -- synthetic geometry in git
 (tests/fixtures/t1/case1, tests/fixtures/t3/case1), no benchmark data -- plus
@@ -13,7 +13,7 @@ loudly, when they are not).
   coverage      a term that fails drops out with the weights renormalised
   fixtures      six reference pairs pin the SURFACE, PIXEL and iou numbers
                 its fixture set against the true voxelisation
-  noise         the sampler the iou term used until change 40 disagrees with itself,
+  noise         the sampler the iou term used until the voxelisation fix disagrees with itself,
                 the voxeliser that replaced it does not -- both on record
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ FX = REPO / "tests/fixtures"
 PART_CASES = [FX / "t1/case1", FX / "t3/case1"]
 SYNTH_T1 = FX / "t1/case1"
 SYNTH_T3 = FX / "t3/case1"
-FIXTURES = Path.home() / "cad-agent-work" / "part_metric_fixtures"
+FIXTURES = REPO / "work" / "part_metric_fixtures"
 FIXTURE_ROWS = sorted(p.parent for p in FIXTURES.glob("row*/expected.json")) if FIXTURES.exists() else []
 
 
@@ -216,7 +216,7 @@ def test_quarter_turn_free_vs_pinned(quarter_turned):
 
 
 def test_pose_mode_iou24_aligned_vs_lab(quarter_turned):
-    """The this repository deviation, on and off. In `iou24_aligned` the
+    """The this benchmark deviation, on and off. In `iou24_aligned` the
     rotation iou24 found is applied before surf_f1 / pix_fg, so a
     quarter-turned oracle scores 1.0 on both; in `expert-fit` (the reference
     behaviour) those two see the delivered pose and do not."""
@@ -328,7 +328,7 @@ def test_unreadable_submission_scores_zero(tmp_path):
 def test_normalise_iou_is_mains_norm_iou():
     """`norm_iou`: clip((x - x0) / (1 - x0), 0, 1), with
     x0 >= 1 -- a reference that IS its own primitive -- answered explicitly
-    (1.0 only for a perfect x). change 40 dropped the variant that carried 1e-3 on
+    (1.0 only for a perfect x). the voxelisation fix dropped the variant that carried 1e-3 on
     both sides of the quotient to dodge the same division by zero: it moved
     every other score by 1e-3 / (1 - x0) and was not what the other repo
     compares against."""
@@ -373,7 +373,7 @@ def test_expert_fit_fixtures(row):
                                           + 0.2 * exp["pix_fg"], abs=0.02)
 
 
-# The movement of the iou half, measured on this machine when change 40 replaced the
+# The movement of the iou half, measured on this machine when the voxelisation fix replaced the
 # sampled estimator with the true voxelisation. Recorded here, not asserted:
 # the recorded values described the old estimator; the republished set is checked
 # the set. Left as an xfail so that the day the republished fixtures land the
@@ -419,7 +419,7 @@ def test_expert_fit_fixtures_iou_republished(row):
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
 def test_expert_fit_fixtures_iou_is_what_we_recorded(row):
     """The iou numbers are the ones
-    change 40 measured and wrote down, to 1e-3, so a later change to the term shows
+    the voxelisation fix measured and wrote down, to 1e-3, so a later change to the term shows
     up here."""
     want = EXPERT_FIT_IOU_MOVED.get(row.name)
     if want is None:
@@ -439,8 +439,8 @@ def test_reexported_oracle_floor_is_on_record(case, tmp_path):
     three terms are stable under re-tessellation. The iou term used not to be
     -- with the sampled estimator a re-export of a thick part measured 0.998
     on the synthetic block and 0.62 on the former examples/t3/example1 (48k
-    triangles, re-ordered on export; a real case, out of git since change 31) -- and
-    since change 40 it is: the bound below is kept as it was, and it now passes with
+    triangles, re-ordered on export; a real case, out of git since an earlier cleanup) -- and
+    since the voxelisation fix it is: the bound below is kept as it was, and it now passes with
     a wide margin (the assertion after it is the one with teeth)."""
     orientation, pose_mode = _declared(case)
     re = _export(_gt_shape(case), tmp_path / "reexport.step")
@@ -448,7 +448,7 @@ def test_reexported_oracle_floor_is_on_record(case, tmp_path):
     r = pm.score_part_v1(case / "gt/gt.step", re, orientation=orientation, pose_mode=pose_mode)
     assert r["surf_f1"] >= 0.999 and r["pix_fg"] >= 0.999, r
     assert r["iou_term"] >= 0.5 and r["score"] >= 0.8, r
-    assert r["iou_term"] >= 0.999 and r["score"] >= 0.999, r        # since change 40
+    assert r["iou_term"] >= 0.999 and r["score"] >= 0.999, r        # since the voxelisation fix
 
 
 # ------------------------------------------------------------------ noise ----

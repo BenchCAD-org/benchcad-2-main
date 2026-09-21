@@ -79,6 +79,9 @@ def score(case_dir: Path, submission: Path, task=None, *, lam: float = LAMBDA) -
         "incidences_matched": r.matched_incidences,
         "incidences_gt": len(gt.incidences), "incidences_pred": len(pred.incidences),
         "exact_search": r.exact, "timed_out": getattr(r, "timed_out", False),
+        # The one flag a scoreboard needs: True when the number is a bound
+        # (either wall), so it can be marked without reading the two above.
+        "lower_bound": not r.exact,
         # Which wall stopped an inexact search: "deadline" (the board is slow;
         # more time may move the number) or "node_budget" (too branchy; more
         # time buys nothing). None when the search finished.

@@ -117,7 +117,7 @@ The host side (scorers, harness, tests) is `pyproject.toml`:
 requires-python = ">=3.11"
 dependencies = ["cadquery>=2.5", "numpy", "pillow", "pymupdf", "scipy", "trimesh"]
 [dependency-groups]
-harness = ["anthropic", "openai==2.35.1", "google-genai>=2.23"]
+harness = ["anthropic", "openai>=3.16,<4", "google-genai>=2.23"]
 dev     = ["pytest"]
 ```
 

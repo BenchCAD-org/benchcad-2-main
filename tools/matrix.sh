@@ -13,10 +13,11 @@
 # by side (so 5 x <workers> episodes are in flight and no effort's tail leaves
 # workers idle), each writing results/<tag>_<effort>_r<rep>_s<k>.json and a
 # log next to it. EFFORTS follows the model: every level is sent verbatim and
-# harness/run.py refuses one the provider lacks, so an Anthropic matrix is
-# EFFORTS="low medium high xhigh max" (the default) and an OpenAI matrix is
-# EFFORTS="low medium high xhigh" (OpenAI has no max). EFFORTS="none ..." adds a
-# thinking-off run (OpenAI reasoning_effort none, Anthropic thinking disabled).
+# harness/run.py refuses one the provider lacks, so an Anthropic or a
+# gpt-6-astra matrix is EFFORTS="low medium high xhigh max" (the default) and a
+# gpt-5.5 matrix is EFFORTS="low medium high xhigh" (no max there). EFFORTS="none ..."
+# adds a thinking-off run (OpenAI reasoning_effort none -- not on gpt-6-astra --,
+# Anthropic thinking disabled).
 # ROUNDS defaults to the harness's own default (30). Every
 # process runs with --resume, so re-running the same command after a crash or
 # a reboot picks up where it stopped. Reps are ordered outermost so that

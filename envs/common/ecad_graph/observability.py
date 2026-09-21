@@ -1,6 +1,6 @@
 """Derive the scorable GT from source truth + what the render actually shows.
 
-The rule from an earlier change, and the only rule that matters here:
+The rule from, and the only rule that matters here:
 
     Only score information actually recoverable from the provided visual input.
 

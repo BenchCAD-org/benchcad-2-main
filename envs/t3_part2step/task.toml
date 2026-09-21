@@ -31,7 +31,7 @@ entry = "envs.verifiers.part:score"
 # T3/T4 supply rendered four-view images, so the pose is pinned by the task statement and
 # orientation is ability rather than luck -- no orientation correction is applied.
 orientation = "pinned"
-# Headline metric (docs/METRICS.md, change 26): part_v1 = 0.5 iou_norm + 0.3 surf_f1
+# Headline metric (docs/METRICS.md): part_v1 = 0.5 iou_norm + 0.3 surf_f1
 # + 0.2 pix_fg, every term at the given pose -- pinned means no rotation search
 # and nothing to align, so pose_mode is "expert-fit". The raw 64^3 IoU stays as `iou`.
 metric = "part_v1"
