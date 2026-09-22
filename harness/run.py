@@ -129,6 +129,23 @@ RATE_LIMIT_MAX_WAIT_S = 300
 # always has somewhere to go. See EmptyContent and openai_compat_call.
 EMPTY_RETRY_BOOST = 2
 REASONING_BOUND_FRAC = 0.6
+# --task-budget: an Anthropic task budget (output_config.task_budget, the
+# task-budgets beta) sent with every request of the run. The model is shown
+# a countdown of this many tokens for the reply it is writing -- thinking
+# and answer together -- and paces itself to finish inside it; max_tokens
+# stays the enforced ceiling, which the model never sees. Anthropic's
+# review of the public harness (2026-09-21) saw Claude spend the whole 128k
+# ceiling thinking on four of nine sample cases and suggested a thinking
+# budget below the ceiling: budget_tokens is that knob on the pre-4.6
+# models and a 400 on the Claude 5 family, the task budget is its current
+# form (advisory, not a cut-off). Off unless given -- no other provider has
+# the knob, so a run with it is one only Anthropic models can repeat, and
+# the reviewers themselves called a Claude-only cap unwarranted. The API's
+# floor is 20,000; a value at or above the reply ceiling leaves no room
+# below it and the log says so. Constant through an episode: changing it
+# between rounds would invalidate the prompt cache.
+TASK_BUDGET_MIN = 20_000
+TASK_BUDGET_BETA = "task-budgets-2026-03-13"
 
 
 class SkipCase(Exception):
@@ -222,6 +239,18 @@ def check_effort(prefix: str, effort: str | None) -> None:
     if effort not in levels:
         raise SystemExit(f"{name} has no effort {effort!r}; its levels are "
                          + ", ".join(levels))
+
+
+def check_task_budget(prefix: str, task_budget: int | None) -> None:
+    """Refuse --task-budget before any call is made: only Anthropic has the
+    knob, and the API's floor is TASK_BUDGET_MIN."""
+    if task_budget is None:
+        return
+    if prefix != "anthropic/":
+        raise SystemExit(f"{prefix.rstrip('/')} has no task budget; leave --task-budget unset")
+    if task_budget < TASK_BUDGET_MIN:
+        raise SystemExit(f"--task-budget {task_budget:,} is below the API's floor of "
+                         f"{TASK_BUDGET_MIN:,} tokens")
 
 
 # The API's many-image rule, measured 2026-09-12 on claude-opus-5: a request
@@ -628,10 +657,11 @@ def _anthropic_model_info(client, model: str) -> dict | None:
 
 
 def anthropic_call(model: str, max_tokens: int, usage: list,
-                   effort: str | None = DEFAULT_EFFORT):
+                   effort: str | None = DEFAULT_EFFORT, task_budget: int | None = None):
     import anthropic
     effort = effort or top_effort("anthropic/")
     check_effort("anthropic/", effort)
+    check_task_budget("anthropic/", task_budget)
     call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
     # The same clock as the openai client: a wedged stream is caught by the
     # per-read timeout, the other phases by CALL_TIMEOUT_S. (anthropic 1.x is
@@ -667,6 +697,16 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     # does not retry: the case fails, as intended -- nothing is remapped.
     knobs = ({"thinking": {"type": "disabled"}} if effort == "none" else
              {"thinking": {"type": "adaptive"}, "output_config": {"effort": level}})
+    # --task-budget rides in output_config and needs the beta endpoint
+    # (client.beta.messages.stream with betas=[TASK_BUDGET_BETA]); without
+    # it the request goes to the plain endpoint with no beta header, as
+    # before. A 400 naming it (a model without the beta) drops it for the
+    # rest of the episode, said once -- the run goes on unpaced rather than
+    # failing, and the record still says what was asked for.
+    paced = {"n": task_budget}
+    if task_budget and task_budget >= ceiling["n"]:
+        print(f"      --task-budget {task_budget:,} is not below the reply ceiling "
+              f"({ceiling['n']:,}); it leaves no room under it", flush=True)
 
     def send(system: str, turns: list, drop_images: bool) -> str:
         turns, max_px = bound_images(turns)
@@ -698,12 +738,16 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
             print(f"      retrying with max_tokens={budget:,} so the answer has room "
                   f"after the thinking", flush=True)
         while True:
+            req = dict(model=model, system=system, max_tokens=budget, messages=messages,
+                       cache_control={"type": "ephemeral", "ttl": "1h"}, **knobs)
+            if paced["n"]:
+                req["output_config"] = {**knobs.get("output_config", {}),
+                                        "task_budget": {"type": "tokens", "total": paced["n"]}}
+                req["betas"] = [TASK_BUDGET_BETA]
+            endpoint = client.beta.messages.stream if paced["n"] else client.messages.stream
             try:
                 started = time.time()
-                with client.messages.stream(model=model, system=system,
-                                            max_tokens=budget, messages=messages,
-                                            cache_control={"type": "ephemeral", "ttl": "1h"},
-                                            **knobs) as st:
+                with endpoint(**req) as st:
                     for _ in st:                                   # each event: the budget clock
                         _over_budget(started, call_budget, "anthropic call")
                     msg = st.get_final_message()
@@ -712,13 +756,19 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                 # The model's ceiling is not published per model here; a 400
                 # naming max_tokens says what it is ("... maximum of N") and
                 # the value is halved until accepted, remembered per episode.
-                # Any other 400 -- effort or adaptive thinking on a model
-                # without them, thinking disabled at xhigh / max -- is
-                # drive()'s deterministic 400.
+                # A 400 naming the task budget is a model without the beta:
+                # dropped, remembered. Any other 400 -- effort or adaptive
+                # thinking on a model without them, thinking disabled at
+                # xhigh / max -- is drive()'s deterministic 400.
                 if "max_tokens" in str(e) and budget > 8000:
                     ceiling["n"] = budget = budget // 2
                     print(f"      {model} rejected max_tokens; sending {budget:,} "
                           f"for the rest of this episode", flush=True)
+                    continue
+                if paced["n"] and ("task_budget" in str(e) or "task-budget" in str(e)):
+                    paced["n"] = None
+                    print(f"      {model} rejected the task budget ({str(e)[:100]}); "
+                          f"sending none for the rest of this episode", flush=True)
                     continue
                 raise
         u = msg.usage
@@ -1288,16 +1338,18 @@ def context_tokens_for(model_id: str) -> int:
 
 
 def build_call(spec: str, max_tokens: int, usage: list, case: Path,
-               effort: str | None = DEFAULT_EFFORT, context_tokens: int | None = None):
+               effort: str | None = DEFAULT_EFFORT, context_tokens: int | None = None,
+               task_budget: int | None = None):
     prefix, prov, model_id = split_model(spec)
     effort = effort if effort is not None else top_effort(prefix)
     check_effort(prefix, effort)
+    check_task_budget(prefix, task_budget)
     if prov.kind == "mock":
         call = mock_call(model_id, case)
     else:
         key = resolve_key(prefix, prov)
         if prov.kind == "anthropic":
-            call = anthropic_call(model_id, max_tokens, usage, effort)
+            call = anthropic_call(model_id, max_tokens, usage, effort, task_budget)
         elif prov.kind == "openai_compat" and prov.base_url is None:
             call = openai_responses_call(model_id, max_tokens, usage, key, effort)
         elif prov.kind == "openai_compat":
@@ -1494,6 +1546,12 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
                     help="cap on one reply (thinking included). Default: none "
                          "-- the model's own maximum")
+    ap.add_argument("--task-budget", type=int, default=None,
+                    help="Anthropic only: a task budget (output_config.task_budget, "
+                         "the task-budgets beta) the model is shown for each reply, "
+                         "thinking included, and paces itself to finish inside -- "
+                         f"set it below the reply ceiling. Floor {TASK_BUDGET_MIN:,}. "
+                         "Default: none. Refused for a provider without the knob")
     ap.add_argument("--context-tokens", type=int, default=None,
                     help="where the episode summarises its history (Terminus "
                          "2's way): when the last prompt comes within 8000 "
@@ -1537,6 +1595,7 @@ def main() -> int:
     if defaulted:
         a.effort = top_effort(prefix)
     check_effort(prefix, a.effort)
+    check_task_budget(prefix, a.task_budget)
     cases = _shard(discover(a.cases), a.shard)
     if not cases:
         raise SystemExit(f"--cases {a.cases}: no cases found")
@@ -1567,6 +1626,7 @@ def main() -> int:
     print(f"model {a.model}  provider {prefix.rstrip('/')}  "
           f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort or '-'}{effort_note}  "
           f"rep {a.rep}  workers {a.workers}"
+          + (f"  task-budget {a.task_budget:,}" if a.task_budget else "")
           + (f"  max-execs {a.max_execs}" if a.max_execs else "")
           + (f"  shard {a.shard}" if a.shard else "")
           + (f"  resume: {len(kept)} kept, {len(todo)} to run" if a.resume else ""),
@@ -1578,7 +1638,7 @@ def main() -> int:
     def write() -> None:
         out_path.write_text(json.dumps(
             {"model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
-             "effort": a.effort, "rep": a.rep, "started": stamp,
+             "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep, "started": stamp,
              "cases": [records[str(c)] for c in cases if str(c) in records]},
             indent=1, default=str) + "\n")
 
@@ -1587,11 +1647,12 @@ def main() -> int:
         t0 = time.time()
         rec = {"case": str(case), "case_id": case.name, "model": a.model,
                "provider": prefix.rstrip("/"), "rounds": a.rounds,
-               "effort": a.effort, "rep": a.rep}
+               "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep}
         gt = case / "gt/gt.step"
         rec["gt_sha256"] = sha256(gt) if gt.exists() else None
         try:
-            call = build_call(a.model, a.max_tokens, usage, case, a.effort, a.context_tokens)
+            call = build_call(a.model, a.max_tokens, usage, case, a.effort, a.context_tokens,
+                              a.task_budget)
             work = work_root / f"r{a.rep}__{case_key(case)}"
             # A directory from an earlier attempt (--resume re-running an
             # error) would be staged over, not replaced -- Sandbox copies with

@@ -75,7 +75,17 @@ keep). A level the provider does not have is refused at startup, and with no
 endpoints), prints it and records it in the results. A reply's ceiling is
 128k tokens on both first-party endpoints, thinking included (gpt-6-astra's
 maximum and the Claude 5 family's; Anthropic's read from the Models API);
-`--max-tokens` sets a lower one. The context window is 1M on both (gpt-6-astra
+`--max-tokens` sets a lower one. That ceiling covers the thinking and the answer
+together, and at high effort the thinking can use all of it -- the reply then
+stops at `max_tokens` with no answer, the round is lost to the episode's nudge,
+and the record counts it (`tokens.truncated_replies`). `--task-budget N`
+(Anthropic only; `output_config.task_budget`, the task-budgets beta) shows the
+model a countdown of N tokens for the reply it is writing, thinking included,
+so it paces itself to finish under the ceiling -- advisory, not a cut-off, and
+the current form of the thinking budget (`budget_tokens` is a 400 on the
+Claude 5 family). It is off by default, since no other provider has the knob
+and a run with it is not one every provider can repeat; the value is written
+into the results. The context window is 1M on both (gpt-6-astra
 1.05M; the Claude 5 family's `max_input_tokens`); the context summarisation
 works against the smaller of that window and 180k tokens (`COMPACT_TOKENS`),
 the same point on every provider -- a request that size is near the 32 MB
