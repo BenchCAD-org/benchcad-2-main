@@ -8,7 +8,8 @@
 #               gemini low,medium,high; anthropic and openai low,medium,high,xhigh,max)
 #   --rounds N  rounds per episode (default 30, the published setting; anything else is a smoke run)
 #   --cases D   run a subset: a task or case directory inside the downloaded Core tree
-#   --workers N episodes in flight per effort (default 4)
+#   --workers N episodes in flight per effort (default: min(32, max(4, 2 x CPUs)), at most
+#               one per GB of available memory; the value chosen is printed)
 #   --data D    where Core is downloaded (default ~/.cache/benchcad/benchcad-2.0-core)
 #   --dry-run   check everything, print the commands, run nothing
 #   -- ...      anything after -- is passed to harness/run.py
@@ -23,7 +24,7 @@ DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
 
-MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS=4 DRY=0 EXTRA=()
+MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=()
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -43,14 +44,37 @@ done
 [ -n "$MODEL" ] || die "--model <provider>/<model-id> is required (see --help)"
 step() { echo "[run_core] $*"; }
 
-# 1. tools: uv is installed if missing; Docker cannot be installed for you.
+# Episodes are API-bound: two per CPU, 4 to 32, and at most one per GB of available
+# memory (a sandbox execution and a score each take about that). BENCHCAD_NPROC and
+# BENCHCAD_MEM_GB override what is measured (tests).
+default_workers() {
+    local cpus mem w
+    cpus=${BENCHCAD_NPROC:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
+    if [ -n "${BENCHCAD_MEM_GB:-}" ]; then mem=$BENCHCAD_MEM_GB
+    elif [ -r /proc/meminfo ]; then mem=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
+    else mem=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 2147483648 )); fi   # macOS: half of RAM
+    w=$(( 2 * cpus )); [ "$w" -lt 4 ] && w=4; [ "$w" -gt 32 ] && w=32
+    [ "$mem" -ge 1 ] && [ "$w" -gt "$mem" ] && w=$mem
+    [ "$w" -lt 1 ] && w=1
+    echo "$w ($cpus CPUs, ${mem} GB available)"
+}
+
+# 1. tools: uv is installed if missing (and found again at ~/.local/bin on the next run);
+#    Docker cannot be installed for you.
+[ -x "$HOME/.local/bin/uv" ] && export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null 2>&1; then
     step "installing uv"
-    curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
+    curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
     export PATH="$HOME/.local/bin:$PATH"
+    step "uv installed in ~/.local/bin; for your own shell: export PATH=\"\$HOME/.local/bin:\$PATH\""
 fi
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-    msg="Docker is required and must be usable by this user (Ubuntu: curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker \$USER, then log in again)"
+docker_ok() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+if ! docker_ok; then
+    # a freshly booted box may still be finishing its own setup: look again for a minute
+    for _ in 1 2 3 4 5 6; do [ "$DRY" = 1 ] && break; sleep 10; docker_ok && break; done
+fi
+if ! docker_ok; then
+    msg="Docker is required and must be usable by this user (Linux: curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker \$USER, then log in again)"
     [ "$DRY" = 1 ] && step "WARNING: $msg" || die "$msg"
 fi
 
@@ -77,8 +101,10 @@ verify() {
 if ! verify >/dev/null 2>&1; then
     [ "$DRY" = 1 ] && die "no verified dataset at $DATA (a dry run does not download)"
     step "downloading $DATASET_REPO to $DATA"
-    uvx --quiet --from huggingface_hub hf download "$DATASET_REPO" --repo-type dataset --local-dir "$DATA" >/dev/null \
-        || die "download failed: $DATASET_REPO is gated -- request access on its Hugging Face page, then set HF_TOKEN (or run: uvx --from huggingface_hub hf auth login)"
+    mkdir -p "$DATA"
+    HF_HUB_DISABLE_PROGRESS_BARS=1 uvx --quiet --from huggingface_hub hf download "$DATASET_REPO" --repo-type dataset \
+        --local-dir "$DATA" > "$DATA.download.log" 2>&1 \
+        || { tail -5 "$DATA.download.log" >&2; die "download failed: $DATASET_REPO is gated -- request access on its Hugging Face page, then set HF_TOKEN (or run: uvx --from huggingface_hub hf auth login)"; }
     verify || die "$DATA does not match MANIFEST.sha256; delete it and run again"
 fi
 step "dataset verified: $DATA"
@@ -120,6 +146,12 @@ print(",".join("-" if e is None else e for e in levels))
 EOF
 ) || exit 1
 
+if [ -z "$WORKERS" ]; then
+    auto=$(default_workers); WORKERS=${auto%% *}
+    step "workers $WORKERS per effort, auto: $auto (--workers N overrides)"
+else
+    step "workers $WORKERS per effort"
+fi
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/core/$TAG"
 mkdir -p "$OUT"

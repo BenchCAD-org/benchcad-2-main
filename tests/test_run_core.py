@@ -152,3 +152,18 @@ def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_p
                              "cases": [_rec("task3/cases/case001", {"score": 1.0})]}))
     C.main([str(f), "--dataset", str(data / "task3/cases/case001"), "--dataset-info", str(data)])
     assert "dataset benchcad-2.0-core 1.0  scorer_digest" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("cpus,mem,want", [(8, 64, 16), (32, 256, 32), (1, 64, 4), (16, 6, 6), (2, 0, 4)])
+def test_default_workers_follow_the_machine(tmp_path, cpus, mem, want):
+    """Two episodes per CPU, 4 to 32, at most one per GB of available memory;
+    --workers overrides. The default of 4 made Core 100 at high take 10+ h."""
+    data = fake_core(tmp_path / "core")
+    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run",
+                 env_extra={"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"workers {want} per effort, auto:" in r.stdout
+    assert f"--workers {want} " in next(l for l in r.stdout.splitlines() if "would run:" in l)
+    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3",
+                 env_extra={"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)})
+    assert "workers 3 per effort" in r.stdout and "auto" not in r.stdout
