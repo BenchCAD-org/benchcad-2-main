@@ -516,3 +516,12 @@ def test_the_position_brief_spatial_section_is_ecads_file_verbatim():
     text = (REPO / "envs/t6_pcb2schematic/TASK_position.md").read_text(encoding="utf-8")
     assert want.startswith(heading) and text.count(heading) == 1
     assert (heading + text.split(heading, 1)[1]).strip() == want
+
+
+def test_the_scorer_digest_covers_every_vendored_module():
+    """scorer_digest() hashes an explicit list (ecad change 110), so a module added
+    to the vendored tree would not move it: the list must be the tree."""
+    from envs.common.ecad_graph import spatial_reference as sr
+    root = Path(sr.__file__).parent
+    assert sorted(p.name for p in root.glob("*.py")) == sorted(sr.SCORER_FILES)
+    assert sr.scorer_digest() == "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa"

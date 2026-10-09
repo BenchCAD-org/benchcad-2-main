@@ -14,7 +14,11 @@ Providers and the key each one reads (first name that is set wins):
 
     anthropic/<id>    ANTHROPIC_API_KEY (+ ANTHROPIC_WORKSPACE_ID for a key not scoped to a workspace)
     openai/<id>       OPENAI_API_KEY
-    gemini/<id>       GEMINI_API_KEY, GOOGLE_API_KEY
+    gemini/<id>       GEMINI_API_KEY, GOOGLE_API_KEY (the Gemini API); or Vertex AI
+                      with GOOGLE_GENAI_USE_VERTEXAI=true and an express-mode
+                      key in GOOGLE_API_KEY, else ADC with GOOGLE_CLOUD_PROJECT
+                      (+ GOOGLE_CLOUD_LOCATION, default global); GEMINI_BASE_URL
+                      points either at another endpoint (gemini_auth)
     xai/<id>          XAI_API_KEY, GROK_API_KEY
     openrouter/<id>   OPENROUTER_API_KEY
     opencode/<id>     OPENCODE_ZEN_API_KEY, OPENCODE_API_KEY, ZEN_API_KEY
@@ -69,9 +73,21 @@ from harness.artifact_hash import artifact_sha256, check as check_artifact   # n
 #               call is repeated; the step is remembered for the rest of the
 #               episode.
 #   openrouter  reasoning.effort low | medium | high, and none.
+#   gemini      thinking_level low | medium | high (GEMINI_EFFORT). Measured
+#               2026-10-08 on an AI Studio key: gemini-3.8-flash and
+#               gemini-3.1-pro-preview take LOW | MEDIUM | HIGH and 400 MINIMAL
+#               ("Thinking level MINIMAL is not supported for this model");
+#               gemini-3.5-flash also takes MINIMAL; no model takes XHIGH or MAX
+#               (not values of the API's enum); gemini-2.5-* take no
+#               thinking_level at all ("Thinking level is not supported for
+#               this model"), so a 400 naming the level steps it down -- high
+#               -> medium -> low -> not sent -- as on OpenAI. none and MINIMAL
+#               are not offered: Gemini 3 cannot switch its thinking off
+#               (3.1-pro: "This model only works in thinking mode"), and
+#               MINIMAL is not none.
 #
 # Unset, the level is the provider's top (top_effort): Anthropic max, OpenAI
-# max, OpenRouter high. Leaving it unset at the API is not the top -- both
+# max, OpenRouter high, Gemini high. Leaving it unset at the API is not the top -- both
 # APIs default to high (measured 2026-09-11 on claude-opus-5: 32 thinking
 # tokens unset, 111 at max) -- and the level actually run is what the
 # banner and every record carry.
@@ -79,11 +95,15 @@ EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = None
 PROVIDER_EFFORTS = {"anthropic/": EFFORTS,
                     "openai/": EFFORTS,
-                    "openrouter/": ("none", "low", "medium", "high")}
+                    "openrouter/": ("none", "low", "medium", "high"),
+                    "gemini/": ("low", "medium", "high")}
 OPENAI_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openai/"]}
 # What an OpenAI 400 naming the effort lowers the knob to: one step, then off.
 EFFORT_STEP_DOWN = {"max": "xhigh", "xhigh": "high"}
 OR_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openrouter/"]}
+GEMINI_EFFORT = {lvl: lvl.upper() for lvl in PROVIDER_EFFORTS["gemini/"]}
+# What a Gemini 400 naming the thinking level lowers it to: one step, then off.
+GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
 # The rounds an episode gets when --rounds is not given; the eval.toml the
 # examples ship quotes it (tools/make_dev_samples.py). 30, since 2026-09-17:
 # on the trial runs the model submitted on its own well inside that, and
@@ -109,6 +129,10 @@ ANTHROPIC_MAX_OUTPUT_DEFAULT = 128_000
 # unbounded wait. Not a thinking cap in the 16k sense: no measured reply
 # came near it (the longest, 48k output over a whole episode).
 OPENAI_MAX_OUTPUT = 128_000
+# Every Gemini the models API lists (2026-10-08, 2.5 through 3.8) has an
+# output limit of 65,536 tokens, thinking included; sent when --max-tokens is
+# not, so a reply is bounded by the model's ceiling as on the other providers.
+GEMINI_MAX_OUTPUT = 65_536
 # Transient failures (connection errors, 5xx) are re-requested ATTEMPTS
 # times with BACKOFF_S doubling -- 5/10/20/40/80 s, ~2.5 min of outage --
 # before the round is given up. Measured 2026-09-18 over ~2,500 calls on
@@ -226,7 +250,7 @@ def resolve_key(prefix: str, prov: Provider) -> str | None:
 def top_effort(prefix: str) -> str | None:
     """The highest level the provider at `prefix` has -- what --effort means
     when it is not given -- or None for a provider with no effort knob (xai,
-    opencode, gemini, mock: nothing is sent)."""
+    opencode, mock: nothing is sent)."""
     levels = PROVIDER_EFFORTS.get(prefix)
     return levels[-1] if levels else None
 
@@ -433,9 +457,8 @@ def _over_budget(started: float, budget: float, what: str) -> None:
     if time.time() - started > budget:
         raise CallOverBudget(f"{what} still streaming after {budget:.0f} s; giving it up")
 # httpx has no total deadline. For the streamed providers this bounds the
-# other phases (write, pool) while READ_IDLE_S bounds each read; for gemini,
-# which does not stream, it is the per-read timeout too -- the only guard
-# that path has. A stream that keeps sending frames is never cut off.
+# other phases (write, pool) while READ_IDLE_S bounds each read (gemini: see
+# _IdleTimeoutClient). A stream that keeps sending frames is never cut off.
 CALL_TIMEOUT_S = 1800
 
 
@@ -832,6 +855,7 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     call = drive(send, "anthropic call")
     # The window the Models API reported, for build_call's context_tokens.
     call.context_hint = (info or {}).get("max_input_tokens")    # type: ignore[attr-defined]
+    call.effort_sent = lambda: "none" if effort == "none" else level   # type: ignore[attr-defined]
     return call
 
 
@@ -1005,7 +1029,9 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
         room["on"] = False
         print(f"      {why}; handing the empty reply back (this round is lost)", flush=True)
         return ""
-    return drive(send, "responses call")
+    call = drive(send, "responses call")
+    call.effort_sent = lambda: knob["effort"]                    # type: ignore[attr-defined]
+    return call
 
 
 def openai_compat_call(model: str, max_tokens: int, usage: list,
@@ -1195,23 +1221,144 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         print(f"      {why} with the doubled budget too; handing the empty "
               f"reply back (this round is lost)", flush=True)
         return ""
-    return drive(send, "chat.completions call")
+    call = drive(send, "chat.completions call")
+    if who:                                   # xAI / OpenCode have no knob: nothing to record
+        call.effort_sent = lambda: knob["effort"] if base_url is None else OR_EFFORT[effort]   # type: ignore[attr-defined]
+    return call
 
 
-def gemini_call(model: str, max_tokens: int, usage: list, api_key: str):
+class ReplyBlocked(RuntimeError):
+    """Gemini withheld the reply: the prompt was blocked (prompt_feedback.
+    block_reason) or the candidate stopped on a policy finish_reason (SAFETY,
+    RECITATION, PROHIBITED_CONTENT, ...). The same request draws the same
+    verdict, so it carries code 400 and drive() does not repeat it; the round
+    is discarded with the reason in its log and record. IMAGE_SAFETY names an
+    image, so drive() makes its one retry without the images first."""
+    code = 400
+
+
+# Finish reasons that are the reply ending normally or for want of room;
+# every other one withholds the reply (ReplyBlocked).
+GEMINI_FINISH_OK = {"STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED"}
+
+
+class _IdleTimeoutClient:
+    """httpx.Client whose every request carries httpx.Timeout(CALL_TIMEOUT_S,
+    read=FIRST_PARTY_IDLE_S): google-genai sends HttpOptions.timeout both as
+    each request's httpx timeout (all phases, so a read could wait that long)
+    and as the X-Server-Timeout header (the server ends the call after it),
+    and a None per-request timeout switches httpx's timeout off altogether.
+    The SDK gets the per-effort budget (the server-side bound) and this client
+    puts the per-read clock back, the same split as the other first-party
+    paths."""
+
+    def __new__(cls):
+        import httpx
+
+        class Client(httpx.Client):
+            def build_request(self, *a, **kw):
+                kw["timeout"] = httpx.Timeout(CALL_TIMEOUT_S, read=FIRST_PARTY_IDLE_S, connect=30.0)
+                return super().build_request(*a, **kw)
+        return Client()
+
+
+def gemini_auth(env=None) -> tuple[dict, str]:
+    """genai.Client kwargs from the environment, and a label for the banner
+    and the record (no secret in it).
+
+    - Gemini API (AI Studio): GEMINI_API_KEY, else GOOGLE_API_KEY.
+    - Vertex AI, when GOOGLE_GENAI_USE_VERTEXAI is true: an express-mode API
+      key in GOOGLE_API_KEY (vertexai=True + api_key; no project, no
+      credentials file -- the route for lanes), else Application Default
+      Credentials with GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION
+      (default "global").
+    - GEMINI_BASE_URL, when set, is http_options.base_url on either route.
+    The variable names are google-genai's own, so a lab's existing setup works."""
+    env = os.environ if env is None else env
+    base_url = env.get("GEMINI_BASE_URL") or None
+    if (env.get("GOOGLE_GENAI_USE_VERTEXAI") or "").strip().lower() in ("1", "true", "yes"):
+        if env.get("GOOGLE_API_KEY"):
+            kw, label = {"vertexai": True, "api_key": env["GOOGLE_API_KEY"]}, "vertex-express-key"
+        elif env.get("GOOGLE_CLOUD_PROJECT"):
+            loc = env.get("GOOGLE_CLOUD_LOCATION") or "global"
+            kw = {"vertexai": True, "project": env["GOOGLE_CLOUD_PROJECT"], "location": loc}
+            label = f"vertex-adc project={env['GOOGLE_CLOUD_PROJECT']} location={loc}"
+        else:
+            raise SystemExit("gemini/* on Vertex (GOOGLE_GENAI_USE_VERTEXAI=true) needs an express-mode key "
+                             "in GOOGLE_API_KEY, or GOOGLE_CLOUD_PROJECT for Application Default Credentials.")
+    else:
+        key = env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY")
+        if not key:
+            raise SystemExit("gemini/* needs GEMINI_API_KEY or GOOGLE_API_KEY in the environment (or Vertex: "
+                             "GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_API_KEY or GOOGLE_CLOUD_PROJECT).\n"
+                             "Export one and retry, or use --model mock/oracle to exercise the runner "
+                             "without any provider key.")
+        kw, label = {"api_key": key}, "gemini-api-key"
+    if base_url:
+        kw["base_url"] = base_url
+        label += f" base_url={base_url}"
+    return kw, label
+
+
+def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
+                effort: str | None = DEFAULT_EFFORT):
+    """google-genai, streamed (generate_content_stream).
+
+    - Effort is thinking_level (GEMINI_EFFORT); a 400 naming it steps it down
+      (GEMINI_STEP_DOWN), remembered for the episode; the level sent is the
+      record's effort_sent.
+    - include_thoughts=True, so thought summaries stream while the model
+      thinks: a live stream is never silent for FIRST_PARTY_IDLE_S and a
+      silent one is dead (drive() makes the request again). The thoughts are
+      never returned as the answer and never replayed.
+    - The model's own parts for its earlier turns are replayed with their
+      thought_signature, as Google asks of multi-turn requests on Gemini 3
+      (strictly validated only for function calls, which this harness does
+      not use). Keyed by the reply text: a turn the episode rewrote (a
+      summary) goes back as plain text.
+    - Usage: output = candidates + thoughts (both billed as output), cached =
+      cached_content_token_count, and the same log lines as the other
+      providers (`usage: ...`, `reasoning ... chars, content ..., stop=...`),
+      which the run watchers parse.
+    - MAX_TOKENS with no executable block is a truncated reply: marked, and
+      once more with a doubled budget when --max-tokens set one. A blocked
+      prompt or a policy finish_reason is ReplyBlocked.
+    `auth`: an API key, or gemini_auth()'s client kwargs.
+    """
     from google import genai
-    from google.genai import types
-    # google-genai defaults HttpOptions().timeout to None -- one hung unary
-    # request would hang the whole run with no output and nothing to attribute
-    # it to. There is no stream here, so this ceiling is the only guard.
-    client = genai.Client(api_key=api_key,
-                          http_options=types.HttpOptions(
-                              timeout=CALL_TIMEOUT_S * 1000))
+    from google.genai import errors, types
+    effort = effort or top_effort("gemini/")
+    check_effort("gemini/", effort)
+    call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
+    kw = dict(auth) if isinstance(auth, dict) else {"api_key": auth}
+    base_url = kw.pop("base_url", None)
+    client = genai.Client(**kw, http_options=types.HttpOptions(
+        timeout=call_budget * 1000, httpx_client=_IdleTimeoutClient(),
+        **({"base_url": base_url} if base_url else {})))
+    room = {"on": False}
+    knob = {"effort": effort}
+    signed: dict[str, list] = {}           # reply text -> the model's turn, with its thought_signature
+
+    def _step_down(err: str) -> bool:
+        if "thinking level" not in err.lower() or not knob["effort"]:
+            return False
+        was = knob["effort"]
+        # "Thinking level is not supported for this model" (2.5): no level at all.
+        knob["effort"] = (None if "thinking level is not supported" in err.lower()
+                          else GEMINI_STEP_DOWN.get(was))
+        print(f"      {model} rejected thinking_level={GEMINI_EFFORT[was]}; "
+              + (f"sending {GEMINI_EFFORT[knob['effort']]} instead" if knob["effort"]
+                 else "sending no thinking_level")
+              + " for the rest of this episode", flush=True)
+        return True
 
     def send(system: str, turns: list, drop_images: bool) -> str:
         turns, max_px = bound_images(turns)
         contents = []
         for t in turns:
+            if t["role"] == "assistant" and t.get("text") in signed:
+                contents.append(types.Content(role="model", parts=signed[t["text"]]))
+                continue
             parts = [types.Part.from_text(text=t["text"])] if t.get("text") else []
             for img, lab in ([] if drop_images else labelled(t)):
                 parts.append(types.Part.from_text(text=image_label(img, lab)))
@@ -1222,17 +1369,83 @@ def gemini_call(model: str, max_tokens: int, usage: list, api_key: str):
             # Gemini names the assistant role "model", not "assistant".
             contents.append(types.Content(
                 role="model" if t["role"] == "assistant" else "user", parts=parts))
-        r = client.models.generate_content(
-            model=model, contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                **({"max_output_tokens": max_tokens} if max_tokens else {})))
-        um = getattr(r, "usage_metadata", None)
-        if um:
-            usage.append({"input_tokens": getattr(um, "prompt_token_count", 0),
-                          "output_tokens": getattr(um, "candidates_token_count", 0)})
-        return r.text or ""
-    return drive(send, "gemini call")
+        budget = (max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens) if max_tokens else GEMINI_MAX_OUTPUT
+        if room["on"]:
+            print(f"      retrying with max_output_tokens={budget:,} so the content has room", flush=True)
+        while True:
+            thinking = {"include_thoughts": True}
+            if knob["effort"]:
+                thinking["thinking_level"] = GEMINI_EFFORT[knob["effort"]]
+            # No tools are declared, so automatic function calling has nothing
+            # to do; switched off, it also stops the SDK's warning on every call.
+            config = types.GenerateContentConfig(
+                system_instruction=system, max_output_tokens=budget,
+                thinking_config=types.ThinkingConfig(**thinking),
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+            started = time.time()
+            try:
+                stream = client.models.generate_content_stream(model=model, contents=contents, config=config)
+                first = next(stream, None)          # the request is made on the first read
+                break
+            except errors.ClientError as e:
+                if e.code == 400 and _step_down(str(e)):
+                    continue
+                raise
+        text, think = [], []
+        um, finish, block, signature = None, None, None, None
+        import itertools
+        for c in itertools.chain([first] if first is not None else [], stream):
+            _over_budget(started, call_budget, "gemini call")
+            um = getattr(c, "usage_metadata", None) or um          # last one wins
+            pf = getattr(c, "prompt_feedback", None)
+            if pf is not None and getattr(pf, "block_reason", None):
+                block = getattr(pf.block_reason, "name", str(pf.block_reason))
+            for cand in (getattr(c, "candidates", None) or [])[:1]:
+                if getattr(cand, "finish_reason", None):
+                    finish = getattr(cand.finish_reason, "name", str(cand.finish_reason))
+                for part in (getattr(getattr(cand, "content", None), "parts", None) or []):
+                    # The signature can ride on a thought part, a text part or an empty one.
+                    signature = getattr(part, "thought_signature", None) or signature
+                    (think if getattr(part, "thought", False) else text).append(part.text or "")
+        secs = round(time.time() - started, 1)
+        reply = "".join(text)
+        if um is not None:
+            prompt = getattr(um, "prompt_token_count", 0) or 0
+            cached = getattr(um, "cached_content_token_count", 0) or 0
+            thoughts = getattr(um, "thoughts_token_count", 0) or 0
+            out = (getattr(um, "candidates_token_count", 0) or 0) + thoughts
+            rec = {"input_tokens": prompt, "cached_tokens": cached, "output_tokens": out,
+                   "thoughts_tokens": thoughts, "seconds": secs}
+            if finish == "MAX_TOKENS" and not _has_fence(reply):
+                rec["truncated"] = True
+            usage.append(rec)
+            print(f"      usage: prompt {prompt:,} (cached {cached:,}, thoughts {thoughts:,}), "
+                  f"output {out:,}, {secs:.0f} s", flush=True)
+        else:
+            print("      (provider reported no usage; token counts for this call are unknown, not zero)", flush=True)
+        print(f"      reasoning {len(''.join(think)):,} chars, content {len(reply):,}, stop={finish}", flush=True)
+        if block or (finish and finish not in GEMINI_FINISH_OK):
+            if block:
+                print(f"      blocked: block_reason={block}", flush=True)
+            raise ReplyBlocked(f"gemini withheld the reply: "
+                               + (f"block_reason={block}" if block else f"finish_reason={finish}"))
+        if finish == "MAX_TOKENS" and not _has_fence(reply):
+            if not room["on"] and max_tokens:
+                room["on"] = True
+                raise EmptyContent(f"finish_reason=MAX_TOKENS at {budget:,} tokens with no executable "
+                                   f"block (thoughts {len(''.join(think)):,} chars)")
+            room["on"] = False
+            print("      truncated at the output ceiling; handing the reply back (this round is lost)", flush=True)
+            return reply
+        room["on"] = False
+        if reply and signature:
+            if len(signed) > 512:
+                signed.clear()
+            signed[reply] = [types.Part(text=reply, thought_signature=signature)]
+        return reply
+    call = drive(send, "gemini call")
+    call.effort_sent = lambda: knob["effort"]                    # type: ignore[attr-defined]
+    return call
 
 
 def mock_call(kind: str, case: Path):
@@ -1357,6 +1570,26 @@ CONTEXT_TOKENS = {"claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000,
 DEFAULT_CONTEXT_TOKENS = 200_000
 
 
+def check_local_mode(unsafe_local: bool, env=None) -> None:
+    """Local mode runs the model's code as a plain subprocess of this host.
+    Its environment is stripped of credentials (sandbox.is_secret_env), but
+    the code can still read any file this user can -- a .env with the keys
+    in it, the shell history -- so local mode is refused while a key is in
+    the environment, unless --unsafe-local says that is understood. Docker
+    mode (the image is present) is unaffected: the container gets an empty
+    environment and no network."""
+    from envs.common.sandbox import DOCKER_IMAGE, _docker_ready, is_secret_env
+    env = os.environ if env is None else env
+    if env.get("CADENV_LOCAL") != "1" or unsafe_local or _docker_ready():
+        return
+    held = sorted(k for k, v in env.items() if v and is_secret_env(k))
+    if held:
+        raise SystemExit(
+            f"local mode (CADENV_LOCAL=1, sandbox image {DOCKER_IMAGE!r} not available) would run the model's "
+            f"code unisolated on this host while {', '.join(held)} {'is' if len(held) == 1 else 'are'} set. "
+            f"Build the image (sandbox/Dockerfile) and set CADENV_DOCKER_IMAGE, or pass --unsafe-local.")
+
+
 def context_tokens_for(model_id: str) -> int:
     best = None
     for prefix, n in CONTEXT_TOKENS.items():
@@ -1375,7 +1608,7 @@ def build_call(spec: str, max_tokens: int, usage: list, case: Path,
     if prov.kind == "mock":
         call = mock_call(model_id, case)
     else:
-        key = resolve_key(prefix, prov)
+        key = resolve_key(prefix, prov) if prov.kind != "gemini" else None
         if prov.kind == "anthropic":
             call = anthropic_call(model_id, max_tokens, usage, effort, task_budget)
         elif prov.kind == "openai_compat" and prov.base_url is None:
@@ -1383,7 +1616,9 @@ def build_call(spec: str, max_tokens: int, usage: list, case: Path,
         elif prov.kind == "openai_compat":
             call = openai_compat_call(model_id, max_tokens, usage, key, prov.base_url, effort)
         elif prov.kind == "gemini":
-            call = gemini_call(model_id, max_tokens, usage, key)
+            kw, label = gemini_auth()
+            call = gemini_call(model_id, max_tokens, usage, kw, effort)
+            call.auth = label                                    # type: ignore[attr-defined]
         else:
             raise SystemExit(f"provider kind {prov.kind!r} has no call implementation")
     # What the episode reads to decide on summarising: the provider's own
@@ -1851,6 +2086,9 @@ def main() -> int:
     ap.add_argument("--shard", default=None,
                     help="k/n: this process takes cases k, k+n, k+2n, ... of "
                          "the sorted list; give each machine its own k")
+    ap.add_argument("--unsafe-local", action="store_true",
+                    help="allow local mode (CADENV_LOCAL=1 without the sandbox image) while provider "
+                         "keys are in the environment; the model's code then runs unisolated on this host")
     ap.add_argument("--resume", action="store_true",
                     help="reuse --out: cases it already holds with a score, "
                          "a skip or a finished episode are kept, errors are "
@@ -1897,6 +2135,11 @@ def main() -> int:
           + (f"  shard {a.shard}" if a.shard else "")
           + (f"  resume: {len(kept)} kept, {len(todo)} to run" if a.resume else ""),
           flush=True)
+    if prefix == "gemini/":
+        print(f"gemini auth {gemini_auth()[1]}", flush=True)       # fails here, before any case, when unset
+    if prov.kind not in ("mock", "gemini"):
+        resolve_key(prefix, prov)                     # a missing key fails here, naming it, before any case
+    check_local_mode(a.unsafe_local)
     records: dict[str, dict] = dict(kept)
     import threading
     lock = threading.Lock()
@@ -1928,6 +2171,12 @@ def main() -> int:
             for stale in (work, work.parent / (work.name + "_log")):
                 shutil.rmtree(stale, ignore_errors=True)
             res = run_episode(case, work, call, max_rounds=a.rounds)
+            # The level the provider was last sent, next to the one asked for:
+            # a model that rejected a level was stepped down (or sent none).
+            if hasattr(call, "effort_sent"):
+                rec["effort_sent"] = call.effort_sent()
+            if hasattr(call, "auth"):
+                rec["auth"] = call.auth          # which route a gemini/ run took; never a secret
             rec["submitted"] = res["submitted"]
             # run_episode only looks for .step artifacts, so an ECAD submission
             # (a graph dict exported as pred_graph.json) comes back with

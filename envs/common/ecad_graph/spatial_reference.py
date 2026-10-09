@@ -8,12 +8,24 @@ from .position import EvaluatorError
 from .schema import POSITION_SCHEMA_VERSION, load_graph
 
 
+# Every module in the package, not the subset that reads like "the scorer". The
+# six-file version sealed 1957 of 3014 lines and left out name_aware.py, which
+# metric_v2 imports at top level and whose Anchors() reaches S_T on the position
+# path, together with milp.py, observability.py and __init__.py -- all four load
+# on any import of the package. A divergent copy of any of them could move a
+# score while the digest reported the two scorers identical and the verifier's
+# gate passed. Adding a module without adding it here fails test_scorer_seal.py,
+# so the list cannot silently fall behind the package again.
+SCORER_FILES = ("__init__.py", "matcher.py", "metric_v2.py", "milp.py",
+                "name_aware.py", "observability.py", "position.py", "schema.py",
+                "spatial_reference.py", "verifier.py")
+
+
 def scorer_digest():
     """Bind activation to the shipped implementation, not a mutable label."""
     root = pathlib.Path(__file__).parent
-    files = ("schema.py", "position.py", "metric_v2.py", "matcher.py", "spatial_reference.py", "verifier.py")
     h = hashlib.sha256()
-    for name in files:
+    for name in SCORER_FILES:
         h.update(name.encode())
         # Source repositories may use CRLF; source semantics do not.
         h.update((root / name).read_text(encoding="utf-8").replace("\r\n", "\n").encode())

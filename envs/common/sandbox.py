@@ -447,6 +447,16 @@ def _mount_works(work_dir: Path) -> bool:
         return False
 
 
+def is_secret_env(name: str) -> bool:
+    """An environment variable a model's code must never see: provider keys
+    and anything named like a credential. Local mode (CADENV_LOCAL=1) passes
+    the environment through, so these are taken out of it, and harness/run.py
+    refuses local mode while any is set unless --unsafe-local is given."""
+    n = name.upper()
+    return (n.endswith(("_API_KEY", "_TOKEN", "_PAT", "_SECRET", "_PASSWORD"))
+            or "SECRET" in n or n in {"GOOGLE_APPLICATION_CREDENTIALS", "ANTHROPIC_WORKSPACE_ID"})
+
+
 def _docker_ready() -> bool:
     try:
         r = subprocess.run(["docker", "image", "inspect", DOCKER_IMAGE],
@@ -861,7 +871,7 @@ class Sandbox:
             cmd = [sys.executable, str(script)]
         env = None
         if not self.docker:                       # local mode needs the shim too, or it blows up the same way
-            env = {**os.environ,
+            env = {**{k: v for k, v in os.environ.items() if not is_secret_env(k)},
                    "PYTHONPATH": os.pathsep.join(
                        [str(self.dir), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)}
         if EXEC_GATE is not None:
