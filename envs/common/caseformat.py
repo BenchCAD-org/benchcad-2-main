@@ -31,6 +31,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from envs.geom.oom import OOM_ERRORS
+
 FORMAT = "benchcad-case/1"
 INSTANCES_FORMAT = "benchcad-instances/1"
 PART_ID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -175,7 +177,7 @@ def geometry_class(sols) -> str:
     """Hash of the invariants at 4 significant digits, over every solid of the
     part file (a multi-solid part is one part type). Two part types with the
     same class are the same geometry under two names and are interchangeable
-    for pairing (assembly case 7 ships one bar as part_01 and part_07)."""
+    for pairing (ASM-07 ships one bar as part_01 and part_07)."""
     if not isinstance(sols, (list, tuple)):
         sols = [sols]
     def sig(x): return 0.0 if x == 0 else float(f"{x:.4g}")
@@ -314,10 +316,17 @@ def pdf_raw_identity(path: Path) -> list[str]:
 
 def sheet_parts_list(pdf: Path) -> dict[str, str]:
     """{item number: part id} as printed on an assembly sheet's parts list:
-    every `part_NN.step` word paired with the nearest integer word to its left
-    on the same row. Measured on the two T2 sheets against an independent
-    extraction: 21/21 and 20/20 pairs agree. Empty when the sheet has no text
-    layer or no STEP FILE column."""
+    every `part_NN.step` word paired with the integer of its row that sits in
+    the ITEM column -- under the nearest `ITEM` header above the file and to
+    its left, within the header's width either side. The integer nearest the
+    file is not the item when the part's name carries numbers of its own: a
+    T2 sheet's "1 Bearing 12 x 24 x 6 part_01.step" read item 6 (2026-09-27).
+    A sheet without an ITEM header falls back to the nearest integer to the
+    file's left on the same row. Measured on the two T2 dev sheets against an
+    independent extraction: 21/21 and 20/20 pairs agree; on all 38 parts-list
+    sheets of the bank the header rule reads what the nearest-integer rule
+    read, except on the sheet with the numbered names, where it reads right.
+    Empty when the sheet has no text layer or no STEP FILE column."""
     try:
         import pymupdf
     except ImportError:                                  # pragma: no cover
@@ -325,16 +334,28 @@ def sheet_parts_list(pdf: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     try:
         doc = pymupdf.open(str(pdf))
+    except OOM_ERRORS:                                       # infrastructure, never a score
+        raise
     except Exception:                                    # noqa: BLE001
         return out
     words = [w for pg in doc for w in pg.get_text("words")]
     files = [w for w in words if re.fullmatch(r"part_\d\d\.step", w[4])]
     items = [w for w in words if re.fullmatch(r"\d{1,2}", w[4])]
+    heads = [w for w in words if w[4].upper() == "ITEM"]
     for f in files:
         cy = (f[1] + f[3]) / 2
-        cands = [w for w in items if abs((w[1] + w[3]) / 2 - cy) < 4 and w[2] <= f[0]]
-        if cands:
-            it = min(cands, key=lambda w: f[0] - w[2])
+        row = [w for w in items if abs((w[1] + w[3]) / 2 - cy) < 4 and w[2] <= f[0]]
+        above = [h for h in heads if h[3] <= f[1] + 1 and h[2] <= f[0]]
+        it = None
+        if above:
+            h = max(above, key=lambda h: (h[3], h[0]))            # the nearest header above, on the file's left
+            pad = max(h[2] - h[0], 1.0)
+            col = [w for w in row if h[0] - pad <= (w[0] + w[2]) / 2 <= h[2] + pad]
+            if col:
+                it = min(col, key=lambda w: abs((w[0] + w[2]) / 2 - (h[0] + h[2]) / 2))
+        if it is None and row:
+            it = min(row, key=lambda w: f[0] - w[2])
+        if it is not None:
             out[it[4]] = f[4][:-5]
     return out
 
@@ -347,7 +368,7 @@ def pdf_metadata(pdf: Path) -> dict:
 
 
 def redaction_report(case: Path) -> dict | None:
-    """provenance/redaction_report.json: the producing pipeline's redaction gate's verification of the
+    """provenance/redaction_report.json: the delivery gate's verification of the
     drawings (DXF-entity CJK and identity, symbol conservation, parts list vs
     BOM), produced by the data pipeline. This repo keeps only the PDFs the
     model sees; the DXF-level facts travel as this report."""
@@ -505,6 +526,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
     E, W = rep.errors.append, rep.warnings.append
     try:
         c = load_case(d)
+    except OOM_ERRORS:                                       # infrastructure, never a score
+        raise
     except Exception as ex:                                     # noqa: BLE001
         E(f"case.json: {ex}")
         return rep
@@ -569,6 +592,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
             validate(obj); g = load_graph(obj)
             if not g.components or not g.incidences:
                 E("gt/gt_graph.json has no components or no incidences")
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception as ex:                                 # noqa: BLE001
             E(f"gt/gt_graph.json: {ex}")
 
@@ -607,7 +632,7 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
     # names (a CJK subset is text even when extraction fails), and the Info
     # dictionary (creator / producer / author / title / subject / keywords).
     # Text drawn as outlines cannot be read here at all: such a PDF is admitted
-    # only with the producing pipeline's redaction gate's redaction report (provenance/redaction_report.json,
+    # only with the delivery gate's redaction report (provenance/redaction_report.json,
     # status = pass), which carries the DXF-entity-level facts from the data pipeline.
     drawing_texts: dict[str, tuple[str, str]] = {}
     report = redaction_report(d)
@@ -618,6 +643,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
         try:
             text, fonts = pdf_text_and_fonts(d / rel)
             meta = pdf_metadata(d / rel)
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception as ex:                                     # noqa: BLE001
             E(f"{rel}: cannot read PDF: {ex}"); continue
         bad_fonts = [f for f in fonts if CJK_FONT_HINT.search(f)]
@@ -645,7 +672,7 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
             elif report is None:
                 (W if m.get("synthetic") else E)(
                     f"{rel}: text is drawn as outlines and provenance/redaction_report.json is absent -- "
-                    "the DXF-level checks live in the data pipeline's redaction gate of the producing pipeline; ship its report")
+                    "the DXF-level checks live in the data pipeline's delivery gate; ship its report")
             elif str(report.get("status", "")).lower() != "pass":
                 E(f"{rel}: provenance/redaction_report.json status is {report.get('status')!r}, not pass")
             else:
@@ -702,6 +729,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
         if e["path"].endswith(".json"):
             try:
                 hits = list(vendor_strings(json.loads((d / e["path"]).read_text())))
+            except OOM_ERRORS:                                       # infrastructure, never a score
+                raise
             except Exception as ex:                                 # noqa: BLE001
                 E(f"{e['path']}: not valid JSON: {ex}"); continue
             if hits:
@@ -751,8 +780,9 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                     rows = sheet_parts_list(d / "input" / DRAWING)
                     bad = {k: v for k, v in table.items() if rows.get(str(k)) not in (None, v)}
                     if bad:
+                        seen = {k: rows.get(str(k)) for k in bad}
                         E(f"parts_list.table disagrees with the sheet on items {sorted(bad)}: "
-                          f"declared {bad}, sheet {{k: rows[k] for k in bad}}")
+                          f"declared {bad}, sheet {seen}")
                     unread = [k for k in table if str(k) not in rows]
                     if unread:
                         W(f"parts_list.table items not readable off the sheet: {sorted(unread)}")
@@ -818,6 +848,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                 bc = {it["part_id"]: it["quantity"] for it in b.get("items", [])}
                 if bc != counts:
                     E(f"input/bom.json quantities {bc} != instances {counts}")
+            except OOM_ERRORS:                                       # infrastructure, never a score
+                raise
             except Exception as ex:                             # noqa: BLE001
                 E(f"input/bom.json: {ex}")
         # de-posed inputs: every input part sits at its own bbox centre
@@ -831,6 +863,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                     diag = max(bb.DiagonalLength, 1e-9)
                     if max(abs(x) for x in cen) > 0.01 * diag:          # generators round; 1% of size
                         E(f"{rel}: not de-posed (bbox centre {tuple(round(x, 3) for x in cen)}, diag {diag:.1f})")
+                except OOM_ERRORS:                                       # infrastructure, never a score
+                    raise
                 except Exception as ex:                         # noqa: BLE001
                     E(f"{rel}: cannot load: {ex}")
         # cheap consistency: multiset of (volume, area) of gt.step solids == instances
@@ -856,6 +890,8 @@ def check_case(case_dir: Path, *, deep: bool = False, res: int = 64) -> Report:
                         if abs(gv - ev) > 1e-4 * max(1.0, abs(ev)) or abs(ga - ea) > 1e-4 * max(1.0, abs(ea)):
                             E(f"gt.step solid (vol {gv}, area {ga}) has no matching instance (nearest vol {ev}, area {ea})")
                             break
+            except OOM_ERRORS:                                       # infrastructure, never a score
+                raise
             except Exception as ex:                             # noqa: BLE001
                 E(f"geometry check failed: {ex}")
         if deep and not rep.errors:
@@ -910,6 +946,8 @@ def exact_rebuild_iou(rebuilt, gt_step: Path) -> dict:
         used.add(i)
         try:
             inter = s.intersect(g).Volume()
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception:                                   # noqa: BLE001  -- boolean failed: no overlap
             inter = 0.0
         gv = g.Volume()

@@ -140,3 +140,26 @@ def test_t6_inner_layer_views_are_input_vocabulary(tmp_path):
     bad = [e for e in check_case(d).errors if "not allowed" in e]
     assert not any("view_inner1" in e or "view_inner2" in e for e in bad), bad
     assert any("view_side.png" in e for e in bad) and any("view_inner.png" in e for e in bad), bad
+
+
+def test_parts_list_item_is_read_in_the_item_column(tmp_path):
+    """A part's name can carry numbers ("Bearing 12 x 24 x 6"): the item is the integer under the ITEM header, not
+    the integer nearest the file (a T2 sheet read item 6 for row 1, 2026-09-27)."""
+    pymupdf = pytest.importorskip("pymupdf")
+    from envs.common.caseformat import sheet_parts_list
+    doc = pymupdf.open()
+    page = doc.new_page(width=842, height=595)
+    y = 400
+    for x, word in ((500, "ITEM"), (540, "PART"), (700, "STEP"), (730, "FILE")):
+        page.insert_text((x, y), word, fontsize=8)
+    rows = [("1", "Bearing 12 x 24 x 6", "part_01.step"), ("2", "Shaft", "part_02.step"),
+            ("3", "Spacer 8", "part_03.step"), ("4", "Bearing 10 x 26 x 8", "part_04.step")]
+    for k, (item, name, step) in enumerate(rows):
+        yy = y + 14 * (k + 1)
+        page.insert_text((505, yy), item, fontsize=8)
+        page.insert_text((540, yy), name, fontsize=8)
+        page.insert_text((700, yy), step, fontsize=8)
+    page.insert_text((60, y + 14), "25", fontsize=8)          # a dimension in a view, on row 1's height
+    pdf = tmp_path / "drawing.pdf"
+    doc.save(str(pdf))
+    assert sheet_parts_list(pdf) == {"1": "part_01", "2": "part_02", "3": "part_03", "4": "part_04"}

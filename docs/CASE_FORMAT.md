@@ -10,6 +10,10 @@ One layout for every task. A case is a directory; what the model sees is
   gt/                never staged
     gt.step          the scored answer: a part (T1, T3) or an assembly (T2, T4, T5)
     gt_graph.json    T6 instead of gt.step: the terminal-net graph (kind = ecad)
+    correspondence.json     T6 position mode: ecad's grading/correspondence.json, verbatim
+    spatial_reference.json  T6 position mode: centres + terminal positions, bound to
+                     gt_graph.json and input/views/view_top.png by sha256
+                     (tools/stage_t6_position.py stages both; docs/METRICS.md)
     parts/<id>.step  assembly tasks: the answer geometry of every part type that is
                      NOT supplied as input (all of T4's, T5's made-to-print
                      parts); own frame
@@ -26,7 +30,7 @@ One layout for every task. A case is a directory; what the model sees is
 
 `examples/task<N>/cases/<id>/` is the same format **minus `provenance/`** (and,
 for the ECAD cases, minus `alignment/`), **plus `expected.json`**. Those are the
-dev samples: eight real cases that DO live in git, so that a client can set up a
+dev samples: nine real cases that DO live in git, so that a client can set up a
 scoring run and align it against ours before anyone touches the formal bank.
 `provenance/` is exactly what must not travel -- source links and ids,
 delivery reports, account names -- and nothing in it is needed to
@@ -190,7 +194,7 @@ and the reference can therefore not disagree.
 
 A submission uses the same ids, in the same two files (see "Submission layout"
 below): `submission/parts/<part_id>.step` and one `instances.json` record per
-placed instance. T2's headline metric `asm_v1` (`docs/METRICS.md`) reads
+placed instance. T2's headline metric `asm_v1` (`docs/METRICS.md`, change 24) reads
 the instance names first to attribute instances to part types and falls back to
 geometry (invariants against the supplied part files) when a submission has no
 usable names -- with the fixed layout the names are generated from the part
@@ -198,12 +202,12 @@ file names, so the fallback is only reached by an old single-STEP submission.
 The legacy scorers (`rubric_asm`, `score_asm`) still pair GT and submission
 instances by geometric cost (a Hungarian assignment); there the names are
 used for reporting and, in the T2 integrity path, as a class constraint.
-Name-first pairing in those paths is a separate rule.
+Name-first pairing in those paths is change 21.
 
 `case.json` lists every part type with a `geometry_class` — a hash of
 pose-free invariants (volume, area, face count, principal moments) at four
 significant digits. Two part types with the same class are one geometry under
-two names (assembly case 7 ships a 1620 mm bar as both `part_01` and `part_07`); scorers
+two names (ASM-07 ships a 1620 mm bar as both `part_01` and `part_07`); scorers
 treat instances of equal classes as interchangeable.
 
 ## Submission layout
@@ -290,7 +294,7 @@ never staged and never shared with the case.
 ## Drawings: proving there is no CJK, and tying the parts list to the parts
 
 This repo carries only the PDFs the model sees; DXF-level checks belong to
-the data pipeline's redaction gate of the producing pipeline. For every PDF under `input/` the validator
+the data pipeline's delivery gate. For every PDF under `input/` the validator
 reads the extractable text (CJK is an error), the embedded font names (a CJK
 font subset is text even when extraction fails: error) and the Info
 dictionary as stored (creator, producer, author, title, subject, keywords:
@@ -298,7 +302,7 @@ CJK is an error; any value present is reported -- two preview PDFs carried
 the source case number as their title and an account id as their author).
 
 A PDF whose text is drawn as outlines cannot be read here at all. It is
-admitted only with the producing pipeline's redaction gate's report, `provenance/redaction_report.json`,
+admitted only with the delivery gate's report, `provenance/redaction_report.json`,
 `status = "pass"`: the DXF-entity-level CJK and identity scan, symbol
 conservation, parts list vs BOM, and the pixel comparison, all measured by
 the data pipeline on the deliverable's own bytes. `case.json.redaction.report_sha256`

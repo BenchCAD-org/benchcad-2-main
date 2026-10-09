@@ -9,8 +9,11 @@ clip, rebuilt from the model's own construction.
     identity      the worker's mesh is the in-place mesh (same triangles,
                   vertices to 1e-12) on a held-out reference part; a moved
                   instance meshes the same on both SIDES of a comparison
-    the budget    the sweep raises UnmeshableShape within the budget, the
-                  worker is killed and the next call works
+    the budget    the sweep raises UnmeshableShape within its CPU budget, the
+                  worker is ended and the next call works; the budget is CPU,
+                  so a worker the machine starves is not charged for it, and
+                  the wall clock is only a backstop (both pinned, 600 s and
+                  10 x that, 2026-09-23)
     part_v1       the sweep is a named zero (`error: ... unmeshable ...`)
                   within the budget, not a hang
     assembly      the T4 fixture with one part replaced by the sweep: that
@@ -18,7 +21,8 @@ clip, rebuilt from the model's own construction.
                   named under asm_v1's `excluded_instances`, and the other
                   types still score 1.0
     legacy iou    iou_step_vs_step scores an unmeshable submission 0.0
-The budgets here are seconds (monkeypatched), the default is MESH_TIMEOUT_S.
+The CPU budgets here are seconds (monkeypatched); the defaults are MESH_CPU_S
+of the worker's CPU and MESH_WALL_FACTOR x that of wall clock.
 """
 from __future__ import annotations
 
@@ -41,7 +45,8 @@ ocp_hashcode_fix()
 import cadquery as cq  # noqa: E402
 
 FX = REPO / "tests/fixtures"
-BUDGET = 6.0                       # seconds: enough for any part here, far under the sweep
+BUDGET = 6.0                       # CPU seconds: enough for any part here, far under the sweep
+_DEFAULTS = (mg.MESH_CPU_S, mg.MESH_WALL_FACTOR)   # read before the autouse fixture shortens the budget
 
 
 def bad_sweep(r: float = 2.1):
@@ -77,7 +82,7 @@ def bad_sweep(r: float = 2.1):
 
 @pytest.fixture(autouse=True)
 def _short_budget(monkeypatch):
-    monkeypatch.setattr(mg, "MESH_TIMEOUT_S", BUDGET)
+    monkeypatch.setattr(mg, "MESH_CPU_S", BUDGET)
 
 
 def _same(a, b, tol=1e-12) -> bool:
@@ -110,7 +115,7 @@ def test_the_face_walk_is_cadquerys_on_a_shape_that_meshes_whole():
 
 
 def test_a_face_left_without_triangles_is_meshed_again_and_the_mesh_is_whole(monkeypatch, capsys):
-    """T1 held-out case11 (2026-09-21): one fillet face got no triangulation
+    """a T1 held-out reference (2026-09-21): one fillet face got no triangulation
     at angular 0.1, cadquery's walk skipped it, and the hollow mesh scored a
     correct part iou24 0.46. Here one face of the fixture part has its
     triangulation stripped after the first pass; the ladder meshes it on its
@@ -180,14 +185,61 @@ def test_a_moved_instance_meshes_the_same_on_both_sides():
     assert _same(a, b, tol=0.0)
 
 
+def test_the_defaults_are_600_s_of_cpu_and_ten_times_that_of_wall():
+    """2026-09-23: 600 s of the worker's own CPU per call -- five times
+    the heaviest honest part measured (a T3 held-out part, 116 s
+    CPU at deflection 0.05, which the old 120 s WALL budget zeroed whenever the
+    scoring machine was busy) -- and the wall clock only as a backstop."""
+    assert _DEFAULTS == (600.0, 10.0)
+
+
 def test_the_budget_kills_the_mesher_and_the_next_call_works():
     t = time.time()
-    with pytest.raises(mg.UnmeshableShape, match="did not finish within"):
+    with pytest.raises(mg.UnmeshableShape, match=f"did not finish within {BUDGET:.0f} s of CPU time"):
         mg.tessellate(bad_sweep(), 0.05)
-    assert time.time() - t < BUDGET + 5
-    assert mg._WORKER is None                              # killed and forgotten
+    assert time.time() - t < mg.MESH_WALL_FACTOR * BUDGET   # the CPU budget tripped, not the backstop
+    assert mg._WORKER is None                              # ended and forgotten
     V, T = mg.tessellate(cq.Workplane("XY").box(10, 20, 30).val(), 0.05)
     assert len(T) == 12 and mg._WORKER is not None and mg._WORKER.alive()
+
+
+def test_a_worker_the_machine_starves_is_not_charged_for_it():
+    """The budget is CPU, not wall: a worker the machine does not run for
+    longer than the whole budget still returns its mesh. Here it is stopped
+    (SIGSTOP) for 1.5 budgets with the request waiting on its stdin and then
+    continued -- the old wall budget ended it at 1.0; its CPU clock never
+    moved, so now the call just takes longer."""
+    import os
+    import signal
+    import threading
+    box = cq.Workplane("XY").box(10, 20, 30).val()
+    mg.tessellate(box, 0.05)                               # a live worker
+    pid = mg._WORKER.proc.pid
+    os.kill(pid, signal.SIGSTOP)
+    t = time.monotonic()                                   # the Timer's clock: a WSL worker's wall clock ran 10 % slow
+    threading.Timer(1.5 * BUDGET, lambda: os.kill(pid, signal.SIGCONT)).start()
+    V, T = mg.tessellate(box, 0.05)
+    assert time.monotonic() - t >= 1.5 * BUDGET
+    assert len(T) == 12 and mg._WORKER is not None and mg._WORKER.proc.pid == pid
+
+
+def test_the_wall_backstop_still_ends_a_worker_that_gets_no_cpu(monkeypatch):
+    """A worker that never runs never spends its CPU budget; the wall clock at
+    MESH_WALL_FACTOR x the budget still ends the call, the message says which
+    budget it was, and the next call works."""
+    import os
+    import signal
+    monkeypatch.setattr(mg, "MESH_WALL_FACTOR", 0.5)       # a 3 s backstop on the 6 s budget
+    box = cq.Workplane("XY").box(10, 20, 30).val()
+    mg.tessellate(box, 0.05)
+    os.kill(mg._WORKER.proc.pid, signal.SIGSTOP)
+    t = time.monotonic()
+    with pytest.raises(mg.UnmeshableShape, match="did not finish within 3 s of wall clock"):
+        mg.tessellate(box, 0.05)
+    assert time.monotonic() - t < BUDGET
+    assert mg._WORKER is None
+    V, T = mg.tessellate(box, 0.05)
+    assert len(T) == 12
 
 
 def test_the_sweep_is_a_shape_the_gates_accept():
@@ -200,20 +252,42 @@ def test_the_sweep_is_a_shape_the_gates_accept():
     assert len(T) > 1000
 
 
+class SignalOnFlush:
+    """A worker's stdin that sends `sig` to the worker as soon as a request is
+    flushed: the death lands mid-call every time, with no timer to race."""
+
+    def __init__(self, proc, sig):
+        self._proc, self._sig, self._f = proc, sig, proc.stdin
+
+    def flush(self):
+        import os
+        self._f.flush()
+        os.kill(self._proc.pid, self._sig)
+
+    def __getattr__(self, name):
+        return getattr(self._f, name)
+
+
 def test_a_worker_that_dies_is_reported_and_replaced():
     """A worker that dies between calls is replaced without a word; one that
-    dies DURING a call (an OCCT crash) is that call's UnmeshableShape."""
-    import threading
+    dies DURING a call of an OCCT crash (SIGSEGV) is that call's
+    UnmeshableShape, and one SIGKILLed during a call by anything but meshguard
+    (the kernel's OOM killer, a container's limit) is MeshWorkerKilled: no
+    score."""
+    import signal
     mg.tessellate(cq.Workplane("XY").box(1, 1, 1).val(), 0.5)
     mg._WORKER.proc.kill()
     mg._WORKER.proc.wait()
     V, T = mg.tessellate(cq.Workplane("XY").box(1, 1, 1).val(), 0.5)
     assert len(T) == 12
-    threading.Timer(1.0, lambda: mg._WORKER.proc.kill()).start()
-    with pytest.raises(mg.UnmeshableShape, match="died"):
-        mg.tessellate(bad_sweep(), 0.05)
-    V, T = mg.tessellate(cq.Workplane("XY").box(1, 1, 1).val(), 0.5)
-    assert len(T) == 12
+    for sig, raised, says in ((signal.SIGSEGV, mg.UnmeshableShape, "died"),
+                              (signal.SIGKILL, mg.MeshWorkerKilled, "SIGKILL")):
+        w = mg._WORKER                                 # alive after the box above
+        w.proc.stdin = SignalOnFlush(w.proc, sig)      # the signal lands the moment the request is sent
+        with pytest.raises(raised, match=says):
+            mg.tessellate(bad_sweep(), 0.05)
+        V, T = mg.tessellate(cq.Workplane("XY").box(1, 1, 1).val(), 0.5)
+        assert len(T) == 12
 
 
 # ── part_v1 ────────────────────────────────────────────────────────────────
@@ -223,9 +297,9 @@ def test_part_v1_scores_the_sweep_zero_with_the_reason(tmp_path):
     cq.exporters.export(cq.Workplane(obj=bad_sweep()), str(sub))
     t = time.time()
     r = score_part_v1(FX / "t1/case1/gt/gt.step", sub, orientation="free", pose_mode="iou24_aligned")
-    assert time.time() - t < BUDGET + 10
+    assert time.time() - t < mg.MESH_WALL_FACTOR * BUDGET
     assert r["score"] == 0.0 and r["coverage"] == 1.0
-    assert "unmeshable" in r["error"] and "did not finish" in r["error"]
+    assert "unmeshable" in r["error"] and "did not finish" in r["error"] and "CPU time" in r["error"]
 
 
 # ── the assembly scorers ───────────────────────────────────────────────────
@@ -250,7 +324,7 @@ def test_assembly_scores_the_rest_when_one_part_is_unmeshable(tmp_path):
     elapsed = time.time() - t
     # the bad part is meshed twice under the budget (instances() and the
     # part_v1 gate); everything else is ordinary scoring work
-    assert elapsed < 2 * BUDGET + 60, elapsed
+    assert elapsed < 2 * mg.MESH_WALL_FACTOR * BUDGET + 60, elapsed
     ap = {row["part_id"]: row for row in r["avg_part_detail"]["per_type"]}
     assert ap[bad]["mean"] == 0.0
     assert all("unmeshable" in row["error"] for row in r["avg_part_detail"]["per_instance"]
@@ -277,4 +351,4 @@ def test_legacy_iou_scores_an_unmeshable_submission_zero(tmp_path):
     cq.exporters.export(cq.Workplane(obj=bad_sweep()), str(sub))
     t = time.time()
     assert iou_step_vs_step(FX / "t1/case1/gt/gt.step", sub, 64) == 0.0
-    assert time.time() - t < BUDGET + 10
+    assert time.time() - t < mg.MESH_WALL_FACTOR * BUDGET

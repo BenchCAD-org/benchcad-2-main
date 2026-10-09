@@ -18,6 +18,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from envs.geom.oom import OOM_ERRORS
+
 
 def _ocp_hashcode_fix():
     """cadquery 2.3 <-> cadquery-ocp 7.9 compatibility shim. Idempotent."""
@@ -100,10 +102,13 @@ def iou_step_vs_step(a: Path, b: Path, res: int = 64) -> float:
     failure raises; submission failure scores 0.0 with the reason on stderr."""
     import sys
     import numpy as np
-    va = _normalized_mesh(Path(a)).voxelized(pitch=1.0 / res).fill()
+    from envs.geom.voxel import subdivide_voxelized
+    va = subdivide_voxelized(_normalized_mesh(Path(a)), 1.0 / res).fill()
     try:
-        vb = _normalized_mesh(Path(b)).voxelized(pitch=1.0 / res).fill()
+        vb = subdivide_voxelized(_normalized_mesh(Path(b)), 1.0 / res).fill()
     except ImportError:
+        raise
+    except OOM_ERRORS:                                       # infrastructure, never a score
         raise
     except Exception as ex:                               # noqa: BLE001
         print(f"iou: submission {b} unusable: {type(ex).__name__}: {ex}", file=sys.stderr)

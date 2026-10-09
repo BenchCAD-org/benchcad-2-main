@@ -54,6 +54,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from envs.geom.oom import OOM_ERRORS
+
 # The layout. One vocabulary, as with the case format: these names are the
 # contract the TASK.md files quote and the sandbox's tools.py writes.
 SUB_ROOT = "submission"
@@ -255,6 +257,8 @@ def as_4x4(t) -> tuple[list[list[float]] | None, str | None]:
         try:
             rows = [[float(trsf.Value(i, j)) for j in range(1, 5)] for i in range(1, 4)]
             return rows + [[0.0, 0.0, 0.0, 1.0]], None
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception as exc:                    # noqa: BLE001
             return None, f"unreadable transform object: {type(exc).__name__}: {exc}"
     if hasattr(t, "tolist"):
@@ -462,6 +466,8 @@ def load_parts(sub: Submission) -> None:
     for pid, f in sorted(sub.parts.items()):
         try:
             sub.shapes[pid] = solids(f)
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception as exc:                                   # noqa: BLE001
             sub.fail("unreadable_part", "type", pid,
                      f"{PARTS}/{f.name} cannot be read as STEP "
@@ -569,6 +575,8 @@ def verify_supplied_parts(sub: Submission, case_dir: Path, tol: float = IDENTITY
             continue
         try:
             d = identity_diff(file_invariants(ref), file_invariants(f), tol)
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception as exc:                                   # noqa: BLE001
             d = {"ok": False, "reason": f"cannot read the submitted part: "
                                         f"{type(exc).__name__}: {exc}", "tolerance": tol}

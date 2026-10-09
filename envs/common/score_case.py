@@ -26,6 +26,8 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from envs.geom.oom import OOM_ERRORS
+
 
 @lru_cache(maxsize=64)
 def load_task(case_dir: Path) -> dict | None:
@@ -42,6 +44,8 @@ def load_task(case_dir: Path) -> dict | None:
             f = Path(__file__).resolve().parents[2] / "envs" / env / "task.toml"
             if f.exists():
                 return tomllib.loads(f.read_text())
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception:                                      # noqa: BLE001
             pass
     for base in (Path(case_dir).parent.parent, Path(case_dir).parent):
@@ -49,6 +53,8 @@ def load_task(case_dir: Path) -> dict | None:
         if f.exists():
             try:
                 return tomllib.loads(f.read_text())
+            except OOM_ERRORS:                                       # infrastructure, never a score
+                raise
             except Exception:                                  # noqa: BLE001
                 return None
     return None
@@ -64,6 +70,8 @@ def _entry(task: dict | None):
     try:
         import importlib
         return getattr(importlib.import_module(mod), fn)
+    except OOM_ERRORS:                                       # infrastructure, never a score
+        raise
     except Exception:                                          # noqa: BLE001
         return None
 
@@ -78,12 +86,20 @@ def is_assembly(case_dir: Path) -> bool:
             or (d / "gt/poses.json").exists())
 
 
-def score_case(case_dir: Path, step: Path) -> dict:
+def score_case(case_dir: Path, step: Path, mode: str | None = None) -> dict:
+    """`mode` is passed to a verifier that takes one (T6's ecad.score: e.g.
+    "historical" for a 1.0 answer re-scored on a position-mode case); a task
+    whose verifier takes no mode refuses one rather than ignore it."""
     case_dir, step = Path(case_dir), Path(step)
     if not step or not step.exists():
         return {"iou": 0.0, "score": 0.0, "error": "no submission"}
     task = load_task(case_dir)
     fn = _entry(task)
+    if mode is not None:
+        import inspect
+        if fn is None or "mode" not in inspect.signature(fn).parameters:
+            raise ValueError(f"{case_dir}: the verifier takes no scoring mode (asked for {mode!r})")
+        return fn(case_dir, step, task, mode=mode)
     if fn is not None:
         # Arity from the signature, not by catching TypeError: a TypeError
         # raised INSIDE a verifier would otherwise re-dispatch to the two-arg

@@ -1,0 +1,287 @@
+{
+  "components": [
+    {
+      "center": [
+        0.540466694292,
+        0.540762674954
+      ],
+      "id": "C1"
+    },
+    {
+      "center": [
+        0.424278721641,
+        0.54058150751
+      ],
+      "id": "C2"
+    },
+    {
+      "center": [
+        0.242631824303,
+        0.441120580622
+      ],
+      "id": "R1"
+    },
+    {
+      "center": [
+        0.333277219517,
+        0.441120580622
+      ],
+      "id": "R2"
+    },
+    {
+      "center": [
+        0.284717186367,
+        0.635875583181
+      ],
+      "id": "R3"
+    },
+    {
+      "center": [
+        0.705570807003,
+        0.536233488848
+      ],
+      "id": "U1"
+    }
+  ],
+  "coordinate_reference": "view_top/full-image",
+  "frame": {
+    "bottom_view_to_top": "x unchanged; y = height - y",
+    "component_center": "axis-aligned pad-centre bounding-box midpoint",
+    "crop": "full image including margin",
+    "height": 1000,
+    "origin": "top-left",
+    "pixels_per_mm": 35.72335946574605,
+    "single_terminal": [
+      0,
+      0
+    ],
+    "source_flip_y": false,
+    "source_outline_mil": [
+      -450.0,
+      -355.0,
+      985.0,
+      590.0000000000001
+    ],
+    "source_scale": [
+      0.9989867695469044,
+      0.9983070813595354
+    ],
+    "step_center_mm": [
+      1.0795021590070002,
+      -16.510033020063
+    ],
+    "terminal_normalization": "offset from component center / max pad-centre span in pixels",
+    "width": 1400,
+    "x_direction": "right",
+    "y_direction": "down"
+  },
+  "gt_sha256": "8e7698dd5a049461d344e501869846541adef2c3ade82b17e4744dcef34201b8",
+  "provenance": {
+    "scripts/build_t6_spatial.py": "d3cb903583d156772e5afed342ffc19cd1a7d380d46a173f6ef442bb32e47bd0",
+    "scripts/t6_spatial_geometry.py": "ec92e7e5abd808ee68d13218ef3106b325bb8581f73c01fb03cb5d0e3a923429",
+    "tasks/pcb2schematic/grading/reference/assets/case01_test/case01_test_3d.step": "4f7b5a28eadefafebaa975b8536b0b929854e1c295bb8c5f2e040881b5f6e148",
+    "tasks/pcb2schematic/grading/reference/assets/case01_test/case01_test_source.epro2": "91db23bafda32c53300873606f86c7476fbee2148cc92b38a538d5a96fd57cc2",
+    "tasks/pcb2schematic/grading/reference/render_step.py": "456d25e650caf5e2024466883b5d1e6cdd7a80c28af3ba7b619d1e77f08dbd81",
+    "tools/render/render_inner.py": "d9c48401567edc44d7211592a7af0c3d466f3ad9b6975469c466f06bb262c8c2"
+  },
+  "schema": "t6-spatial-reference/1.0",
+  "sha256": "2f4f9828cade8d98e31f117621830c3b3aa481f352b8094dc18bcd2ea948bc99",
+  "terminals": [
+    {
+      "id": "C1.1",
+      "parent_component": "C1",
+      "relative_position": [
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "id": "C1.2",
+      "parent_component": "C1",
+      "relative_position": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "id": "C2.1",
+      "parent_component": "C2",
+      "relative_position": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "id": "C2.2",
+      "parent_component": "C2",
+      "relative_position": [
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "id": "R1.1",
+      "parent_component": "R1",
+      "relative_position": [
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "id": "R1.2",
+      "parent_component": "R1",
+      "relative_position": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "id": "R2.1",
+      "parent_component": "R2",
+      "relative_position": [
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "id": "R2.2",
+      "parent_component": "R2",
+      "relative_position": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "id": "R3.1",
+      "parent_component": "R3",
+      "relative_position": [
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "id": "R3.2",
+      "parent_component": "R3",
+      "relative_position": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "id": "U1.1",
+      "parent_component": "U1",
+      "relative_position": [
+        0.0,
+        0.5
+      ]
+    },
+    {
+      "id": "U1.2",
+      "parent_component": "U1",
+      "relative_position": [
+        0.0,
+        -0.5
+      ]
+    }
+  ],
+  "validation": {
+    "copper_tolerance_mil": 1,
+    "method": "source-pad-step/1.0",
+    "pad_checks": [
+      {
+        "component": "C2",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "072651a88e370d39",
+        "terminal_number": "1"
+      },
+      {
+        "component": "C2",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "072651a88e370d39",
+        "terminal_number": "2"
+      },
+      {
+        "component": "C1",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "c006bd3eb67be9c4",
+        "terminal_number": "2"
+      },
+      {
+        "component": "C1",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "c006bd3eb67be9c4",
+        "terminal_number": "1"
+      },
+      {
+        "component": "U1",
+        "copper_hits": 4,
+        "samples": 4,
+        "source_component_id": "00c421ee9e4b2651",
+        "terminal_number": "1"
+      },
+      {
+        "component": "U1",
+        "copper_hits": 4,
+        "samples": 4,
+        "source_component_id": "00c421ee9e4b2651",
+        "terminal_number": "2"
+      },
+      {
+        "component": "R1",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "0f7dae69d5a7f570",
+        "terminal_number": "2"
+      },
+      {
+        "component": "R1",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "0f7dae69d5a7f570",
+        "terminal_number": "1"
+      },
+      {
+        "component": "R3",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "b16d1ac6ee9ecbfd",
+        "terminal_number": "2"
+      },
+      {
+        "component": "R3",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "b16d1ac6ee9ecbfd",
+        "terminal_number": "1"
+      },
+      {
+        "component": "R2",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "2edaf8996df9782e",
+        "terminal_number": "2"
+      },
+      {
+        "component": "R2",
+        "copper_hits": 197,
+        "samples": 197,
+        "source_component_id": "2edaf8996df9782e",
+        "terminal_number": "1"
+      }
+    ],
+    "physical_pads": 12,
+    "raster_margin_subpixels": 5,
+    "raster_supersample": 4,
+    "route_endpoint_diagnostics": {
+      "aligned_within_1_mil": 8,
+      "routed_pads": 8
+    },
+    "top_copper_agreement": 0.9736345903771131,
+    "validated_physical_pads": 12
+  },
+  "view_top_sha256": "5eb7635a8c81a72df05951d9730f9ee280b0ca036e3ecad619899fe6e989e1c7"
+}

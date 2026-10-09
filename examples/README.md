@@ -67,7 +67,7 @@ and a real sandbox stage — with:
 
 ```sh
 uv run python tools/dryrun_case.py examples/task1/cases/case1 --deep
-uv run python tools/check_cases.py examples --deep        # all ten, format only
+uv run python tools/check_cases.py examples --deep        # all nine, format only
 ```
 
 Without Docker the sandbox does **not** silently fall back; `CADENV_LOCAL=1` is
@@ -280,7 +280,7 @@ seen cannot be unseen.
 
 The order of work is therefore:
 
-1. **Align on these samples.** Reproduce `oracle.score` for all ten, then
+1. **Align on these samples.** Reproduce `oracle.score` for all nine, then
    `round_trip.score` through `harness/run.py --model mock/oracle`. If those
    agree, your scoring chain is ours.
 2. **Confirm the model / agent integration** on the samples with a real model:

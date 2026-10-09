@@ -1,4 +1,4 @@
-"""part_v1 (envs/common/part_metric.py): the ruler for T1 / T3.
+"""part_v1 (envs/common/part_metric.py, change 26): the ruler for T1 / T3.
 
 Same discipline as test_examples.py -- synthetic geometry in git
 (tests/fixtures/t1/case1, tests/fixtures/t3/case1), no benchmark data -- plus
@@ -13,7 +13,7 @@ loudly, when they are not).
   coverage      a term that fails drops out with the weights renormalised
   fixtures      six reference pairs pin the SURFACE, PIXEL and iou numbers
                 its fixture set against the true voxelisation
-  noise         the sampler the iou term used until the voxelisation fix disagrees with itself,
+  noise         the sampler the iou term used until change 40 disagrees with itself,
                 the voxeliser that replaced it does not -- both on record
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ FX = REPO / "tests/fixtures"
 PART_CASES = [FX / "t1/case1", FX / "t3/case1"]
 SYNTH_T1 = FX / "t1/case1"
 SYNTH_T3 = FX / "t3/case1"
-FIXTURES = REPO / "work" / "part_metric_fixtures"
+FIXTURES = Path.home() / "cad-agent-work" / "part_metric_fixtures"
 FIXTURE_ROWS = sorted(p.parent for p in FIXTURES.glob("row*/expected.json")) if FIXTURES.exists() else []
 
 
@@ -129,7 +129,8 @@ def test_oracle_scores_one(case):
     r = score_case(case, case / "gt/gt.step")
     assert r["metric"] == "part_v1" and r["coverage"] == 1.0
     assert abs(r["score"] - 1.0) < 1e-3, fmt(r)
-    assert abs(r["iou_term"] - 1.0) < 1e-3 and r["surf_f1"] == 1.0 and r["pix_fg"] == 1.0
+    assert abs(r["iou_term"] - 1.0) < 1e-3 and r["surf_f1"] == 1.0 and r["topology"] == 1.0
+    assert "pix_fg" not in r                               # no longer computed (2026-09-22)
     assert abs(r["iou"] - 1.0) < 1e-4                      # legacy key, legacy value
     assert r["baseline"] < 1.0 and r["rotation_applied"] is False
     orientation, pose_mode = _declared(case)
@@ -150,7 +151,7 @@ def test_dumb_scores_less(case, tmp_path):
     assert r["coverage"] == 1.0
     assert r["iou_term"] <= 0.01, r
     assert r["score"] < 0.9, r
-    assert 0.0 < r["surf_f1"] < 1.0 and 0.0 < r["pix_fg"] < 1.0
+    assert 0.0 < r["surf_f1"] < 1.0
 
 
 # ----------------------------------------------------------------- mirror ----
@@ -216,7 +217,7 @@ def test_quarter_turn_free_vs_pinned(quarter_turned):
 
 
 def test_pose_mode_iou24_aligned_vs_lab(quarter_turned):
-    """The this benchmark deviation, on and off. In `iou24_aligned` the
+    """The this repository deviation, on and off. In `iou24_aligned` the
     rotation iou24 found is applied before surf_f1 / pix_fg, so a
     quarter-turned oracle scores 1.0 on both; in `expert-fit` (the reference
     behaviour) those two see the delivered pose and do not."""
@@ -225,9 +226,11 @@ def test_pose_mode_iou24_aligned_vs_lab(quarter_turned):
     plain = pm.score_part_v1(gt, quarter_turned, orientation="free", pose_mode="expert-fit")
     assert aligned["rotation_applied"] is True and plain["rotation_applied"] is False
     assert aligned["iou24"] == plain["iou24"]                    # the search itself is the same
-    assert aligned["surf_f1"] >= 0.999 and aligned["pix_fg"] >= 0.999, aligned
-    assert plain["surf_f1"] < 0.7 and plain["pix_fg"] < 0.8, plain
-    assert aligned["score"] > 0.99 > 0.8 > plain["score"]
+    assert aligned["surf_f1"] >= 0.999, aligned
+    assert plain["surf_f1"] < 0.7, plain
+    # the score is iou_term + topology, neither of which sees the delivered pose:
+    # the two modes now differ only in the diagnostic surf_f1
+    assert aligned["score"] > 0.99 and plain["score"] > 0.99
     R = np.array(aligned["rotation"])
     assert round(float(np.linalg.det(R))) == 1 and not np.allclose(R, np.eye(3))
     # A pinned orientation has nothing to align to: the contradiction raises
@@ -274,6 +277,74 @@ def test_render_background_is_sampled_not_assumed(tmp_path):
     assert pt == pytest.approx(pw, abs=0.02)
 
 
+# --------------------------------------------------------------- topology ----
+def _plate(out: Path, holes: int) -> Path:
+    """A 60 x 40 x 8 plate with `holes` Ø10 bores on a 40 x 20 pattern."""
+    import cadquery as cq
+    w = cq.Workplane("XY").box(60, 40, 8)
+    pts = [(-20, -10), (20, -10), (20, 10), (-20, 10)][:holes]
+    if pts:
+        w = w.faces(">Z").workplane().pushPoints(pts).hole(10)
+    w.val().exportStep(str(out))
+    return out
+
+
+def test_topology_counts_holes_not_material(tmp_path):
+    """Four bores vs none: 0.4 % of the volume, the whole of the structure.
+
+    This is the case the surface and appearance terms could not see -- they
+    score the plate that forgot every bore at 0.97 and 0.93 -- and the reason
+    the weights moved to volume + topology on 2026-09-22.
+    """
+    ref = _plate(tmp_path / "ref.step", 4)
+    miss = _plate(tmp_path / "miss.step", 0)
+    r = pm.score_part_v1(ref, miss, orientation="free", pose_mode="iou24_aligned")
+    assert r["topology_reference"] == [1, 4, 0]
+    assert r["topology_candidate"] == [1, 0, 0]
+    assert r["topology"] == pytest.approx((1 / 5) ** 2)          # 0.04, one axis wrong
+    # what the surface term saw, and still records: it liked the plate that
+    # forgot every bore. pix_fg is not computed at all since 2026-09-23.
+    assert r["surf_f1"] > 0.9
+    assert r["score"] < 0.9                                      # what the score sees now
+
+
+def test_topology_is_1_when_the_structure_matches(tmp_path):
+    """Two builds of the same plate. The identity rule short-circuits here, so
+    this also pins that the short-circuit records the term it skipped."""
+    ref = _plate(tmp_path / "ref.step", 4)
+    same = _plate(tmp_path / "same.step", 4)
+    r = pm.score_part_v1(ref, same, orientation="free", pose_mode="iou24_aligned")
+    assert r["topology"] == 1.0 and r["score"] == 1.0
+
+    # and when they are not identical, the term is measured and says so
+    three = _plate(tmp_path / "three.step", 3)
+    r2 = pm.score_part_v1(ref, three, orientation="free", pose_mode="iou24_aligned")
+    assert r2["topology_reference"] == [1, 4, 0] and r2["topology_candidate"] == [1, 3, 0]
+    assert r2["topology"] == pytest.approx((4 / 5) ** 2)
+    assert r2["topology_manifold"] is True
+
+
+def test_topology_is_never_na(tmp_path):
+    """The term answers on every part, including one whose mesh is not closed.
+
+    On the heldout boards 12 of 328 pairs mesh into something that is not a
+    clean closed manifold. Refusing there would renormalise those cases onto
+    the volume term alone -- scoring 4 % of the board on a different ruler than
+    the rest -- so the counts are returned and `topology_manifold` says so.
+    """
+    ref = _plate(tmp_path / "ref.step", 2)
+    got = pm.betti(ref)
+    assert got == {"b0": 1, "b1": 2, "b2": 0, "manifold": True, "components": 1, "method": "brep"}
+
+    # a shell the mesher cannot close: the counts still come back, flagged
+    import cadquery as cq
+    shell = cq.Workplane("XY").box(20, 20, 20).faces(">Z").shell(-1).val()
+    open_step = tmp_path / "open.step"
+    shell.exportStep(str(open_step))
+    r = pm.betti(open_step)
+    assert isinstance(r["b0"], int) and "manifold" in r
+
+
 # --------------------------------------------------------------- coverage ----
 def test_coverage_renormalises_when_a_term_fails(tmp_path, monkeypatch):
     gt = SYNTH_T1 / "gt/gt.step"
@@ -281,13 +352,25 @@ def test_coverage_renormalises_when_a_term_fails(tmp_path, monkeypatch):
     full = pm.score_part_v1(gt, dumb, orientation="free", pose_mode="iou24_aligned")
 
     def boom(*a, **k):
-        raise RuntimeError("no GL context")
-    monkeypatch.setattr(pm, "render_composite", boom)
+        raise ValueError("no mesh component to take a topology from")
+    monkeypatch.setattr(pm, "topology_term", boom)
     r = pm.score_part_v1(gt, dumb, orientation="free", pose_mode="iou24_aligned")
-    assert "pix_fg" not in r and r["missing"] == {"pix_fg": "RuntimeError: no GL context"}
-    assert r["coverage"] == pytest.approx(0.8)
-    assert r["score"] == pytest.approx((0.5 * full["iou_term"] + 0.3 * full["surf_f1"]) / 0.8)
+    assert "topology" not in r and r["missing"] == {"topology": "ValueError: no mesh component to take a topology from"}
+    assert r["coverage"] == pytest.approx(0.8)                 # N/A, never 0: only iou_term is left
+    assert r["score"] == pytest.approx(full["iou_term"])
     assert r["iou_term"] == full["iou_term"] and r["surf_f1"] == full["surf_f1"]
+
+
+def test_candidate_past_the_triangle_cap_scores_zero(monkeypatch):
+    """A candidate whose IoU mesh is past MAX_TRIANGLES is a failed submission:
+    every term 0 at full coverage and the reason in `error` -- even when it is
+    the reference itself (the gate runs before any identity rule)."""
+    gt = SYNTH_T1 / "gt/gt.step"
+    monkeypatch.setattr(pm, "MAX_TRIANGLES", 10)
+    r = pm.score_part_v1(gt, gt, orientation="free", pose_mode="iou24_aligned")
+    assert r["score"] == 0.0 and r["iou_term"] == 0.0 and r["topology"] == 0.0 and r["coverage"] == 1.0
+    assert "past MAX_TRIANGLES=10" in r["error"]
+    assert r["solid_gate_version"] == pm.SOLID_GATE_VERSION
 
 
 def test_reference_failure_raises(tmp_path):
@@ -312,9 +395,9 @@ def test_record_keys_follow_the_arguments(tmp_path):
     gt = SYNTH_T3 / "gt/gt.step"
     r = pm.score_part_v1(gt, gt, orientation="pinned", pose_mode="expert-fit", n_samples=5000)
     assert r["n_samples"] == 5000 and "iou_n_samples" not in r
-    r["weights"] = {"iou_term": 0.5, "surf_f1": 0.3, "pix_fg": 0.2}
+    r["weights"] = {"iou_term": 0.7, "topology": 0.3}
     line = pm.fmt(r)
-    assert "0.50*iou_term" in line and "0.30*surf_f1" in line and "0.20*pix_fg" in line
+    assert "0.70*iou_term" in line and "0.30*topology" in line
 
 
 def test_unreadable_submission_scores_zero(tmp_path):
@@ -322,13 +405,13 @@ def test_unreadable_submission_scores_zero(tmp_path):
     bad.write_text("not a step file\n")
     r = pm.score_part_v1(SYNTH_T1 / "gt/gt.step", bad, orientation="free", pose_mode="iou24_aligned")
     assert r["score"] == 0.0 and r["coverage"] == 1.0 and "unusable" in r["error"]
-    assert r["iou_term"] == r["surf_f1"] == r["pix_fg"] == 0.0
+    assert r["iou_term"] == r["surf_f1"] == r["topology"] == 0.0
 
 
 def test_normalise_iou_is_mains_norm_iou():
     """`norm_iou`: clip((x - x0) / (1 - x0), 0, 1), with
     x0 >= 1 -- a reference that IS its own primitive -- answered explicitly
-    (1.0 only for a perfect x). the voxelisation fix dropped the variant that carried 1e-3 on
+    (1.0 only for a perfect x). change 40 dropped the variant that carried 1e-3 on
     both sides of the quotient to dodge the same division by zero: it moved
     every other score by 1e-3 / (1 - x0) and was not what the other repo
     compares against."""
@@ -338,9 +421,10 @@ def test_normalise_iou_is_mains_norm_iou():
     assert pm.normalise_iou(0.5, 0.5) == 0.0            # a tie with the primitive earns nothing
     assert pm.normalise_iou(0.75, 0.5) == pytest.approx(0.5)
     assert pm.normalise_iou(0.2, 0.5) == 0.0
-    assert pm.WEIGHTS == {"iou_term": 0.5, "surf_f1": 0.3, "pix_fg": 0.2}     # 2026-09-16
-    assert pm.fuse({"iou_term": 1.0, "surf_f1": 1.0, "pix_fg": 1.0}) == (1.0, 1.0)
-    assert pm.fuse({"iou_term": 0.5}) == (pytest.approx(0.5), pytest.approx(0.5))
+    assert pm.WEIGHTS == {"iou_term": 0.8, "topology": 0.2}     # 2026-09-22
+    assert pm.PART_V1_WEIGHTS_VERSION == "2026-09-22 (0.8 iou_term / 0.2 topology)"
+    assert pm.fuse({"iou_term": 1.0, "topology": 1.0, "surf_f1": 0.0}) == (1.0, 1.0)   # surf_f1 is not in the sum
+    assert pm.fuse({"iou_term": 0.5}) == (pytest.approx(0.5), pytest.approx(0.8))
     assert pm.fuse({}) == (0.0, 0.0)
 
 
@@ -368,12 +452,15 @@ def test_expert_fit_fixtures(row):
     # reference pins, and the fused score from THIS repo's iou term.
     full = pm.score_part_v1(ref, cand, orientation="free", pose_mode="expert-fit")
     assert full["surf_f1"] == pytest.approx(exp["surf_f1_0.02"], abs=0.01)
-    assert full["pix_fg"] == pytest.approx(exp["pix_fg"], abs=0.01)
-    assert full["score"] == pytest.approx(0.5 * full["iou_term"] + 0.3 * exp["surf_f1_0.02"]
-                                          + 0.2 * exp["pix_fg"], abs=0.02)
+    if full.get("topology") is None:
+        assert full["score"] == pytest.approx(full["iou_term"], abs=1e-9)
+    else:
+        assert full["score"] == pytest.approx(0.8 * full["iou_term"] + 0.2 * full["topology"], abs=1e-9)
+        if exp.get("topology") is not None:                        # benchcad-lab's own number for the pair
+            assert full["topology"] == pytest.approx(exp["topology"], abs=1e-9)
 
 
-# The movement of the iou half, measured on this machine when the voxelisation fix replaced the
+# The movement of the iou half, measured on this machine when change 40 replaced the
 # sampled estimator with the true voxelisation. Recorded here, not asserted:
 # the recorded values described the old estimator; the republished set is checked
 # the set. Left as an xfail so that the day the republished fixtures land the
@@ -390,6 +477,17 @@ EXPERT_FIT_IOU_MOVED = {                    # row: (expert-fit/old iou24, new io
     "row05_t1_part_1553_r1": (0.8122, 0.7777, 0.6369, 0.5900),
     "row06_t1_part_0393_r1": (0.9840, 0.9787, 0.9667, 0.9408),
 }
+# The same six at 128^3 (2026-09-22): (iou24, iou_term, iou1, baseline). Thin
+# parts move most -- the circlip's ring is a few cells thick at 64^3 and its
+# iou24 goes 0.8875 -> 0.6378 once the grid resolves the gap.
+EXPERT_FIT_IOU_128 = {
+    "row01_pan_head_screw_000035_s20260505_0": (0.0956, 0.0, 0.0919, 0.4072),
+    "row02_bolt_000037_s20260505_0": (0.4934, 0.1805, 0.4934, 0.3819),
+    "row03_rl__hex_nut_squash": (0.6326, 0.052, 0.6326, 0.6125),
+    "row04_circlip_000175_s20260505_1": (0.6378, 0.2079, 0.6378, 0.5428),
+    "row05_t1_part_1553_r1": (0.7402, 0.5165, 0.7402, 0.4627),
+    "row06_t1_part_0393_r1": (0.9586, 0.8678, 0.9586, 0.6869),
+}
 
 
 # The six fixtures were republished against the true voxelisation on
@@ -404,6 +502,9 @@ EXPERT_FIT_UNSNAPPED: set[str] = set()
 def test_expert_fit_fixtures_iou_republished(row):
     """The republished iou family (true voxelisation, pad res + 5)
     against ours, to 0.02."""
+    if pm.GRID != 64:
+        pytest.xfail("benchcad-lab's fixtures are published at 64^3 and this repo scores at 128^3 "
+                     "since 2026-09-22; parity is re-checked when they republish at 128^3")
     if row.name in EXPERT_FIT_UNSNAPPED:
         pytest.xfail("voxelised without the 2**-20 snap")
     exp = json.loads((row / "expected.json").read_text())["expected"]
@@ -419,14 +520,22 @@ def test_expert_fit_fixtures_iou_republished(row):
     ids=[r.name for r in FIXTURE_ROWS] or ["absent"])
 def test_expert_fit_fixtures_iou_is_what_we_recorded(row):
     """The iou numbers are the ones
-    the voxelisation fix measured and wrote down, to 1e-3, so a later change to the term shows
+    change 40 measured and wrote down, to 1e-3, so a later change to the term shows
     up here."""
-    want = EXPERT_FIT_IOU_MOVED.get(row.name)
-    if want is None:
-        pytest.skip(f"no recorded movement for {row.name}")
     r = pm.iou_terms(pm.load_shape(row / "ref.step"), pm.load_shape(row / "cand.step"), search=True)
-    assert r["iou24"] == pytest.approx(want[1], abs=1e-3), (row.name, r["iou24"])
-    assert r["iou_term"] == pytest.approx(want[3], abs=1e-3), (row.name, r["iou_term"])
+    if pm.GRID == 128:
+        want = EXPERT_FIT_IOU_128.get(row.name)
+        if want is None:
+            pytest.skip(f"no 128^3 record for {row.name}")
+        assert r["iou24"] == pytest.approx(want[0], abs=1e-3), (row.name, r["iou24"])
+        assert r["iou_term"] == pytest.approx(want[1], abs=1e-3), (row.name, r["iou_term"])
+        assert r["baseline"] == pytest.approx(want[3], abs=1e-3), (row.name, r["baseline"])
+    else:
+        want = EXPERT_FIT_IOU_MOVED.get(row.name)
+        if want is None:
+            pytest.skip(f"no recorded movement for {row.name}")
+        assert r["iou24"] == pytest.approx(want[1], abs=1e-3), (row.name, r["iou24"])
+        assert r["iou_term"] == pytest.approx(want[3], abs=1e-3), (row.name, r["iou_term"])
     assert r["iou1"] <= r["iou24"] + 1e-12                 # the search can only help
     assert 0.0 <= r["iou_term"] <= 1.0
 
@@ -439,16 +548,16 @@ def test_reexported_oracle_floor_is_on_record(case, tmp_path):
     three terms are stable under re-tessellation. The iou term used not to be
     -- with the sampled estimator a re-export of a thick part measured 0.998
     on the synthetic block and 0.62 on the former examples/t3/example1 (48k
-    triangles, re-ordered on export; a real case, out of git since an earlier cleanup) -- and
-    since the voxelisation fix it is: the bound below is kept as it was, and it now passes with
+    triangles, re-ordered on export; a real case, out of git since change 31) -- and
+    since change 40 it is: the bound below is kept as it was, and it now passes with
     a wide margin (the assertion after it is the one with teeth)."""
     orientation, pose_mode = _declared(case)
     re = _export(_gt_shape(case), tmp_path / "reexport.step")
     assert re.read_bytes() != (case / "gt/gt.step").read_bytes()
     r = pm.score_part_v1(case / "gt/gt.step", re, orientation=orientation, pose_mode=pose_mode)
-    assert r["surf_f1"] >= 0.999 and r["pix_fg"] >= 0.999, r
-    assert r["iou_term"] >= 0.5 and r["score"] >= 0.8, r
-    assert r["iou_term"] >= 0.999 and r["score"] >= 0.999, r        # since the voxelisation fix
+    assert r["surf_f1"] >= 0.999 and r.get("topology", 1.0) == 1.0, r
+    assert r["iou_term"] >= 0.5 and r["score"] >= 0.6, r
+    assert r["iou_term"] >= 0.999 and r["score"] >= 0.999, r        # since change 40
 
 
 # ------------------------------------------------------------------ noise ----
@@ -466,8 +575,9 @@ def test_iou_sampling_noise_is_on_record():
 
     def vox(n, seed):
         return pm.sampled_voxels(pm._centred(pm.sample_surface(V, Tr, n=n, seed=seed)), o, 1.0)
-    noisy = pm.grid_iou(vox(20000, 0), vox(20000, 1))
-    stable = pm.grid_iou(vox(200000, 0), vox(200000, 1))
+    k = (pm.GRID // 64) ** 2                 # samples per cell scale with the face area in cells
+    noisy = pm.grid_iou(vox(20000 * k, 0), vox(20000 * k, 1))
+    stable = pm.grid_iou(vox(200000 * k, 0), vox(200000 * k, 1))
     assert stable >= 0.99, stable
     assert noisy < stable - 0.1, (noisy, stable)
     # And the replacement, on the same mesh: no seed exists to vary, and the

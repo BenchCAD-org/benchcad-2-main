@@ -167,7 +167,7 @@ def _in_unit(x) -> bool:
 def _assert_range(r: dict):
     """Every reported score in [0, 1]: the headline, the factors, the legacy
     columns, and every per-type / per-instance number underneath."""
-    for k in ("score", "asm_v1", "avg_part", "part_x_asm_v1", "iou", "iou_term", "surf_f1", "pix_fg",
+    for k in ("score", "asm_v1", "avg_part", "part_x_asm_v1", "iou", "iou_term", "surf_f1", "topology",
               "hit", "hit_prec", "hit_f1", "rubric"):
         if k in r and r[k] is not None:
             assert _in_unit(r[k]), (k, r[k])
@@ -177,8 +177,8 @@ def _assert_range(r: dict):
     ap = r.get("avg_part_detail") or {}
     for row in ap.get("per_instance", []):
         assert _in_unit(row["score"]), row
-        for k in ("iou_term", "surf_f1", "pix_fg"):
-            if k in row:
+        for k in ("iou_term", "surf_f1", "topology"):
+            if row.get(k) is not None:
                 assert _in_unit(row[k]), row
     for row in ap.get("per_type", []):
         assert _in_unit(row["mean"]) and all(_in_unit(x) for x in row["scores"]), row
@@ -324,7 +324,7 @@ def test_t4_pinned_orientation_is_charged_t5_free_is_not(t4_case, t5_case, tmp_p
     b5 = {row["part_id"]: row for row in r5["avg_part_detail"]["per_type"]}["bracket"]
     assert b4["mean"] < 0.9 < b5["mean"], (b4, b5)
     i5 = next(x for x in r5["avg_part_detail"]["per_instance"] if x["part_id"] == "bracket")
-    assert i5["rotation_applied"] is True and i5["surf_f1"] >= 0.999 and i5["pix_fg"] >= 0.999
+    assert i5["rotation_applied"] is True and i5["surf_f1"] >= 0.999
     for r in (r4, r5):
         assert {row["part_id"]: row for row in r["asm_v1_detail"]["per_type"]}["bracket"]["score"] < 0.9
         _assert_range(r)
@@ -403,7 +403,7 @@ def test_solid_gate_on_a_part(what, tmp_path):
         sub.write_text("not a step file\n")
     r = score_case(FX / "t1/case1", sub)
     assert r["score"] == 0.0 and r["coverage"] == 1.0, r
-    assert r["iou_term"] == r["surf_f1"] == r["pix_fg"] == 0.0
+    assert r["iou_term"] == r["surf_f1"] == r["topology"] == 0.0
     assert "unusable" in r["error"]
     if what in ("shell", "faces"):
         assert "no solid" in r["error"], r["error"]

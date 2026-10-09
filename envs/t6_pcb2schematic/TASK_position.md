@@ -18,7 +18,7 @@ result = {
   "coordinate_reference": "view_top/full-image",
   "components": [
     {"id": "R1", "type": "resistor", "terminals": ["R1.1", "R1.2"],
-     "value": 10000.0, "value_unit": "ohm", "center": [0.41, 0.65]}
+     "center": [0.41, 0.65]}
   ],
   "terminals": [
     {"id": "R1.1", "parent_component": "R1", "relative_position": [-0.5, 0.0]},
@@ -29,16 +29,23 @@ result = {
 }
 ```
 
-`type` is one of `resistor`,
-`capacitor`, `capacitor_polarized`, `inductor`, `ferrite_bead`,
-`diode`, `led`, `transistor`, `ic`, `connector`, `crystal`, `switch`,
-`test_point`. `terminals` lists every pin, and the list order is free. Which
+`type` is one of `resistor`, `capacitor`, `capacitor_polarized`, `inductor`,
+`ferrite_bead`, `fuse`, `diode`, `led`, `transistor`, `ic`, `connector`,
+`crystal`, `switch`, `transformer`, `buzzer`, `test_point`. Get it right: a type
+the table below does not forgive drops the component and every connection on it.
+The only latitude runs toward the generic — a `ferrite_bead` answered
+`inductor`, a `capacitor_polarized` answered `capacitor`, or a `fuse` answered
+`resistor` or `ferrite_bead` is accepted; the reverse is not.
+
+`terminals` lists every pin, and the list order is free. Which
 pin is which is carried by each terminal's `relative_position`, not by its
 place in the list: getting pin 1 of an `ic` or a keyed `connector` right, or
 polarity right on a `diode`, `led` or `capacitor_polarized`, means putting
-that terminal at the right offset, not putting it first. `value` is a number
-in SI base units (ohm, farad, henry) when the board prints one and absent when
-it does not; `value_unit` is not read. Net ids are yours, the power rails
+that terminal at the right offset, not putting it first. No two terminals of
+one component are interchangeable, a resistor's included: swap the two ends of
+a resistor and each end is on the other's net, which is charged like any other
+wrong connection. Component values are
+not asked for and not scored. Net ids are yours, the power rails
 included — nothing is matched by name, so `GND` and `n17` score the same. A
 terminal is in at most one net; leave out what you cannot see.
 
@@ -68,7 +75,7 @@ graph carries `"schema": "pcb2schematic/2.0-position"` and
 `"coordinate_reference": "view_top/full-image"`; every component carries a
 `center: [x, y]`; and a top-level `terminals` list gives every terminal a
 `parent_component` and a `relative_position`. Everything else — `nets`,
-`incidences`, values, component types, each component's terminal-ID list — is
+`incidences`, component types, each component's terminal-ID list — is
 exactly as described above.
 
 ```json
@@ -111,9 +118,9 @@ degenerate case to work around: a coaxial jack whose shield lugs average to the
 same point as its centre pin genuinely has no internal geometry to report, and
 `[0, 0]` is the right answer rather than a fallback.
 
-A component pairs with one of a compatible type at a compatible place, and
-types a render cannot distinguish count as compatible -- an inductor against a
-ferrite bead, say.
+A component pairs with one of a compatible type at a compatible place. The
+compatible types are the ones listed with the schema above, and nothing wider:
+being in the right place does not rescue a component whose type is refused.
 
 How close is close enough depends on the part. A component whose nearest
 same-type neighbour is far away is matched from further off than one sitting in

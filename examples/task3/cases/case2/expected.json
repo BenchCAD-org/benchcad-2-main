@@ -1,10 +1,10 @@
 {
  "case": "case2",
- "computed_on": "b889b1f537568257806264cf45117f83820f676b",
+ "computed_on": "e02bad04936c389e4343942cf621e908783d5c31",
  "computed_with": {
   "metric": "part_v1",
   "verifier": "envs.verifiers.part:score",
-  "worktree_dirty": true
+  "worktree_dirty": false
  },
  "env": "t3_part2step",
  "kind": "part",
@@ -21,25 +21,25 @@
   "columns": {
    "iou": 1.0
   },
-  "seconds": 32.4,
+  "seconds": 49.4,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {
   "submission": "gt/gt.step imported and re-exported with cadquery -- what a submitted program necessarily produces",
-  "score": 0.999595,
+  "score": 1.0,
   "columns": {
    "iou": 1.0
   },
-  "seconds": 46.5,
-  "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds. It is 0.0004 BELOW the oracle: writing the reference through a STEP export and reading it back changes the tessellation, and this metric's voxel term is sensitive to that. An end-to-end mock/oracle run reproduces this value, not `oracle.score`"
+  "seconds": 57.3,
+  "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
  },
  "baseline": {
   "submission": "a solid block of the reference's bounding box, exported with cadquery",
-  "score": 0.14154,
+  "score": 0.2,
   "columns": {
    "iou": 0.279871
   },
-  "seconds": 22.2,
+  "seconds": 41.5,
   "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
  },
  "gt_sha256": "4fe53d80a52fd16ca7e5352956fb51344a09a2369b9cd9fe5b64792d3cd8fc65",

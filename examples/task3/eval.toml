@@ -87,7 +87,7 @@ crop = "tools.crop(png, (left, top, right, bottom)) -> PNG"
 [verify]
 entry = "envs.verifiers.part:score"    # the verifier; dispatched on this declaration, never sniffed
 metric = "part_v1"    # envs/t3_part2step/task.toml [verify] metric
-headline_formula = "0.5 * iou_term + 0.3 * surf_f1 + 0.2 * pix_fg"
+headline_formula = "0.8 * iou_term + 0.2 * topology"
 headline_range = [0.0, 1.0]
 metric_reference = "docs/METRICS.md"
 score_key = "score"

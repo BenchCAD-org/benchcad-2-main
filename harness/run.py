@@ -12,7 +12,7 @@ own tool protocol, so scores stay comparable across vendors.
 
 Providers and the key each one reads (first name that is set wins):
 
-    anthropic/<id>    ANTHROPIC_API_KEY
+    anthropic/<id>    ANTHROPIC_API_KEY (+ ANTHROPIC_WORKSPACE_ID for a key not scoped to a workspace)
     openai/<id>       OPENAI_API_KEY
     gemini/<id>       GEMINI_API_KEY, GOOGLE_API_KEY
     xai/<id>          XAI_API_KEY, GROK_API_KEY
@@ -42,16 +42,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from envs.common.episode import run_episode            # noqa: E402
 from envs.common.score_case import fmt, score_case     # noqa: E402
+from harness.artifact_hash import artifact_sha256, check as check_artifact   # noqa: E402
 
 # Thinking effort follows the model: a level is sent as it is, and only to a
 # provider that has it -- nothing is remapped (PROVIDER_EFFORTS, checked by
 # check_effort before any call is made).
 #
 #   anthropic   output_config.effort low | medium | high | xhigh | max, the
-#               five Anthropic documents for Opus 5, Sonnet 5 and Fable 5.1;
-#               none = thinking.type=disabled (on Opus 5 not at xhigh / max).
-#               A model without effort (Haiku 4.5) answers 400 and the case
-#               fails; that is intended, drive() treats it as deterministic.
+#               five Anthropic documents for every current model: Opus 5.5,
+#               Opus 5, Sonnet 5.5, Sonnet 5, Haiku 5.5 and Fable 5.1;
+#               none = thinking.type=disabled (on Opus 5 and Haiku 5.5 not at
+#               xhigh / max; Opus 5.5, Sonnet 5.5 and Fable 5.1 refuse it at
+#               every level). A model without effort (Haiku 4.5) answers 400
+#               and the case fails; that is intended, drive() treats it as
+#               deterministic.
 #   openai      reasoning_effort none | low | medium | high | xhigh | max.
 #               gpt-6-astra takes low..max and answers 400 to none (its model
 #               page, read 2026-09-20: "reasoning.effort supports low, medium,
@@ -407,9 +411,15 @@ READ_IDLE_S = 90      # no bytes for this long = wedged; > any keepalive gap
 # 10 at xhigh / max leaves room for reasoning ten times longer. A call over
 # budget is re-requested like a silent one (STALL_RETRIES), so the cost of a
 # rare misfire is the tokens of one reply, not a case.
+# 2026-10-05: claude-opus-5-5 thinks far longer per reply than astra -- at high,
+# 16 of 88 episodes hit 300 s three times and ended without an answer (single
+# replies of 30k-170k output tokens, still streaming), while astra hit the
+# budget in 4 of ~2,270 episodes. The budget is there to catch a dead stream,
+# which the 60 s idle clock already does; it now sits at CALL_TIMEOUT_S from
+# medium up, so it bounds a call without deciding the model's reasoning length.
 FIRST_PARTY_IDLE_S = 60
 STALL_RETRIES = 3
-CALL_BUDGET_S = {"none": 300, "low": 300, "medium": 300, "high": 300, "xhigh": 600, "max": 600}
+CALL_BUDGET_S = {"none": 300, "low": 600, "medium": 1800, "high": 1800, "xhigh": 1800, "max": 1800}
 CALL_BUDGET_DEFAULT_S = 300
 
 
@@ -508,11 +518,11 @@ def drive(send, what: str):
     see git history), all provider-neutral:
 
     1. A reply with no executable fence is a FAILED call, not a turn. Measured
-       on T3 one case: a model that trails off on a channel marker reported
+       on T3 gn866: a model that trails off on a channel marker reported
        status=completed with no fence, and 100 consecutive rounds burned 3M
        tokens on nothing. Retry it -- but never raise on the last attempt: the
        model may simply be writing prose, and killing the case there turned
-       part case 0214 from scoring every round into a flat zero. Hand the text back
+       PART-0214 from scoring every round into a flat zero. Hand the text back
        and let the episode run its nudge round, which exists for this.
     2. A deterministic 4xx is not worth repeating, with one exception: if it
        names an image, drop the images and try once more. Measured: a 41-byte
@@ -666,8 +676,12 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     # The same clock as the openai client: a wedged stream is caught by the
     # per-read timeout, the other phases by CALL_TIMEOUT_S. (anthropic 1.x is
     # built on httpx2; anthropic.Timeout is its Timeout.)
+    # An organization-level API key (not scoped to a workspace) is refused
+    # unless every request names the workspace it bills: ANTHROPIC_WORKSPACE_ID.
+    workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID")
     client = anthropic.Anthropic(timeout=anthropic.Timeout(CALL_TIMEOUT_S, read=FIRST_PARTY_IDLE_S,
-                                                           connect=30.0))
+                                                           connect=30.0),
+                                 default_headers={"anthropic-workspace-id": workspace} if workspace else None)
     info = _anthropic_model_info(client, model)
     # As on the openai path: set for exactly ONE attempt by the truncation
     # raise below, cleared on every other outcome, so the boost never
@@ -1069,7 +1083,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         if _is_openrouter(base_url):
             # The gateway's own effort knob, so "medium" means the same thing
             # here as it does on the anthropic path. It takes low | medium |
-            # high, and an upstream is free to ignore it (measured: one host's
+            # high, and an upstream is free to ignore it (measured: Novita's
             # free models do).
             extra["extra_body"] = {"reasoning": {"effort": OR_EFFORT[effort]}}
         if room["on"] and budget:
@@ -1235,7 +1249,15 @@ def mock_call(kind: str, case: Path):
     gt_step, gt_graph = case / "gt/gt.step", case / "gt/gt_graph.json"
 
     if gt_graph.exists():                      # ECAD: the answer is a graph
-        if kind == "oracle":
+        from envs.verifiers.ecad import position_mode, position_reference
+        if position_mode(case):
+            # a position-mode case is asked for pcb2schematic/2.0-position: the
+            # oracle is the reference with its spatial sidecar attached
+            ref = position_reference(case) if kind == "oracle" else {
+                "schema": "pcb2schematic/2.0-position", "coordinate_reference": "view_top/full-image",
+                "components": [], "terminals": [], "nets": [], "incidences": []}
+            body = f"import json\nresult = json.loads({json.dumps(json.dumps(ref))})\n"
+        elif kind == "oracle":
             body = ("import json\n"
                     f"result = json.loads({json.dumps(gt_graph.read_text())})\n")
         else:
@@ -1323,7 +1345,13 @@ def mock_call(kind: str, case: Path):
 # was 90k tokens at the median, 142k at p90, 188k at most, so on 30-round
 # episodes the point moves only the longest few.
 COMPACT_TOKENS = 180_000
-CONTEXT_TOKENS = {"claude-opus-5": 1_000_000, "claude-": 200_000,
+# Context windows by id prefix, longest prefix wins; the Models API's
+# max_input_tokens takes precedence when it can be asked. The Claude 5 family
+# (Opus, Sonnet, Haiku 5.5, Fable) has 1M; Haiku 4.5 and older models 200k.
+# Only a fallback either way: the episode compacts at min(window, COMPACT_TOKENS).
+CONTEXT_TOKENS = {"claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000,
+                  "claude-haiku-5": 1_000_000, "claude-fable-5": 1_000_000,
+                  "claude-haiku-4-5": 200_000, "claude-": 200_000,
                   "gpt-6": 1_050_000, "gpt-5": 400_000, "o3": 200_000, "o4": 200_000,
                   "gemini": 1_000_000}
 DEFAULT_CONTEXT_TOKENS = 200_000
@@ -1413,7 +1441,7 @@ def case_key(case: Path) -> str:
     inputs, final.step and pred_graph.json -- a correct ECAD submission scored
     0.0 because the last-usable-STEP fallback handed it the previous case's
     box. The former batch runner carried the same fix with the same reason
-    (170 parametric cases sharing one work directory).
+    (170 prodata cases sharing one work directory).
 
     The last three path components are the readable part; they are not unique
     on their own (envs/<env>/cases/<family>/<nn> drops <env>, and T1 and T3
@@ -1424,6 +1452,68 @@ def case_key(case: Path) -> str:
     p = Path(case).resolve()
     tag = hashlib.sha1(str(p).encode()).hexdigest()[:8]
     return "__".join(p.parts[-3:]) + "__" + tag
+
+
+def work_paths(work: Path | None, out: Path | None, model: str, effort: str | None, rep: int,
+               stamp: str) -> tuple[Path, Path]:
+    """The run's work root and results file.
+
+    Both used to be named by the second the run started (run_<stamp>, results/<model>_<stamp>.json),
+    and an episode's directory by rep and case alone. A launcher that starts every effort of a case at
+    once therefore gave them one work root and one episode directory: they overwrote each other's
+    final.step, and rescoring those records later read the last writer's submission for all of them.
+
+    A default work root is now made fresh by mkdtemp -- unique even for two runs of one effort and rep
+    started in the same second -- under a name a person can still read (stamp, effort, rep), and the
+    default results file takes the same unique name. An explicit --work / --out is used as given;
+    claim_work_root keeps a second run out of a --work that is in use."""
+    import tempfile
+    if work is None:
+        base = Path.home() / "cad-agent-work"
+        base.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix=f"run_{stamp}_{effort or 'default'}_r{rep}_", dir=base))
+    if out is None:
+        out = Path("results") / f"{model.replace('/', '_')}_{work.name.removeprefix('run_')}.json"
+    return work, out
+
+
+def episode_dir(work_root: Path, rep: int, effort: str | None, case: Path) -> Path:
+    """One episode's directory: rep, effort and case, so the lanes of one case never share one even
+    under a shared --work."""
+    return work_root / f"r{rep}__{effort or 'default'}__{case_key(case)}"
+
+
+class _HeldWorkRoot:
+    """An exclusive flock on a work root's own directory descriptor; close() lets it go."""
+
+    def __init__(self, fd: int):
+        self.fd = fd
+
+    def close(self) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+def claim_work_root(work_root: Path) -> _HeldWorkRoot:
+    """Hold an exclusive lock on the work root for the life of the run. Each episode clears its
+    own directory from an earlier attempt before staging (--resume re-running an error), which in a
+    root shared by two runs would delete another lane's files; a second run pointed at a --work in use
+    stops here instead. The lock is on the directory itself, so the root holds nothing but episode
+    dirs. Keep the returned object referenced until the run ends."""
+    import fcntl
+    work_root.mkdir(parents=True, exist_ok=True)
+    fd = os.open(work_root, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:                                    # EWOULDBLOCK / EAGAIN: really held
+        os.close(fd)
+        raise SystemExit(f"--work {work_root}: another harness run is using it; give each run its own work dir")
+    except OSError as exc:                                     # ENOLCK, EOPNOTSUPP, ...: no flock here
+        os.close(fd)
+        raise SystemExit(f"--work {work_root}: cannot lock it ({exc.__class__.__name__}: {exc}); "
+                         "the file system may not support flock -- use a local work dir")
+    return _HeldWorkRoot(fd)
 
 
 def show(score: dict) -> str:
@@ -1447,6 +1537,35 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def inputs_sha256(case: Path) -> str | None:
+    """One digest over everything under the case's input/ -- WHICH QUESTION the
+    episode was asked, as gt_sha256 says which answer it was scored against.
+
+    A re-issued drawing keeps its gt: T1 case32's sheet has four generations
+    (isometric view removed, a projection statement added, its font embedded)
+    and case86's title block was redrawn, all with gt.step untouched. Without
+    this field a row run against a superseded sheet is indistinguishable from a
+    current one, and a board can only guess from the RESULTS FILE NAME -- which
+    silently dropped a whole lane's rows on 2026-09-22.
+
+    Hashed from disk, not from case.json, so a manifest that was not rewritten
+    cannot vouch for files that changed under it: the relative path and the
+    file's own digest of every file under input/, in sorted path order. None
+    when the case has no input directory (the legacy fixtures).
+    """
+    import hashlib
+    root = case / "input"
+    if not root.is_dir():
+        return None
+    h = hashlib.sha256()
+    for f in sorted(p for p in root.rglob("*") if p.is_file()):
+        h.update(str(f.relative_to(root)).encode())
+        h.update(b"\0")
+        h.update(sha256(f).encode())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 # The T6 verifier's own search deadline is 3600 s (task.toml); every other
 # scorer is done in minutes -- unless a submitted part cannot be meshed:
 # measured 2026-09-18, a swept B-spline wire clip (BRepCheck invalid) took
@@ -1460,32 +1579,180 @@ def sha256(path: Path) -> str:
 SCORE_TIMEOUT_S = 3600
 SCORE_TIMEOUT_ECAD_S = 4200
 
+# A memory budget per score. On 2026-10-04 three scorers on a Linux worker went past
+# 20 GB of resident memory (a T5 reference of 160 MB; a T4 and a T3 cell whose
+# references are small) and the kernel's OOM killer ended them -- and with
+# them whatever else on the machine was largest at that moment. So a score can
+# run inside its own cgroup with a hard cap on RESIDENT memory (systemd-run
+# --user --scope -p MemoryMax=...): past it the kernel ends that scorer only,
+# and the record says `memory_budget_exceeded` -- an infrastructure error to be
+# re-scored alone under a larger budget, never a score. A cgroup is used, not
+# RLIMIT_AS: address space is not memory (the killed scorer had 31 GB of
+# virtual space for 23 GB resident; numpy, BLAS pools and OCCT's allocator
+# reserve far more than they touch), so an address-space cap would end
+# ordinary cases long before they used the memory it names.
+# The budget is the machine's, so it comes from the environment
+# (BENCHCAD_SCORE_MEMORY_MAX, e.g. "10G"; ops/MACHINES.md says which), and
+# unset means no cap -- the behaviour before this, and what a laptop or a
+# machine without a user systemd (macOS) gets, with a warning when a cap was
+# asked for but cannot be applied.
+SCORE_MEMORY_ENV = "BENCHCAD_SCORE_MEMORY_MAX"
+MEMORY_BUDGET_EXIT = 86              # the in-scope wrapper's exit code for "the kernel ended it for memory"
+MEMORY_BUDGET_MARK = "BENCHCAD_MEMORY_BUDGET_EXCEEDED"
 
-def score_in_subprocess(case: Path, artifact: Path) -> dict:
+
+class MemoryBudgetExceeded(RuntimeError):
+    """The scorer went past the memory budget and the kernel ended it: not a
+    score -- re-score the cell alone under a larger budget."""
+
+
+# Runs inside the scope as the scorer's parent. The OOM killer picks the
+# largest process of the cgroup, which is the scorer, so this small parent
+# survives to read the cgroup's own memory.events and say why its child died.
+_OOM_WRAPPER = (
+    "import os, subprocess, sys\n"
+    "rc = subprocess.run(sys.argv[1:]).returncode\n"
+    "ev = os.environ.get('BENCHCAD_CGROUP_EVENTS')\n"
+    "if not ev:\n"
+    "    try:\n"
+    "        rel = [l.split('::', 1)[1].strip() for l in open('/proc/self/cgroup') if l.startswith('0::')][0]\n"
+    "        ev = '/sys/fs/cgroup' + rel + '/memory.events'\n"
+    "    except Exception:\n"
+    "        ev = None\n"
+    "kills = 0\n"
+    "try:\n"
+    "    kills = int(dict(l.split() for l in open(ev) if l.strip()).get('oom_kill', 0)) if ev else 0\n"
+    "except Exception:\n"
+    "    kills = 0\n"
+    "if rc != 0 and kills > 0:\n"
+    f"    sys.stderr.write('\\n{MEMORY_BUDGET_MARK}\\n')\n"
+    f"    sys.exit({MEMORY_BUDGET_EXIT})\n"
+    "sys.exit(rc if rc >= 0 else 128 - rc)\n"
+)
+
+_SCOPE_OK: dict[str, bool] = {}
+
+
+def _user_scope_available() -> bool:
+    """Whether `systemd-run --user --scope` works here (Linux with a user
+    systemd: WSL does; macOS does not). Probed once per process."""
+    if "ok" not in _SCOPE_OK:
+        import shutil
+        import subprocess
+        ok = False
+        if sys.platform.startswith("linux") and shutil.which("systemd-run"):
+            try:
+                ok = subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "true"],
+                                    capture_output=True, timeout=30).returncode == 0
+            except Exception:                                  # noqa: BLE001
+                ok = False
+        _SCOPE_OK["ok"] = ok
+    return _SCOPE_OK["ok"]
+
+
+def memory_capped(cmd: list[str], limit: str | None) -> tuple[list[str], bool]:
+    """`cmd` wrapped in a cgroup scope with MemoryMax=`limit` (swap 0), and
+    whether a cap applies. No limit, or no user systemd: `cmd` unchanged."""
+    if not limit:
+        return cmd, False
+    if not _user_scope_available():
+        if not _SCOPE_OK.get("warned"):
+            _SCOPE_OK["warned"] = True
+            print(f"warning: {SCORE_MEMORY_ENV}={limit} asked for, but `systemd-run --user --scope` is not "
+                  "available here: scoring runs WITHOUT a memory cap", file=sys.stderr, flush=True)
+        return cmd, False
+    # MemorySwapMax=0: without it the excess goes to swap and the cap holds nothing.
+    # OOMPolicy=continue: by default systemd stops the whole scope after an OOM kill,
+    # wrapper included (SIGTERM, measured on a Linux worker 2026-10-04), and nobody is left to say why.
+    return (["systemd-run", "--user", "--scope", "--quiet", "-p", f"MemoryMax={limit}", "-p", "MemorySwapMax=0",
+             "-p", "OOMPolicy=continue", sys.executable, "-c", _OOM_WRAPPER, *cmd], True)
+
+
+def score_memory_cap() -> str | None:
+    """The memory cap a score here runs under (the record's `score_memory_cap`):
+    the budget when it is applied, None when no budget was asked for or it
+    cannot be applied on this machine (scored uncapped)."""
+    limit = os.environ.get(SCORE_MEMORY_ENV) or None
+    return limit if limit and _user_scope_available() else None
+
+
+STDERR_TAIL = 4096        # characters of the scorer's stderr kept in every score
+MEMORY_ERROR_EXIT = 87    # the scorer child's exit code for a MemoryError raised in-process
+MEMORY_ERROR_MARK = "BENCHCAD_SCORER_MEMORY_ERROR"
+# The scorer child. Out of memory (envs.geom.oom.OOM_ERRORS: MemoryError --
+# numpy's _ArrayMemoryError, meshguard's MeshWorkerKilled, prlimit --as -- and
+# OCCT's Standard_OutOfMemory) is caught by type and turned into its own exit
+# code: its traceback's last line need not say "MemoryError" (numpy names its
+# subclass; a note added to the exception prints after it), so the parent does
+# not parse text for it.
+SCORER_CHILD = (
+    "import json, sys, traceback\n"
+    "from pathlib import Path\n"
+    "try:\n"
+    "    from envs.geom.oom import OOM_ERRORS\n"
+    "except ImportError:\n"
+    "    OOM_ERRORS = (MemoryError,)\n"
+    "try:\n"
+    "    from envs.common.score_case import score_case\n"
+    "    out = score_case(Path(sys.argv[1]), Path(sys.argv[2]), *(sys.argv[3:4] or [None]))\n"
+    "except OOM_ERRORS as e:\n"
+    # the marker first and flushed: a traceback that fails to print cannot lose it
+    f"    sys.stderr.write('\\n{MEMORY_ERROR_MARK} ' + type(e).__name__ + '\\n')\n"
+    "    sys.stderr.flush()\n"
+    "    try:\n"
+    "        traceback.print_exc()\n"
+    "    except BaseException:\n"
+    "        pass\n"
+    f"    sys.exit({MEMORY_ERROR_EXIT})\n"
+    "print('\\n' + json.dumps(out, default=str))\n")
+
+
+def score_in_subprocess(case: Path, artifact: Path, mode: str | None = None) -> dict:
     """score_case in a child interpreter: the pixel term renders through
     vtk, whose Cocoa window on macOS may only be created on a process's main
     thread -- a child process has its own -- and the T6 graph search is pure
     Python that can run to its 3600 s deadline, which held the GIL of this
     process for 25 minutes on 2026-09-18 and starved every episode in
     flight. Scoring therefore leaves this process entirely, and can run from
-    the worker that finished the episode."""
+    the worker that finished the episode. `mode` reaches score_case (T6:
+    "historical", tools/rescore.py)."""
     import subprocess
-    code = ("import json, sys\n"
-            "from pathlib import Path\n"
-            "from envs.common.score_case import score_case\n"
-            "print('\\n' + json.dumps(score_case(Path(sys.argv[1]), Path(sys.argv[2])), default=str))")
     ecad = (case / "gt/gt_graph.json").exists()
+    limit = os.environ.get(SCORE_MEMORY_ENV) or None
+    argv = [sys.executable, "-c", SCORER_CHILD, str(case), str(artifact)] + ([mode] if mode else [])
+    cmd, capped = memory_capped(argv, limit)
     try:
-        r = subprocess.run([sys.executable, "-c", code, str(case), str(artifact)],
-                           capture_output=True, text=True,
+        r = subprocess.run(cmd, capture_output=True, text=True,
                            timeout=SCORE_TIMEOUT_ECAD_S if ecad else SCORE_TIMEOUT_S,
                            cwd=str(Path(__file__).resolve().parents[1]))
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(f"scorer timed out after {e.timeout:.0f} s (re-score later)") from None
+    return scorer_outcome(r, capped, limit)
+
+
+def scorer_outcome(r, capped: bool, limit: str | None) -> dict:
+    """The score in a finished scorer child's output, or the reason there is none."""
+    if capped and (r.returncode == MEMORY_BUDGET_EXIT and MEMORY_BUDGET_MARK in r.stderr
+                   or r.returncode in (137, -9, 143, -15)):
+        # 137/-9, 143/-15: the scope was ended with the wrapper in it (a systemd
+        # that ignores OOMPolicy stops the unit after an OOM kill) -- under a cap,
+        # nothing else here ends a scorer with SIGKILL or SIGTERM
+        raise MemoryBudgetExceeded(f"memory_budget_exceeded: the scorer went past {SCORE_MEMORY_ENV}={limit} "
+                                   "and was ended (re-score it alone under a larger budget)")
+    if r.returncode == MEMORY_ERROR_EXIT and MEMORY_ERROR_MARK in r.stderr:
+        # raised in-process (prlimit --as, overcommit) or the mesh worker OOM-killed with no
+        # cgroup around it (a lab's Docker run): still the machine's, not the answer's
+        why = r.stderr[r.stderr.rindex(MEMORY_ERROR_MARK) + len(MEMORY_ERROR_MARK):].strip().split("\n")[0]
+        raise MemoryBudgetExceeded(f"memory_budget_exceeded: the scorer raised {why[:300] or 'MemoryError'} "
+                                   "(re-score it alone under a larger budget)")
     if r.returncode != 0:
         raise RuntimeError(f"scorer exited {r.returncode}: {r.stderr.strip()[-600:]}")
     line = r.stdout.strip().splitlines()[-1]
-    return json.loads(line)
+    out = json.loads(line)
+    if isinstance(out, dict) and r.stderr.strip():
+        # kept on success too: a submission judged unusable says why only here
+        out["stderr_tail"] = r.stderr.strip()[-STDERR_TAIL:]
+    return out
 
 
 def _raise_fd_limit() -> None:
@@ -1600,10 +1867,9 @@ def main() -> int:
     if not cases:
         raise SystemExit(f"--cases {a.cases}: no cases found")
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_path = a.out or (Path("results") /
-                         f"{a.model.replace('/', '_')}_{stamp}.json")
+    work_root, out_path = work_paths(a.work, a.out, a.model, a.effort, a.rep, stamp)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    work_root = a.work or (REPO / "work" / f"run_{stamp}")
+    work_lock = claim_work_root(work_root)                     # noqa: F841  (held until exit)
     if a.workers > 1:
         _raise_fd_limit()
     if a.max_execs:
@@ -1650,10 +1916,11 @@ def main() -> int:
                "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep}
         gt = case / "gt/gt.step"
         rec["gt_sha256"] = sha256(gt) if gt.exists() else None
+        rec["inputs_sha256"] = inputs_sha256(case)
         try:
             call = build_call(a.model, a.max_tokens, usage, case, a.effort, a.context_tokens,
                               a.task_budget)
-            work = work_root / f"r{a.rep}__{case_key(case)}"
+            work = episode_dir(work_root, a.rep, a.effort, case)
             # A directory from an earlier attempt (--resume re-running an
             # error) would be staged over, not replaced -- Sandbox copies with
             # dirs_exist_ok -- and its old submission could be scored.
@@ -1671,6 +1938,12 @@ def main() -> int:
             if not artifact and (work / "pred_graph.json").exists():
                 artifact = str(work / "pred_graph.json")
             rec["step"] = artifact
+            # Which answer, not only where it is: `step` names a place,
+            # and a lane that shared it once replaced the answer before three
+            # rescores. Every later judging checks the file against this
+            # (harness/artifact_hash.py).
+            rec["artifact_sha256_of"], rec["artifact_sha256"] = (
+                artifact_sha256(artifact) if artifact else None) or (None, None)
             # Which layout the answer arrived in: "submission_directory" on an
             # assembly task that used the fixed layout, "step" otherwise
             # (envs/common/episode.py _artifact). In the record because the two
@@ -1712,7 +1985,16 @@ def main() -> int:
             t0 = time.time()
             try:
                 artifact = rec.get("step")
+                if artifact and rec.get("artifact_sha256"):
+                    chk = check_artifact(rec, Path(artifact))
+                    if chk["status"] != "verified":
+                        raise RuntimeError(f"the answer changed between its episode and its score: {chk['why']}")
+                rec["score_memory_cap"] = score_memory_cap()
                 rec["score"] = score_in_subprocess(case, Path(artifact)) if artifact else None
+            except MemoryBudgetExceeded as e:
+                # infrastructure, not the answer: no score; re-score alone under a larger budget
+                rec["error"] = f"{type(e).__name__}: {e}"
+                rec["memory_budget_exceeded"] = True
             except Exception as e:                               # noqa: BLE001
                 rec["error"] = f"{type(e).__name__}: {e}"
                 rec["traceback"] = traceback.format_exc()[-2000:]

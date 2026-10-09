@@ -105,6 +105,8 @@ from pathlib import Path
 
 from .asm_v1 import GEOM_TOL, _inv_dist, bom_types, part_id_of
 
+from envs.geom.oom import OOM_ERRORS
+
 FRAME = "own"
 # The scope of the mean over part types; the task declares one of the two
 # (envs.tasks.AVG_PART_TYPES, task.toml `[verify] avg_part_types`).
@@ -174,6 +176,8 @@ def bom_sources(case_dir: Path) -> dict[str, str | None] | None:
         return None
     try:
         return {b["part_id"]: b.get("source") for b in bom_types(case_dir)}
+    except OOM_ERRORS:                                       # infrastructure, never a score
+        raise
     except Exception:                                          # noqa: BLE001
         return None
 
@@ -191,7 +195,7 @@ def scope_mean(per_type: list[dict]) -> float | None:
     np.mean, not sum()/len(): with every type in scope this has to be the same
     arithmetic to the last bit as the mean it replaced, or the T2 / T4 numbers
     already measured move by an ulp for no reason (numpy sums pairwise above
-    eight elements; assembly case 4 has 17 part types).
+    eight elements; ASM-04 has 17 part types).
     """
     import numpy as np
     from .part_metric import clip01
@@ -248,6 +252,8 @@ def _type_invariants(case_dir: Path, part_id: str) -> dict | None:
     try:
         sols = solids(resolve_part(Path(case_dir), part_id))
         return invariants(sols[0] if len(sols) == 1 else cq.Compound.makeCompound(sols))
+    except OOM_ERRORS:                                       # infrastructure, never a score
+        raise
     except Exception:                                          # noqa: BLE001
         return None
 
@@ -265,6 +271,8 @@ def assign_children_by_geometry(children, case_dir: Path, slots: dict[str, int],
     for _, shape in children:
         try:
             inv.append(invariants(shape))
+        except OOM_ERRORS:                                       # infrastructure, never a score
+            raise
         except Exception:                                      # noqa: BLE001
             inv.append({"volume": 0.0, "area": 0.0, "faces": 0, "moments": [0.0, 0.0, 0.0]})
     types = {pid: ti for pid in slots if (ti := _type_invariants(case_dir, pid)) is not None}
@@ -398,6 +406,8 @@ def avg_part(case_dir: Path, pred_step: Path, *, orientation: str, pose_mode: st
 
     try:
         children = submission_children(pred_step)
+    except OOM_ERRORS:                                       # infrastructure, never a score
+        raise
     except Exception as exc:                                   # noqa: BLE001
         return _fail(f"submission unreadable: {type(exc).__name__}: {exc}")
     out["n_children"] = len(children)
@@ -440,6 +450,8 @@ def avg_part(case_dir: Path, pred_step: Path, *, orientation: str, pose_mode: st
             row["child"] = children[j][0]
             try:
                 moved = transform(children[j][1], T_align)
+            except OOM_ERRORS:                                       # infrastructure, never a score
+                raise
             except Exception as exc:                           # noqa: BLE001
                 moved = None
                 row["error"] = f"child not transformable: {type(exc).__name__}: {exc}"
@@ -447,7 +459,7 @@ def avg_part(case_dir: Path, pred_step: Path, *, orientation: str, pose_mode: st
                 pr = score_part_v1(r["shape"], moved, orientation=orientation, pose_mode=pose_mode,
                                    n_samples=n_samples, frame=FRAME)
                 row["score"] = clip01(pr["score"])
-                for k in ("iou_term", "surf_f1", "pix_fg", "coverage", "rotation_applied",
+                for k in ("iou_term", "topology", "topology_manifold", "surf_f1", "coverage", "rotation_applied",
                           "identical", "identical_by"):
                     if k in pr:
                         row[k] = pr[k]
@@ -501,6 +513,8 @@ def _score_part_files(case_dir, parts, refs, types_in_order, n_of_type, in_mean,
             row["child"] = str(Path(f).name)
             try:
                 sub_shape = _body(Path(f))
+            except OOM_ERRORS:                                       # infrastructure, never a score
+                raise
             except Exception as exc:                           # noqa: BLE001
                 sub_shape = None
                 row["error"] = f"part file unreadable: {type(exc).__name__}: {exc}"
@@ -509,7 +523,7 @@ def _score_part_files(case_dir, parts, refs, types_in_order, n_of_type, in_mean,
                 pr = score_part_v1(ref_shape, sub_shape, orientation="free",
                                    pose_mode="iou24_aligned", n_samples=n_samples, frame=FRAME)
                 row["score"] = clip01(pr["score"])
-                for k in ("iou_term", "surf_f1", "pix_fg", "coverage", "rotation_applied",
+                for k in ("iou_term", "topology", "topology_manifold", "surf_f1", "coverage", "rotation_applied",
                           "identical", "identical_by"):
                     if k in pr:
                         row[k] = pr[k]

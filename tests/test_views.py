@@ -43,6 +43,20 @@ def _recovered_rotation(cam: dict) -> tuple[float, np.ndarray]:
     return angle, R
 
 
+def _same_draw(a, b, tol: float = 1e-12) -> bool:
+    """Two camera records describe the same draw: the same keys, seed and nominal directions, and every
+    number within `tol`. Recomputed from its seed on the platform that wrote the fixture (arm64), a
+    record is identical to the last digit; on x86_64 the rotation arithmetic rounds differently and
+    view_up / axis move in the last ulp or two -- the same cameras, not another draw."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same_draw(a[k], b[k], tol) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same_draw(x, y, tol) for x, y in zip(a, b))
+    if isinstance(a, float) or isinstance(b, float):
+        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) <= tol
+    return a == b
+
+
 def test_perturbation_by_seed():
     p = perturbation(12345)
     assert json.loads(json.dumps(p)) == p                       # JSON-serialisable, round-trips
@@ -96,7 +110,8 @@ def test_fixtures_record_the_draw_under_gt_only():
         seed = m["generator"]["views"]["seed"]
         assert m["generator"]["views"]["tool"] == "tools/render_views.py"
         assert seed == default_seed(m["env"], m["id"])
-        assert rec == perturbation(seed)
+        assert _same_draw(rec, perturbation(seed))
+        assert not _same_draw(rec, perturbation(seed + 1))    # the tolerance still tells two draws apart
     from PIL import Image
     assert Image.open(T3 / "input/views.png").size == (1412, 1412)
     assert Image.open(T4 / "input/views.png").size == (1412, 1412)
@@ -193,11 +208,13 @@ def test_a_stale_sheet_is_replaced(tmp_path):
 
 
 def test_render_case_views_reproduces_the_fixture(tmp_path):
-    """The recorded seed re-renders the fixture's cameras exactly and its images
-    to within rasteriser noise.
+    """The recorded seed re-renders the fixture's cameras (to 1e-12) and its
+    images to within rasteriser noise.
 
-    The cameras are the case definition, so `gt/views.json` must match to the
-    last digit -- it is JSON and portable. The PNG bytes are NOT: the renderer
+    The cameras are the case definition, so `gt/views.json` must match to
+    1e-12 -- to the last digit on the platform that wrote the fixture, within
+    an ulp or two where the arithmetic rounds differently. The PNG
+    bytes are NOT portable either: the renderer
     is deterministic on one machine (two fresh renders here are byte-identical)
     but VTK and libpng differ across environments, and the committed fixture
     was produced in another one -- measured, 12,685 vs 12,691 bytes for the
@@ -209,8 +226,8 @@ def test_render_case_views_reproduces_the_fixture(tmp_path):
     shutil.copytree(T4, d)
     seed = load_case(T4).manifest["generator"]["views"]["seed"]
     p = render_case_views(d, seed)
-    assert p == json.loads((T4 / VIEWS_JSON).read_text())
-    assert (d / VIEWS_JSON).read_bytes() == (T4 / VIEWS_JSON).read_bytes()      # the camera record is untouched
+    assert _same_draw(p, json.loads((T4 / VIEWS_JSON).read_text()))
+    assert _same_draw(json.loads((d / VIEWS_JSON).read_text()), json.loads((T4 / VIEWS_JSON).read_text()))  # the record written
     assert not (d / "input/parts_views.png").exists()
     from PIL import Image
     import numpy as np
@@ -240,7 +257,7 @@ def test_no_renderer_reaches_the_sandbox(case, tmp_path):
     for s in FORBIDDEN:
         assert s not in TOOLS_PY, s
     # docker can only mount paths under $HOME (see Sandbox._mount_works)
-    root = REPO / "work" / "dryrun" if _docker() else tmp_path
+    root = Path.home() / "cad-agent-work" / "dryrun" if _docker() else tmp_path
     root.mkdir(parents=True, exist_ok=True)
     wd = Path(tempfile.mkdtemp(prefix="views_", dir=root))
     Sandbox(case, wd)

@@ -1,10 +1,10 @@
 {
  "case": "case2",
- "computed_on": "827e0aeb88a87fa6afac7a643d91ca7cbb704025",
+ "computed_on": "e02bad04936c389e4343942cf621e908783d5c31",
  "computed_with": {
   "metric": "ecad_v2",
   "verifier": "envs.verifiers.ecad:score",
-  "worktree_dirty": true
+  "worktree_dirty": false
  },
  "env": "t6_pcb2schematic",
  "kind": "ecad",
@@ -25,7 +25,7 @@
    "incidences_matched": 173,
    "incidences_gt": 173
   },
-  "seconds": 0.3,
+  "seconds": 0.1,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {

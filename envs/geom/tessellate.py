@@ -4,7 +4,7 @@
 **not rotation invariant** -- the same part at different angles tessellates at different
 densities. Measured, after a 37-degree rotation the diagonal changed by 6.4% / 17.4% /
 36.6% (three real parts).
-The assembly side was burned by this: assembly case 4's 17 part types split into 28 under
+The assembly side was burned by this: ASM-04's 17 part types split into 28 under
 geometric-fingerprint classification and a perfect answer's rubric was only 0.717, so
 the assembly side has already switched to `sqrt(surface area)/800` (an analytic,
 rotation-invariant quantity of the same order as the diagonal).

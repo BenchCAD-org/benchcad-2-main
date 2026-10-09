@@ -9,7 +9,7 @@ dependencies = [
     "pillow",
     "pymupdf",
     "scipy",
-    "trimesh",
+    "trimesh>=5,<6",                  # envs/geom/voxel.subdivide_voxelized relies on 5.x keeping unreferenced vertices
 ]
 
 [dependency-groups]

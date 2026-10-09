@@ -4,6 +4,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from envs.geom.oom import OOM_ERRORS
+
 
 def grid_iou(a, b) -> float:
     """IoU of two boolean grids of the same shape."""
@@ -29,6 +31,8 @@ def iou_step_vs_step(a: Path, b: Path, res: int, origin: str = "world") -> float
     try:
         vb = solid_voxels(normalized_mesh(Path(b)), res)
     except ImportError:
+        raise
+    except OOM_ERRORS:                                       # infrastructure, never a score
         raise
     except Exception as ex:                                  # noqa: BLE001
         print(f"iou: submission {b} unusable: {type(ex).__name__}: {ex}", file=sys.stderr)

@@ -1,10 +1,10 @@
 {
  "case": "case2",
- "computed_on": "b889b1f537568257806264cf45117f83820f676b",
+ "computed_on": "e02bad04936c389e4343942cf621e908783d5c31",
  "computed_with": {
   "metric": "asm_v1",
   "verifier": "envs.verifiers.assembly:score",
-  "worktree_dirty": true
+  "worktree_dirty": false
  },
  "env": "t2_realparts2assembly",
  "kind": "assembly",
@@ -25,7 +25,7 @@
    "avg_part": 1.0,
    "asm_v1": 1.0
   },
-  "seconds": 58.0,
+  "seconds": 162.1,
   "note": "the reference itself, submitted as an answer -- what the scoring chain gives a perfect answer, and therefore the top of this case's scale"
  },
  "round_trip": {
@@ -37,8 +37,8 @@
    "avg_part": 0.95,
    "asm_v1": 1.0
   },
-  "seconds": 77.3,
-  "note": "the number `harness/run.py --model mock/oracle` reproduces on this case, because that is the submission it builds"
+  "seconds": 223.8,
+  "note": "the reference as ONE STEP written through cadquery -- the deprecated single-STEP submission. An end-to-end `harness/run.py --model mock/oracle` run submits the task's layout (parts + instances.json) instead, so on this case it reproduces `oracle.score`, not this value"
  },
  "baseline": {
   "submission": "a solid block of the whole assembly's bounding box, exported with cadquery",
@@ -49,7 +49,7 @@
    "avg_part": 0.0,
    "asm_v1": 0.0
   },
-  "seconds": 8.8,
+  "seconds": 11.8,
   "note": "the floor of this case: what the ruler gives an answer that knows only the overall size. It is 0.0 because a single block places no part types at all, and asm_v1 scores per part type. `harness/run.py --model mock/dumb` submits a 10 mm box instead -- a different trivial answer, so its score need not equal this one."
  },
  "gt_sha256": "75ff46890d25229ec33c4b3546e8e3c2b0b45795c6c31b135adcb4a8994ec50d",

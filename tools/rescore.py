@@ -19,6 +19,27 @@ rule is "keep the model runs, re-judge the cases with the new scorer". It
 is also how a run made with `--score-workers 0` (episodes recorded
 unscored) gets its scores, on whichever machine has the cores: the T6
 matcher can take an hour a board.
+
+Only the answer the record was scored on is judged again. A record
+names its answer by path, and a lane that shared the path once replaced the
+answer under three rescores in a row. Before scoring, the answer on disk is
+compared with the record's `artifact_sha256` (harness/artifact_hash.py).
+Records made before that field existed are compared with a snapshot manifest
+(--snapshot answers_snapshot_*.manifest.json). The comparison can come out
+three ways:
+
+  - mismatch (or answer missing): the record is not scored. Its score is
+    kept and `artifact_check` says why.
+  - unverified (neither the record nor a snapshot says which answer it
+    was): skipped, unless --allow-unverified is given.
+  - either kind of refusal: the run exits 2.
+
+T6: a record whose answer is a pcb2schematic/1.0 graph, on a case that is now
+scored in position mode (gt/correspondence.json), is the answer to the task
+the case asked before. It is re-scored on the legacy path it was first scored
+on (ecad.score mode="historical"; the record's score says `forced_mode:
+historical`, `correspondence_mode: legacy`), never in position mode, where it
+would become invalid_prediction 0 and the historical number would be lost.
 """
 from __future__ import annotations
 
@@ -34,7 +55,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from harness.run import score_in_subprocess, show
+from harness.artifact_hash import Snapshots, check
+from harness.run import MemoryBudgetExceeded, score_in_subprocess, score_memory_cap, show
+from envs.verifiers.ecad import historical_submission
 
 
 def main(argv=None) -> int:
@@ -48,8 +71,15 @@ def main(argv=None) -> int:
     ap.add_argument("--map", action="append", default=[], metavar="OLD=NEW",
                     help="rewrite a path prefix of every record's case and step before scoring "
                          "(repeatable, applied in order): the file was made on another machine")
+    ap.add_argument("--snapshot", action="append", default=[], type=Path, metavar="MANIFEST",
+                    help="a snapshot manifest ({\"files\": {path: sha256}}, e.g. answers_snapshot_*.manifest.json) "
+                         "that says which answer a record made before artifact_sha256 was scored on (repeatable)")
+    ap.add_argument("--allow-unverified", action="store_true",
+                    help="also re-score records whose answer neither the record nor a snapshot vouches for; "
+                         "their artifact_check says unverified")
     a = ap.parse_args(argv)
     maps = [m.split("=", 1) for m in a.map]
+    snaps = Snapshots(a.snapshot) if a.snapshot else None
 
     def local(p: str) -> str:
         for old, new in maps:
@@ -84,26 +114,57 @@ def main(argv=None) -> int:
     except Exception:                                          # noqa: BLE001
         head = None
 
-    def one(r: dict) -> tuple[dict, dict | None, str | None, float]:
+    def one(r: dict) -> tuple[dict, dict, dict | None, str | None, float]:
         t0 = time.time()
+        step = Path(local(r["step"]))
+        chk = check(r, step, snaps)
+        if chk["status"] in ("mismatch", "missing") or (chk["status"] == "unverified" and not a.allow_unverified):
+            return r, chk, None, None, 0.0
         try:
-            return r, score_in_subprocess(Path(local(r["case"])), Path(local(r["step"]))), None, time.time() - t0
+            case = Path(local(r["case"]))
+            if historical_submission(case, step):
+                # a 1.0 answer on a case now scored in position mode: judged on
+                # the legacy path it was first judged on, labelled so, never
+                # turned into invalid_prediction 0
+                return r, chk, score_in_subprocess(case, step, mode="historical"), None, time.time() - t0
+            return r, chk, score_in_subprocess(case, step), None, time.time() - t0
+        except MemoryBudgetExceeded as e:                      # infrastructure: no score, re-score alone
+            return r, chk, None, f"{type(e).__name__}: {e}", time.time() - t0
         except Exception as e:                                 # noqa: BLE001
-            return r, None, f"{type(e).__name__}: {e}", time.time() - t0
+            return r, chk, None, f"{type(e).__name__}: {e}", time.time() - t0
+
+    n_scored = 0
 
     def write() -> None:
-        if isinstance(doc, dict):
+        if isinstance(doc, dict) and n_scored:
             doc["rescored"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "scorer": head}
         a.results.write_text(json.dumps(doc, indent=1, default=str) + "\n")
 
+    refused, unverified = [], []
     with ThreadPoolExecutor(max_workers=max(1, a.workers)) as ex:
         for n, f in enumerate(as_completed([ex.submit(one, r) for r in todo]), 1):
-            r, score, err, secs = f.result()
+            r, chk, score, err, secs = f.result()
             old = r.get("score")
             old_head = old.get("score") if isinstance(old, dict) else old
+            at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            if chk["status"] in ("mismatch", "missing"):
+                # judging the file would score another answer under this record's name
+                r["artifact_check"] = {**chk, "at": at}
+                refused.append(r)
+                print(f"  [{n}/{len(todo)}] {r['case_id']}: REFUSED, score kept: {chk['why']}", flush=True)
+                write()
+                continue
+            if chk["status"] == "unverified" and not a.allow_unverified:
+                unverified.append(r)
+                print(f"  [{n}/{len(todo)}] {r['case_id']}: skipped, answer unverified ({chk['why']})", flush=True)
+                continue
             if score is not None:
+                n_scored += 1
+                r["artifact_check"] = {**chk, "at": at}
                 r["score"], r["seconds_score"] = score, round(secs, 1)
+                r["score_memory_cap"] = score_memory_cap()
                 r.pop("score_error", None)
+                r.pop("memory_budget_exceeded", None)
                 r.pop("unscored", None)
                 new_head = score.get("score") if isinstance(score, dict) else score
                 delta = (f"{old_head:.3f} -> {new_head:.3f}" if isinstance(old_head, (int, float))
@@ -111,8 +172,14 @@ def main(argv=None) -> int:
                 print(f"  [{n}/{len(todo)}] {r['case_id']}: {delta}  {show(score)[:110]}  ({secs:.0f}s)", flush=True)
             else:
                 r["score_error"] = err
+                if err and err.startswith("MemoryBudgetExceeded"):
+                    r["memory_budget_exceeded"] = True
                 print(f"  [{n}/{len(todo)}] {r['case_id']}: scorer failed, score kept: {err}", flush=True)
             write()
+    if refused or unverified:
+        print(f"{len(refused)} refused (the answer on disk is not the one scored), {len(unverified)} unverified "
+              "(no artifact_sha256; give --snapshot, or --allow-unverified to judge them anyway)", flush=True)
+        return 2
     return 0
 
 
