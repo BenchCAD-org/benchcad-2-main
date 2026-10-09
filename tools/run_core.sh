@@ -45,19 +45,25 @@ done
 [ -n "$MODEL" ] || die "--model <provider>/<model-id> is required (see --help)"
 step() { echo "[run_core] $*"; }
 
-# Episodes are API-bound: two per CPU, 4 to 32, and at most one per GB of available
-# memory (a sandbox execution and a score each take about that). BENCHCAD_NPROC and
-# BENCHCAD_MEM_GB override what is measured (tests).
-default_workers() {
-    local cpus mem w
+# The memory budget, from MemAvailable (BENCHCAD_NPROC / BENCHCAD_MEM_GB override what is
+# measured, for tests). Measured on an 8 vCPU / 16 GB box: run.py itself grows to 2.4-3.4 GB
+# with episodes in flight, a scorer process takes ~1 GB and up to its 4 GB cap, a sandbox
+# execution up to 2 GB. So: run.py 3 GB + 2 GB per scorer is reserved; the rest gives one
+# episode per GB (two per CPU at most, 32 at most) and one concurrent sandbox execution per
+# 2 GB; scorers are max(1, min(4, GB / 4)). Another run_core on this machine halves it.
+mem_budget() {
+    local cpus mem s reserve free w e
     cpus=${BENCHCAD_NPROC:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
     if [ -n "${BENCHCAD_MEM_GB:-}" ]; then mem=$BENCHCAD_MEM_GB
     elif [ -r /proc/meminfo ]; then mem=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
     else mem=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 2147483648 )); fi   # macOS: half of RAM
-    w=$(( 2 * cpus )); [ "$w" -lt 4 ] && w=4; [ "$w" -gt 32 ] && w=32
-    [ "$mem" -ge 1 ] && [ "$w" -gt "$mem" ] && w=$mem
-    [ "$w" -lt 1 ] && w=1
-    echo "$w ($cpus CPUs, ${mem} GB available)"
+    [ "${SHARED:-0}" = 1 ] && mem=$(( mem / 2 ))
+    s=$(( mem / 4 )); [ "$s" -gt 4 ] && s=4; [ "$s" -lt 1 ] && s=1
+    reserve=$(( 3 + 2 * s ))
+    free=$(( mem - reserve )); [ "$free" -lt 1 ] && free=1
+    w=$(( 2 * cpus )); [ "$w" -gt 32 ] && w=32; [ "$w" -gt "$free" ] && w=$free; [ "$w" -lt 1 ] && w=1
+    e=$(( free / 2 )); [ "$e" -lt 1 ] && e=1
+    echo "$w $s $e $cpus CPUs, $mem GB available: run.py 3 GB + $s scorers x 2 GB reserved, $free GB for $w episodes, $e sandbox executions at once"
 }
 
 # 1. tools: uv is installed if missing (and found again at ~/.local/bin on the next run);
@@ -184,11 +190,19 @@ print(",".join("-" if e is None else e for e in levels))
 EOF
 ) || exit 1
 
+# Another run_core on this machine shares the memory: warn, and budget half of it.
+LOCK="$(dirname "$DATA")/run_core.$(id -u).lock"
+SHARED=0
+if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null && [ "$(cat "$LOCK")" != $$ ]; then
+    SHARED=1; step "WARNING: another run_core is running here (pid $(cat "$LOCK")); budgeting half the memory"
+fi
+if [ "$DRY" = 0 ]; then mkdir -p "$(dirname "$LOCK")"; echo $$ > "$LOCK"; trap '[ "$(cat "$LOCK" 2>/dev/null)" = $$ ] && rm -f "$LOCK"' EXIT; fi
+read -r AUTO_W SCORERS EXECS BUDGET <<< "$(mem_budget)"
 if [ -z "$WORKERS" ]; then
-    auto=$(default_workers); WORKERS=${auto%% *}
-    step "workers $WORKERS per effort, auto: $auto (--workers N overrides)"
+    WORKERS=$AUTO_W
+    step "workers $WORKERS per effort, auto: $BUDGET (--workers N overrides)"
 else
-    step "workers $WORKERS per effort"
+    step "workers $WORKERS per effort (memory budget: $BUDGET)"
 fi
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/core/$TAG"
@@ -201,12 +215,20 @@ for E in ${EFFORTS//,/ }; do
     EFF=(); [ "$E" = "-" ] || EFF=(--effort "$E")
     NAME=${E/-/default}
     CMD=("${PY[@]}" -u harness/run.py --model "$MODEL" ${EFF[@]+"${EFF[@]}"} --cases "${CASES:-$DATA}"
-         --rounds "$ROUNDS" --rep 0 --workers "$WORKERS" --resume --out "$OUT/$NAME.json"
+         --rounds "$ROUNDS" --rep 0 --workers "$WORKERS" --score-workers "$SCORERS" --max-execs "$EXECS"
+         --resume --out "$OUT/$NAME.json"
          --work "work/core/$TAG/$NAME" ${EXTRA[@]+"${EXTRA[@]}"})
     FILES+=("$OUT/$NAME.json")
     if [ "$DRY" = 1 ]; then echo "[run_core] would run: ${CMD[*]}"; continue; fi
     step "effort $NAME: $OUT/$NAME.json (log $OUT/$NAME.log)"
-    "${CMD[@]}" 2>&1 | tee -a "$OUT/$NAME.log" | grep -E '^\s*\[[0-9]+/[0-9]+\]|cases ->' || true
+    set +e
+    "${CMD[@]}" 2>&1 | tee -a "$OUT/$NAME.log" | grep -E '^\s*\[[0-9]+/[0-9]+\]|cases ->'
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [ "$rc" = 137 ] || [ "$rc" = 9 ] || [ "$rc" = -9 ]; then
+        die "run.py was killed (likely out of memory); re-run the same command to resume (it keeps finished cases); consider --workers N lower than $WORKERS"
+    fi
+    [ "$rc" = 0 ] || step "run.py exited $rc (see $OUT/$NAME.log); re-run the same command to resume"
 done
 
 # 7. the score

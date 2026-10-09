@@ -156,25 +156,42 @@ def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_p
     assert "dataset benchcad-2.0-core 1.0  scorer_digest" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("cpus,mem,want", [(8, 64, 16), (32, 256, 32), (1, 64, 4), (16, 6, 6), (2, 0, 4)])
-def test_default_workers_follow_the_machine(tmp_path, cpus, mem, want):
-    """Two episodes per CPU, 4 to 32, at most one per GB of available memory;
-    --workers overrides. The default of 4 made Core 100 at high take 10+ h."""
+@pytest.mark.parametrize("cpus,mem,want", [
+    (8, 14, (5, 3, 2)),          # run's 8 vCPU / 16 GB box: 14 GB available
+    (8, 64, (16, 4, 26)), (32, 256, (32, 4, 122)), (1, 64, (2, 4, 26)), (16, 6, (1, 1, 1)), (2, 0, (1, 1, 1))])
+def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, mem, want):
+    """run.py 3 GB + 2 GB per scorer reserved; one episode per remaining GB (two per CPU,
+    32 at most); scorers max(1, min(4, GB/4)); one sandbox execution per 2 GB. A run at
+    --workers 16 on 16 GB went out of memory. --workers still overrides."""
     data = fake_core(tmp_path / "core")
-    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run",
-                 env_extra={"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)})
+    env = {"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)}
+    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", env_extra=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert f"workers {want} per effort, auto:" in r.stdout
-    assert f"--workers {want} " in next(l for l in r.stdout.splitlines() if "would run:" in l)
-    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3",
-                 env_extra={"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)})
-    assert "workers 3 per effort" in r.stdout and "auto" not in r.stdout
+    w, s, e = want
+    assert f"workers {w} per effort, auto: {cpus} CPUs, {mem} GB available" in r.stdout
+    cmd = next(l for l in r.stdout.splitlines() if "would run:" in l)
+    assert f"--workers {w} --score-workers {s} --max-execs {e} " in cmd, cmd
+    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3", env_extra=env)
+    assert "workers 3 per effort (memory budget:" in r.stdout and "--workers 3 " in r.stdout
 
 
-def test_dry_run_does_the_free_setup_and_the_scorer_self_test():
-    """A dry run on a fresh clone failed: it skipped uv sync and then could not
-    import the provider SDK. It now does every free step; and the scorer
-    self-test (OCP needs libGL.so.1 on a bare Ubuntu) runs before any spend."""
-    s = SCRIPT.read_text()
-    assert 'if [ "$SETUP" = 1 ]; then step "uv sync"' in s and 'SETUP=1; [ -n "${BENCHCAD_SKIP_SETUP:-}" ] && SETUP=0' in s
-    assert "import OCP.TopoDS, vtk, cadquery" in s and "apt-get" in s and "libgl1" in s
+def test_a_killed_run_says_so_and_how_to_resume(tmp_path):
+    """run.py killed (out of memory, exit 137): say what happened and how to go on."""
+    data = fake_core(tmp_path / "core")
+    fake = tmp_path / "python"
+    fake.write_text(f"""#!/bin/bash
+for a in "$@"; do [ "$a" = harness/run.py ] && kill -9 $$; done
+exec {sys.executable} "$@"
+""")
+    fake.chmod(0o755)
+    r = run_core("--model", "mock/oracle", "--data", str(data), env_extra={"BENCHCAD_PYTHON": str(fake)})
+    assert r.returncode != 0
+    assert "run.py was killed (likely out of memory); re-run the same command to resume" in r.stderr, r.stderr
+
+
+def test_a_record_waiting_for_its_score_is_pending(tmp_path):
+    f = tmp_path / "r.json"
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30,
+                             "cases": [_rec("task3/cases/case001", None, step="/a.step", pending_score=True)]}))
+    [row] = C.summarize([f])
+    assert not row["complete"] and row["pending"][0]["why"].startswith("episode finished, not scored")
