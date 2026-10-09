@@ -2072,6 +2072,58 @@ def _shard(cases: list, spec: str | None) -> list:
     return cases[k::n]
 
 
+# --memory-gb: the memory an elastic scoring pool shares with the episodes.
+# run.py itself, each episode in flight (its sandbox executions included) and
+# each score are charged these; tools/run_core.sh sizes the episodes the same way.
+RUNPY_GB = 3.0
+EPISODE_GB = 0.5
+SCORER_GB = 2.5
+
+
+class ScoreGate:
+    """How many scores may run at once: from `lo` while every episode slot is
+    busy up to `hi` as the episodes finish and leave their memory to scoring.
+
+    Measured 2026-10-09 (Haiku high, Core, 30 rounds, 8 vCPU / 16 GB, two
+    scorers): 97 of 100 episodes had finished and 19 were scored; the other 78
+    took 5-7 hours of scoring alone at 3-30 min each, with the CPU at load 3/8
+    and 10 GB free. A fixed pool sized for the busy start leaves the tail idle.
+
+    Without `mem_gb` the pool is fixed at `hi` (= lo), as before."""
+
+    def __init__(self, lo: int, hi: int, mem_gb: float | None = None, workers: int = 1, episodes: int = 0):
+        import threading
+        self.lo, self.hi = max(1, lo), max(1, lo, hi)
+        self.mem_gb, self.workers, self.episodes = mem_gb, max(1, workers), episodes
+        self.busy, self.peak = 0, 0
+        self.cond = threading.Condition()
+
+    def allowed(self) -> int:
+        if self.mem_gb is None:
+            return self.hi
+        live = min(self.workers, self.episodes)
+        n = int((self.mem_gb - RUNPY_GB - live * EPISODE_GB) // SCORER_GB)
+        return max(self.lo, min(self.hi, n))
+
+    def episode_done(self) -> None:
+        with self.cond:
+            self.episodes = max(0, self.episodes - 1)
+            self.cond.notify_all()
+
+    def __enter__(self):
+        with self.cond:
+            self.cond.wait_for(lambda: self.busy < self.allowed())
+            self.busy += 1
+            self.peak = max(self.peak, self.busy)
+        return self
+
+    def __exit__(self, *exc):
+        with self.cond:
+            self.busy -= 1
+            self.cond.notify_all()
+        return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Run one model over a set of cases.",
@@ -2119,6 +2171,11 @@ def main() -> int:
                          "0 records the episodes UNSCORED (score null, unscored true) for "
                          "tools/rescore.py on another machine -- the T6 matcher can take an "
                          "hour a board and need not hold the box that runs the episodes")
+    ap.add_argument("--score-workers-max", type=int, default=0,
+                    help="with --memory-gb: let the scoring pool grow from --score-workers to "
+                         "this as episodes finish and free their memory (ScoreGate)")
+    ap.add_argument("--memory-gb", type=float, default=None,
+                    help="the memory the episodes and the scores share, for --score-workers-max")
     ap.add_argument("--max-execs", type=int, default=0,
                     help="at most this many sandbox executions at once in "
                          "this process, however many workers wait on the "
@@ -2297,7 +2354,12 @@ def main() -> int:
                     if chk["status"] != "verified":
                         raise RuntimeError(f"the answer changed between its episode and its score: {chk['why']}")
                 rec["score_memory_cap"] = score_memory_cap()
-                rec["score"] = score_in_subprocess(case, Path(artifact)) if artifact else None
+                if artifact:
+                    with gate:
+                        t0 = time.time()
+                        rec["score"] = score_in_subprocess(case, Path(artifact))
+                else:
+                    rec["score"] = None
             except MemoryBudgetExceeded as e:
                 # infrastructure, not the answer: no score; re-score alone under a larger budget
                 rec["error"] = f"{type(e).__name__}: {e}"
@@ -2331,7 +2393,12 @@ def main() -> int:
     # episode slot; the scores themselves run in child processes.
     from concurrent.futures import ThreadPoolExecutor, as_completed
     write()
-    with ThreadPoolExecutor(max_workers=max(1, a.score_workers)) as scorers, \
+    elastic = a.memory_gb is not None and a.score_workers_max > a.score_workers > 0
+    gate = ScoreGate(a.score_workers, a.score_workers_max if elastic else a.score_workers,
+                     a.memory_gb if elastic else None, a.workers, len(todo))
+    if elastic:
+        print(f"scorers {gate.allowed()}->{gate.hi} as episodes finish ({a.memory_gb:g} GB shared)", flush=True)
+    with ThreadPoolExecutor(max_workers=gate.hi) as scorers, \
          ThreadPoolExecutor(max_workers=max(1, a.workers)) as ex:
         for c in again:                                  # answers already in hand: score them only
             rec = {k: v for k, v in rescore[str(c)].items()
@@ -2346,6 +2413,7 @@ def main() -> int:
         for f in as_completed(episodes):
             case = episodes[f]
             rec = f.result()
+            gate.episode_done()
             if rec.get("step") and "error" not in rec:
                 # On disk before it is scored: a run killed while scores queue
                 # (out of memory) keeps the episode, and --resume scores it.

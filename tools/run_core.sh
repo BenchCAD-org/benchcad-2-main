@@ -51,6 +51,11 @@ step() { echo "[run_core] $*"; }
 # 2 GB; scorers are max(1, min(4, GB / 5)). Sandbox executions and scorers together stay
 # within the CPUs (each execution takes one; 16 on 8 cores starved the scorers), whatever
 # --workers is. Another run_core on this machine halves it.
+# Scorers are elastic (run.py ScoreGate): the pool starts at that count and grows to
+# min(4, CPUs - executions) as episodes finish and leave their memory to scoring (run.py
+# 3 GB, 0.5 GB per live episode, 2.5 GB per score). Measured 2026-10-09, Haiku high at 30
+# rounds on 8 vCPU / 16 GB with 2 fixed scorers: 97 of 100 episodes done, 19 scored, and
+# 5-7 h of scoring alone left at load 3/8 with 10 GB free.
 # Measured 2026-10-09 on an 8 vCPU / 16 GB box (14 GB available), Gemini flash at low:
 #   5 workers  ~60 cases/h,  run.py peak RSS 2.8 GB, least available 8.1 GB, load 6.2
 #   12 workers ~161 cases/h, run.py RSS 0.6 GB, least available 12.6 GB, load 4.4; per-case
@@ -59,7 +64,7 @@ step() { echo "[run_core] $*"; }
 # so an episode costs well under the 1 GB the budget gave it; scorers measured 1-1.4 GB RSS
 # (cap 4 GB), and T5/T6 scorers spike, so they keep 3 GB each. That box now gets 10 workers.
 mem_budget() {
-    local cpus mem s reserve free w e
+    local cpus mem s reserve free w e smax
     cpus=${BENCHCAD_NPROC:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
     if [ -n "${BENCHCAD_MEM_GB:-}" ]; then mem=$BENCHCAD_MEM_GB
     elif [ -r /proc/meminfo ]; then mem=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
@@ -70,7 +75,8 @@ mem_budget() {
     free=$(( mem - reserve )); [ "$free" -lt 0 ] && free=0
     w=$(( 2 * free )); [ "$w" -gt $(( 2 * cpus )) ] && w=$(( 2 * cpus )); [ "$w" -gt 32 ] && w=32; [ "$w" -lt 1 ] && w=1
     e=$(( free / 2 )); [ "$e" -gt $(( cpus - s )) ] && e=$(( cpus - s )); [ "$e" -lt 1 ] && e=1   # execs + scorers <= CPUs
-    echo "$w $s $e $cpus CPUs, $mem GB available: run.py 3 GB + $s scorers x 3 GB reserved, $free GB for $w episodes, $e sandbox executions at once"
+    smax=$(( cpus - e )); [ "$smax" -gt 4 ] && smax=4; [ "$smax" -lt "$s" ] && smax=$s
+    echo "$w $s $e $smax $mem $cpus CPUs, $mem GB available: run.py 3 GB + $s scorers x 3 GB reserved, $free GB for $w episodes, $e sandbox executions at once, scorers $s->$smax as episodes finish"
 }
 
 # 1. tools: uv is installed if missing (and found again at ~/.local/bin on the next run);
@@ -204,12 +210,12 @@ if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null && [ "$(ca
     SHARED=1; step "WARNING: another run_core is running here (pid $(cat "$LOCK")); budgeting half the memory"
 fi
 if [ "$DRY" = 0 ]; then mkdir -p "$(dirname "$LOCK")"; echo $$ > "$LOCK"; trap '[ "$(cat "$LOCK" 2>/dev/null)" = $$ ] && rm -f "$LOCK"' EXIT; fi
-read -r AUTO_W SCORERS EXECS BUDGET <<< "$(mem_budget)"
+read -r AUTO_W SCORERS EXECS SCORERS_MAX MEM_GB BUDGET <<< "$(mem_budget)"
 if [ -z "$WORKERS" ]; then
     WORKERS=$AUTO_W
     step "workers $WORKERS per effort, auto: $BUDGET (--workers N overrides)"
 else
-    step "workers $WORKERS per effort (--workers override; the memory budget would size $AUTO_W), $EXECS sandbox executions and $SCORERS scorers at once"
+    step "workers $WORKERS per effort (--workers override; the memory budget would size $AUTO_W), $EXECS sandbox executions at once, scorers $SCORERS->$SCORERS_MAX as episodes finish"
 fi
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/core/$TAG"
@@ -222,7 +228,7 @@ for E in ${EFFORTS//,/ }; do
     EFF=(); [ "$E" = "-" ] || EFF=(--effort "$E")
     NAME=${E/-/default}
     CMD=("${PY[@]}" -u harness/run.py --model "$MODEL" ${EFF[@]+"${EFF[@]}"} --cases "${CASES:-$DATA}"
-         --rounds "$ROUNDS" --rep 0 --workers "$WORKERS" --score-workers "$SCORERS" --max-execs "$EXECS"
+         --rounds "$ROUNDS" --rep 0 --workers "$WORKERS" --score-workers "$SCORERS" --max-execs "$EXECS" --score-workers-max "$SCORERS_MAX" --memory-gb "$MEM_GB"
          --resume --out "$OUT/$NAME.json"
          --work "work/core/$TAG/$NAME" ${EXTRA[@]+"${EXTRA[@]}"})
     FILES+=("$OUT/$NAME.json")

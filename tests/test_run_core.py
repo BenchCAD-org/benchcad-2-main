@@ -157,9 +157,9 @@ def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_p
 
 
 @pytest.mark.parametrize("cpus,mem,want", [
-    (8, 14, (10, 2, 2)),         # run's 8 vCPU / 16 GB box: 14 GB available
-    (8, 30, (16, 4, 4)), (8, 64, (16, 4, 4)), (32, 256, (32, 4, 28)), (1, 64, (2, 4, 1)), (16, 6, (1, 1, 1)),
-    (2, 0, (1, 1, 1))])
+    (8, 14, (10, 2, 2, 4)),      # run's 8 vCPU / 16 GB box: 14 GB available
+    (8, 30, (16, 4, 4, 4)), (8, 64, (16, 4, 4, 4)), (32, 256, (32, 4, 28, 4)), (1, 64, (2, 4, 1, 4)),
+    (16, 6, (1, 1, 1, 4)), (2, 0, (1, 1, 1, 1))])
 def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, mem, want):
     """run.py 3 GB + 3 GB per scorer reserved; two episodes per remaining GB (two per CPU,
     32 at most); scorers max(1, min(4, GB/5)); one sandbox execution per 2 GB, and
@@ -170,13 +170,14 @@ def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, m
     env = {"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)}
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", env_extra=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    w, s, e = want
+    w, s, e, smax = want
     assert f"workers {w} per effort, auto: {cpus} CPUs, {mem} GB available" in r.stdout
+    assert f"scorers {s}->{smax} as episodes finish" in r.stdout
     cmd = next(l for l in r.stdout.splitlines() if "would run:" in l)
-    assert f"--workers {w} --score-workers {s} --max-execs {e} " in cmd, cmd
+    assert f"--workers {w} --score-workers {s} --max-execs {e} --score-workers-max {smax} --memory-gb {mem} " in cmd, cmd
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3", env_extra=env)
     assert (f"workers 3 per effort (--workers override; the memory budget would size {w}), "
-            f"{e} sandbox executions and {s} scorers at once") in r.stdout
+            f"{e} sandbox executions at once, scorers {s}->{smax} as episodes finish") in r.stdout
     assert f"--workers 3 --score-workers {s} --max-execs {e} " in r.stdout
 
 
