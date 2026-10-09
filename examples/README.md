@@ -6,10 +6,11 @@ evaluation can be **set up and aligned** — install the environment, run one
 case, get the same numbers we get — before anyone runs the formal benchmark.
 
 **These are not the formal bank.** They are nine cases we are happy to publish,
-chosen to cover all six tasks. The formal bank and its answers are not in this
-repository and will not be; a benchmark question is spent the moment it has been
-seen. Aligning on these samples and scoring well on them says the *plumbing*
-agrees, not that a model is good.
+chosen to cover all six tasks. Core, the 100 cases behind the published scores, is
+available under an agreement: [benchcad.com/access.html](https://benchcad.com/access.html)
+(request access on [Hugging Face](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core));
+it runs with `tools/run_core.sh`. Aligning on these samples and scoring well on them
+says the *plumbing* agrees, not that a model is good.
 
 Each sample directory is:
 
