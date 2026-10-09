@@ -2020,7 +2020,15 @@ def _rescore_only(rec: dict) -> bool:
     (the scorer's environment, its memory budget): --resume scores the answer
     again and does not re-run the episode -- the model is not paid for twice
     because of a host problem."""
-    return bool(rec.get("score_error") and rec.get("step"))
+    if not rec.get("step") or not Path(rec["step"]).exists() or rec.get("score"):
+        return False
+    # Records from before score_error existed (harness before 1cb51ab) say it only in the
+    # error text: the scorer's child process failed, or could not load its libraries.
+    return bool(rec.get("score_error") or rec.get("memory_budget_exceeded")
+                or _SCORER_FAILED.search(rec.get("error") or ""))
+
+
+_SCORER_FAILED = __import__("re").compile(r"scorer exited|libGL\.so|MemoryBudgetExceeded")
 
 
 def _shard(cases: list, spec: str | None) -> list:
