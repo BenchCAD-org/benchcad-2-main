@@ -37,6 +37,8 @@ export HF_TOKEN=...  GEMINI_API_KEY=...      # or ANTHROPIC_API_KEY / OPENAI_API
 tools/run_core.sh --model gemini/<model-id> --effort low,medium,high
 ```
 
+An Anthropic organization-level key also needs `ANTHROPIC_WORKSPACE_ID`.
+
 That one command installs the environment, builds the sandbox, downloads and
 verifies the dataset, runs all 100 cases, scores them and prints the result.
 Run it again to resume. The summary is written to `results/core/<model>/core_summary.json`.
