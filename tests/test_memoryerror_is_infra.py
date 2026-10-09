@@ -228,7 +228,7 @@ def test_a_real_numpy_allocation_failure_is_a_memory_budget_record(tmp_path):
     MEMORY_ERROR_EXIT by type and the record is memory_budget_exceeded."""
     driver = ("import sys, numpy as np\n"
               "import envs.common.score_case as sc\n"
-              "def score_case(case, answer):\n"
+              "def score_case(case, answer, mode=None):\n"
               "    try:\n"
               "        return np.zeros(1 << 50, dtype=np.uint8)\n"
               "    except MemoryError as x:\n"
@@ -331,7 +331,7 @@ def test_harness_records_a_killed_worker_as_memory_budget(tmp_path):
     """MeshWorkerKilled out of the real scorer child: exit MEMORY_ERROR_EXIT, no score."""
     driver = ("import envs.common.score_case as sc\n"
               "from envs.geom.meshguard import MeshWorkerKilled\n"
-              "def score_case(case, answer):\n"
+              "def score_case(case, answer, mode=None):\n"
               "    raise MeshWorkerKilled('mesher process killed by SIGKILL during the test')\n"
               "sc.score_case = score_case\n"
               f"exec({run.SCORER_CHILD!r})\n")
@@ -420,7 +420,7 @@ def test_occt_out_of_memory_in_process_raises_instead_of_scoring_zero(monkeypatc
 
 def _child(tmp_path, body: str, pre: str = ""):
     driver = (pre + "import envs.common.score_case as sc\n"
-              "def score_case(case, answer):\n" + body +
+              "def score_case(case, answer, mode=None):\n" + body +
               "sc.score_case = score_case\n"
               f"exec({run.SCORER_CHILD!r})\n")
     return subprocess.run([sys.executable, "-c", driver, str(tmp_path), str(tmp_path / "a.step")],

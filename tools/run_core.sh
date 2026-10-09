@@ -217,6 +217,10 @@ if [ -z "$WORKERS" ]; then
 else
     step "workers $WORKERS per effort (--workers override; the memory budget would size $AUTO_W), $EXECS sandbox executions at once, scorers $SCORERS->$SCORERS_MAX as episodes finish"
 fi
+# A score may take 4 h (the heaviest T2 assembly needed that on the internal re-scores; at
+# run.py's own 3600 s it timed out on an 8 vCPU / 16 GB box and left the run without a headline).
+export BENCHCAD_SCORE_TIMEOUT_S=${BENCHCAD_SCORE_TIMEOUT_S:-14400}
+step "scorer timeout $BENCHCAD_SCORE_TIMEOUT_S s per case (BENCHCAD_SCORE_TIMEOUT_S; a timed-out case is re-scored on the next run)"
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/core/$TAG"
 mkdir -p "$OUT"

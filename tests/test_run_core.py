@@ -235,3 +235,28 @@ def test_a_price_belongs_to_one_model_id():
          "output_tokens_per_case": 100, "median_seconds_per_case": 10}
     line = next(l for l in C.report([f]).splitlines() if "per case:" in l)
     assert "price unknown for gemini/gemini-3.8-flash" in line and "in 1000 tok" in line and "$" not in line
+
+
+def test_the_table_names_the_harness_the_records_ran_on(tmp_path, capsys):
+    """acc-1 printed "harness 8c34013": the checkout, pulled mid-run; run.py ran 1cb51ab."""
+    f = tmp_path / "r.json"
+    recs = [_rec("task3/cases/case001", {"score": 1.0}, harness_commit="1cb51ab00000"),
+            _rec("task3/cases/case002", {"score": 1.0}, harness_commit="1cb51ab00000"),
+            _rec("task3/cases/case003", {"score": 1.0}, harness_commit="db98eef00000")]
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30, "cases": recs}))
+    C.main([str(f), "--json", str(tmp_path / "s.json")])
+    assert "harness 1cb51ab00000 (2), db98eef00000 (1)  dataset" in capsys.readouterr().out
+    assert json.loads((tmp_path / "s.json").read_text())["harness_commits"] == {"1cb51ab00000": 2, "db98eef00000": 1}
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30, "cases": recs[:1]}))
+    C.main([str(f)])
+    assert "harness 1cb51ab00000  dataset" in capsys.readouterr().out
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30,
+                             "cases": [_rec("task3/cases/case001", {"score": 1.0})]}))
+    C.main([str(f)])
+    assert "harness unknown (checkout " in capsys.readouterr().out
+
+
+def test_run_core_gives_a_score_four_hours(tmp_path):
+    data = fake_core(tmp_path / "core")
+    r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run")
+    assert r.returncode == 0 and "scorer timeout 14400 s per case" in r.stdout

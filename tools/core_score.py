@@ -123,6 +123,17 @@ def harness_commit() -> str | None:
         return None
 
 
+def record_revs(files: list[Path]) -> dict[str, int]:
+    """{harness commit: records} as stamped at episode time ("unknown" for
+    records from before the stamp)."""
+    out: dict[str, int] = {}
+    for f in files:
+        for rec in json.loads(Path(f).read_text()).get("cases", []):
+            k = rec.get("harness_commit") or "unknown"
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
 def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None = None) -> list[dict]:
     """One summary per (model, effort) found in `files`. `n_core`: the cases
     the dataset holds; fewer cases than that is a subset, with no headline."""
@@ -252,18 +263,23 @@ def main(argv=None) -> int:
                     help="on an incomplete run, also print the mean over the resolved cases, labelled")
     ap.add_argument("--compare", type=Path, default=None, help="a core_reference.json to print beside each line")
     a = ap.parse_args(argv)
-    meta = {"harness_commit": harness_commit()}
+    files = [f for f in a.results if f.exists()]
+    revs = record_revs(files)
+    meta = {"harness_commits": revs, "checkout_commit": harness_commit()}
     info = a.dataset_info or a.dataset
     if info and (Path(info) / "dataset.json").exists():
         ds = json.loads((Path(info) / "dataset.json").read_text())
         meta["dataset"] = {k: ds.get(k) for k in ("name", "version", "scorer_digest", "n_cases")}
-    rows = summarize([f for f in a.results if f.exists()], a.dataset,
+    rows = summarize(files, a.dataset,
                      (meta.get("dataset") or {}).get("n_cases"))
     if not rows:
         print("no case records in", ", ".join(map(str, a.results)))
         return 1
     ref = json.loads(a.compare.read_text()) if a.compare else None
-    print(f"harness {meta['harness_commit']}  dataset "
+    known = [k for k in revs if k != "unknown"]
+    ran = (", ".join(f"{k} ({n})" for k, n in sorted(revs.items(), key=lambda kv: -kv[1]))
+           if len(revs) > 1 else known[0] if known else f"unknown (checkout {meta['checkout_commit']})")
+    print(f"harness {ran}  dataset "
           + (f"{meta['dataset']['name']} {meta['dataset']['version']}  scorer_digest "
              f"{str(meta['dataset']['scorer_digest'])[:12]}" if "dataset" in meta else "-"))
     print(report(rows, a.provisional, ref))

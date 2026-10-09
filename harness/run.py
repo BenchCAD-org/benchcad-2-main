@@ -1840,8 +1840,39 @@ def inputs_sha256(case: Path) -> str | None:
 # tessellate to 10^7 triangles (coil springs, caster assemblies) takes
 # 15-30 min to score honestly, and a submission on it should not be
 # recorded as an error for that.
+# BENCHCAD_SCORE_TIMEOUT_S raises both (tools/run_core.sh sets 14400, the
+# 4 h the internal re-scores of the heaviest T2 assembly needed). Measured
+# 2026-10-09, Haiku high, Core on 8 vCPU / 16 GB: T2 case004 timed out at
+# 3600 s and left the run without a headline.
 SCORE_TIMEOUT_S = 3600
 SCORE_TIMEOUT_ECAD_S = 4200
+SCORE_TIMEOUT_ENV = "BENCHCAD_SCORE_TIMEOUT_S"
+
+
+def score_timeout(ecad: bool) -> float:
+    """Seconds a score may take: the defaults above, or BENCHCAD_SCORE_TIMEOUT_S
+    when it is longer."""
+    base = SCORE_TIMEOUT_ECAD_S if ecad else SCORE_TIMEOUT_S
+    try:
+        return max(base, float(os.environ.get(SCORE_TIMEOUT_ENV) or 0))
+    except ValueError:
+        return base
+
+
+def harness_rev() -> str | None:
+    """The commit this harness runs from (12 hex, "+dirty" with tracked
+    changes), read once at start: a checkout pulled mid-run does not change
+    what the records say ran them."""
+    import subprocess
+    root = Path(__file__).resolve().parents[1]
+    try:
+        rev = subprocess.run(["git", "-C", str(root), "rev-parse", "--short=12", "HEAD"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:                                            # noqa: BLE001
+        return None
+    return (rev + ("+dirty" if dirty else "")) if rev else None
 
 # A memory budget per score. On 2026-10-04 three scorers on a Linux worker went past
 # 20 GB of resident memory (a T5 reference of 160 MB; a T4 and a T3 cell whose
@@ -1987,10 +2018,12 @@ def score_in_subprocess(case: Path, artifact: Path, mode: str | None = None) -> 
     cmd, capped = memory_capped(argv, limit)
     try:
         r = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=SCORE_TIMEOUT_ECAD_S if ecad else SCORE_TIMEOUT_S,
+                           timeout=score_timeout(ecad),
                            cwd=str(Path(__file__).resolve().parents[1]))
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(f"scorer timed out after {e.timeout:.0f} s (re-score later)") from None
+        raise RuntimeError(f"scorer timed out after {e.timeout:.0f} s (re-score later: the same command "
+                           f"with --resume scores the answer again; a longer limit: "
+                           f"{SCORE_TIMEOUT_ENV}={int(e.timeout) * 2})") from None
     return scorer_outcome(r, capped, limit)
 
 
@@ -2057,7 +2090,7 @@ def _rescore_only(rec: dict) -> bool:
                 or _SCORER_FAILED.search(rec.get("error") or ""))
 
 
-_SCORER_FAILED = __import__("re").compile(r"scorer exited|libGL\.so|MemoryBudgetExceeded")
+_SCORER_FAILED = __import__("re").compile(r"scorer exited|scorer timed out|libGL\.so|MemoryBudgetExceeded")
 
 
 def _shard(cases: list, spec: str | None) -> list:
@@ -2207,6 +2240,7 @@ def main() -> int:
     if not cases:
         raise SystemExit(f"--cases {a.cases}: no cases found")
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    rev = harness_rev()
     work_root, out_path = work_paths(a.work, a.out, a.model, a.effort, a.rep, stamp)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     work_lock = claim_work_root(work_root)                     # noqa: F841  (held until exit)
@@ -2271,7 +2305,8 @@ def main() -> int:
         t0 = time.time()
         rec = {"case": str(case), "case_id": case.name, "model": a.model,
                "provider": prefix.rstrip("/"), "rounds": a.rounds,
-               "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep}
+               "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep,
+               "harness_commit": rev}
         gt = case / "gt/gt.step"
         rec["gt_sha256"] = sha256(gt) if gt.exists() else None
         rec["inputs_sha256"] = inputs_sha256(case)
@@ -2357,6 +2392,7 @@ def main() -> int:
                 if artifact:
                     with gate:
                         t0 = time.time()
+                        rec["score_harness_commit"] = rev
                         rec["score"] = score_in_subprocess(case, Path(artifact))
                 else:
                     rec["score"] = None

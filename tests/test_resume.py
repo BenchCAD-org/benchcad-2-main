@@ -51,7 +51,9 @@ def home_work(tmp_path):
     {"error": "RuntimeError: scorer exited 1: ImportError: libGL.so.1: cannot open shared object file"},
     # finished, recorded, then the run was killed before its score landed
     {"pending_score": True},
-], ids=["score_error", "pre-1cb51ab", "killed-before-scoring"])
+    # a score past its time limit (T2 case004 on a 16 GB box at 3600 s), in the error text only
+    {"error": "RuntimeError: scorer timed out after 3600 s (re-score later)"},
+], ids=["score_error", "pre-1cb51ab", "killed-before-scoring", "timed-out"])
 def test_resume_rescores_a_scorer_failure_and_never_reruns_its_episode(tmp_path, home_work, marks):
     """A score that failed for the host's sake (a missing system library, the
     memory budget) is re-scored on --resume from the answer already on disk:
@@ -61,6 +63,9 @@ def test_resume_rescores_a_scorer_failure_and_never_reruns_its_episode(tmp_path,
     first = _out(run("--model", "mock/oracle", "--cases", str(case.relative_to(ROOT)), "--rounds", "2",
                      "--out", str(out), "--work", str(home_work / "w")))
     rec = first["cases"][0]
+    head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short=12", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert rec["harness_commit"].split("+")[0] == head, "the record names the harness that ran it"
     step = Path(rec["step"]); mtime = step.stat().st_mtime_ns
     rec.update(score=None, seconds=12345.0, **marks)
     out.write_text(json.dumps(first))
@@ -94,3 +99,20 @@ def test_a_run_task_by_task_into_one_file_keeps_every_task(tmp_path, home_work):
     n2 = sum(1 for _ in (ROOT / "examples/task2").rglob("case.json"))
     assert n2 and sum("/task2/" in c["case"] for c in both) == n2 and len(both) == len(first) + n2
     assert [c["case"] for c in both] == sorted((c["case"] for c in both), key=Path)
+
+
+def test_a_score_may_take_longer_when_asked_and_a_timeout_says_how(monkeypatch):
+    import run as R
+    monkeypatch.delenv(R.SCORE_TIMEOUT_ENV, raising=False)
+    assert (R.score_timeout(False), R.score_timeout(True)) == (3600, 4200)
+    monkeypatch.setenv(R.SCORE_TIMEOUT_ENV, "14400")
+    assert (R.score_timeout(False), R.score_timeout(True)) == (14400, 14400)
+
+    def slow(*a, **kw):
+        raise subprocess.TimeoutExpired(a[0], kw["timeout"])
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(RuntimeError) as e:
+        R.score_in_subprocess(STEP_CASES[0], Path("/no/answer.step"))
+    msg = str(e.value)
+    assert "timed out after 14400 s" in msg and "--resume" in msg and f"{R.SCORE_TIMEOUT_ENV}=28800" in msg
+    assert R._SCORER_FAILED.search("RuntimeError: " + msg)
