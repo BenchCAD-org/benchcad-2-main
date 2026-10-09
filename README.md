@@ -29,7 +29,9 @@ geometry against the reference, deterministic, with no LLM judge.
 ## Quick start
 
 Needs Docker and a Hugging Face account with Core access
-([request it here](https://benchcad.com/access.html)).
+([request it here](https://benchcad.com/access.html)). Docker on Linux:
+`curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER`, then log in
+again (on a freshly booted box, apt may hold its lock for a minute).
 
 ```bash
 git clone https://github.com/BenchCAD-org/benchcad-2-main && cd benchcad-2-main
@@ -49,7 +51,7 @@ Run it again to resume. The summary is written to `results/core/<model>/core_sum
 | `--effort` | comma-separated, e.g. `low,medium,high`; one run each (default: the provider's ladder) |
 | `--rounds` | default `30`, the published setting; anything else is labelled a smoke run |
 | `--cases` | a task or case directory inside the dataset, for a subset |
-| `--workers` | episodes in parallel (default `4`) |
+| `--workers` | episodes in parallel (default: two per CPU, 4 to 32, capped by memory) |
 | `--dry-run` | check keys, dataset and sandbox; run nothing |
 
 **Gemini.** `--effort low|medium|high` is sent as `thinking_level`. Use `GEMINI_API_KEY`,
