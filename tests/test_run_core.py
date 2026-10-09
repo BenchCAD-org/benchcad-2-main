@@ -174,7 +174,8 @@ def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, m
     cmd = next(l for l in r.stdout.splitlines() if "would run:" in l)
     assert f"--workers {w} --score-workers {s} --max-execs {e} " in cmd, cmd
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3", env_extra=env)
-    assert "workers 3 per effort (memory budget:" in r.stdout
+    assert (f"workers 3 per effort (--workers override; the memory budget would size {w}), "
+            f"{e} sandbox executions and {s} scorers at once") in r.stdout
     assert f"--workers 3 --score-workers {s} --max-execs {e} " in r.stdout
 
 

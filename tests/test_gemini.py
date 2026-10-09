@@ -165,12 +165,30 @@ def test_max_tokens_with_no_block_is_truncated_and_retried_once_with_room(monkey
         {c["config"].max_output_tokens for c in fake.calls} == {65_536}
 
 
-@pytest.mark.parametrize("finish", ["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "OTHER"])
+@pytest.mark.parametrize("finish", ["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"])
 def test_a_policy_finish_is_deterministic_and_named(monkeypatch, finish):
     fake = FakeGenai(monkeypatch, [chunk(("", False, None), finish=finish, usage=USAGE)])
     with pytest.raises(R.ReplyBlocked, match=f"finish_reason={finish}"):
         R.gemini_call("gemini-3.8-flash", None, [], "k")("sys", TURNS)
     assert len(fake.calls) == 1, "the same request draws the same verdict"
+
+
+@pytest.mark.parametrize("finish", ["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "LANGUAGE", "OTHER"])
+def test_a_sampling_slip_is_resampled_not_blocked(monkeypatch, finish):
+    """Measured 2026-10-09 (gemini-3.8-flash, low, Core): MALFORMED_FUNCTION_CALL
+    was ReplyBlocked, three rounds in a row, and two T6 cases ended in an error."""
+    slip = [chunk(("", False, None), finish=finish, usage=USAGE)]
+    fake = FakeGenai(monkeypatch, slip, ok_stream())
+    assert R.gemini_call("gemini-3.8-flash", None, [], "k")("sys", TURNS) == FENCE
+    assert len(fake.calls) == 2
+
+
+def test_a_slip_on_every_try_loses_the_round_not_the_episode(monkeypatch, capsys):
+    slip = [chunk(("I will call", False, None), finish="MALFORMED_FUNCTION_CALL", usage=USAGE)]
+    fake = FakeGenai(monkeypatch, slip)
+    assert R.gemini_call("gemini-3.8-flash", None, [], "k")("sys", TURNS) == "I will call"
+    assert len(fake.calls) == R.ATTEMPTS
+    assert "handing the reply back (this round is lost)" in capsys.readouterr().out
 
 
 def test_a_blocked_prompt_is_logged_and_not_repeated(monkeypatch, capsys):

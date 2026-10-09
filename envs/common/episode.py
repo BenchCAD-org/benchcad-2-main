@@ -521,6 +521,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
 
     rounds, submitted = [], ""
     dead = 0
+    blocked = 0                  # consecutive rounds the provider withheld on policy
     summaries = 0
     for rnd in range(1, max_rounds + 1):
         needed, last_tokens, limit = _needs_summary(call_fn)
@@ -546,11 +547,21 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 summaries += 1
                 turns = _summarize(call_fn, system, turns, task_brief, box, rounds, "reactive", summaries)
                 raw = call_fn(system, turns)
-            dead = 0
+            dead = blocked = 0
         except Exception as e:                           # noqa: BLE001
             dead += 1
+            blocked = blocked + 1 if type(e).__name__ == "ReplyBlocked" else 0
             rounds.append({"round": rnd, "action": "call_failed",
                            "error": f"{type(e).__name__}: {e}"})
+            if blocked >= MAX_DEAD_ROUNDS:
+                # The provider refused this conversation on policy every time
+                # (harness.run.ReplyBlocked): its verdict on the model's
+                # context, not a fault, and a re-run would only ask again. The
+                # episode ends here with no submission -- a final record,
+                # scored 0 -- so one refusal cannot leave a case pending.
+                print(f"      round {rnd} reply withheld {blocked} rounds in a row; "
+                      f"ending the episode with no submission", flush=True)
+                break
             if dead >= MAX_DEAD_ROUNDS:
                 print(f"      round {rnd} call failed ({type(e).__name__}), "
                       f"{dead} in a row -- treating as a real fault, "

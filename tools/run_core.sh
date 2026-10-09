@@ -204,7 +204,7 @@ if [ -z "$WORKERS" ]; then
     WORKERS=$AUTO_W
     step "workers $WORKERS per effort, auto: $BUDGET (--workers N overrides)"
 else
-    step "workers $WORKERS per effort (memory budget: $BUDGET)"
+    step "workers $WORKERS per effort (--workers override; the memory budget would size $AUTO_W), $EXECS sandbox executions and $SCORERS scorers at once"
 fi
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/core/$TAG"

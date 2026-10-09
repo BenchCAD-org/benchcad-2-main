@@ -8,6 +8,8 @@ import textwrap
 import types
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from envs.common.sandbox import TOOLS_PY  # noqa: E402
@@ -171,6 +173,35 @@ def test_context_summarization_replaces_the_history_the_terminus_way(tmp_path, m
     assert last["n_turns"] == 4 and last["images"] == 1 and "Here are the answers" in last["last"]
     assert [r["action"] for r in out["rounds"]] == ["exec", "summarize", "submit"]
     assert out["submitted"] and (tmp_path / "w_log" / "summary_01.json").exists()
+
+
+def test_a_reply_withheld_round_after_round_ends_with_no_submission(tmp_path, monkeypatch):
+    """harness.run.ReplyBlocked: the provider refused the conversation on
+    policy. MAX_DEAD_ROUNDS of it in a row end the episode with no submission,
+    a final record scored 0 -- not an exception, which leaves the case an
+    error that --resume re-runs and Core counts as pending, forever. Any other
+    failure still ends the case as a fault."""
+    from envs.common import episode as E
+    from envs.common import sandbox as S
+    from harness.run import ReplyBlocked
+    monkeypatch.setenv("CADENV_LOCAL", "1")
+    monkeypatch.setattr(S, "_docker_ready", lambda: False)
+    case = ROOT / "tests/fixtures/t3/case1"
+
+    def blocked(system, turns, plain=False):
+        raise ReplyBlocked("gemini withheld the reply: finish_reason=SAFETY")
+    blocked.usage = []
+    blocked.context_tokens = 200_000
+    out = E.run_episode(case, tmp_path / "w", blocked, max_rounds=10, exec_timeout=60)
+    assert [r["action"] for r in out["rounds"]] == ["call_failed"] * E.MAX_DEAD_ROUNDS + ["no_submission"]
+    assert not out["submitted"] and out["step"] is None
+
+    def down(system, turns, plain=False):
+        raise ConnectionError("Connection error.")
+    down.usage = []
+    down.context_tokens = 200_000
+    with pytest.raises(ConnectionError):
+        E.run_episode(case, tmp_path / "w2", down, max_rounds=10, exec_timeout=60)
 
 
 def test_an_over_budget_call_is_a_discarded_round_the_model_hears_about(tmp_path, monkeypatch):

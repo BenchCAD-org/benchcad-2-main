@@ -633,6 +633,10 @@ def drive(send, what: str):
                           flush=True)
                     continue                                   # not an attempt either
                 if attempt == ATTEMPTS - 1:
+                    if hasattr(e, "hand_back"):              # ReplyGlitch: this round is lost, not the episode
+                        print(f"      {msg[:110]} on all {ATTEMPTS} tries; handing the reply back "
+                              f"(this round is lost)", flush=True)
+                        return e.hand_back
                     raise
                 print(f"      {what} failed ({type(e).__name__}: {msg[:110 if status != 429 else 400]}), "
                       f"retry {attempt + 1}/{ATTEMPTS - 1}", flush=True)
@@ -1233,13 +1237,35 @@ class ReplyBlocked(RuntimeError):
     RECITATION, PROHIBITED_CONTENT, ...). The same request draws the same
     verdict, so it carries code 400 and drive() does not repeat it; the round
     is discarded with the reason in its log and record. IMAGE_SAFETY names an
-    image, so drive() makes its one retry without the images first."""
+    image, so drive() makes its one retry without the images first. Blocked
+    MAX_DEAD_ROUNDS rounds in a row, the episode ends with no submission
+    (envs/common/episode.py): a final record, scored 0, not an error."""
     code = 400
 
 
-# Finish reasons that are the reply ending normally or for want of room;
-# every other one withholds the reply (ReplyBlocked).
+class ReplyGlitch(RuntimeError):
+    """Gemini ended the candidate on a non-policy finish_reason: a sampling
+    slip (MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL -- the model began a
+    function call no tool declares; this harness declares none), LANGUAGE (it
+    drifted into an unsupported language), OTHER, or a reason this table does
+    not know. Measured 2026-10-09 on gemini-3.8-flash,
+    effort low, Core: two T6 episodes drew MALFORMED_FUNCTION_CALL, which was
+    then ReplyBlocked, three rounds in a row, and both cases ended in an error.
+    A fresh sample usually goes through, so drive() retries it like a
+    transient failure; on the last attempt the partial reply is handed back
+    and that round is lost, as a truncated reply's is -- never the episode."""
+
+    def __init__(self, msg: str, reply: str = ""):
+        super().__init__(msg)
+        self.hand_back = reply
+
+
+# Finish reasons that are the reply ending normally or for want of room.
 GEMINI_FINISH_OK = {"STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED"}
+# Finish reasons that are a verdict on the content (ReplyBlocked). Every other
+# one is a ReplyGlitch.
+GEMINI_FINISH_POLICY = {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
+                        "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION"}
 
 
 class _IdleTimeoutClient:
@@ -1322,7 +1348,8 @@ def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
       which the run watchers parse.
     - MAX_TOKENS with no executable block is a truncated reply: marked, and
       once more with a doubled budget when --max-tokens set one. A blocked
-      prompt or a policy finish_reason is ReplyBlocked.
+      prompt or a policy finish_reason is ReplyBlocked; any other
+      finish_reason (MALFORMED_FUNCTION_CALL, ...) is a ReplyGlitch.
     `auth`: an API key, or gemini_auth()'s client kwargs.
     """
     from google import genai
@@ -1424,11 +1451,13 @@ def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
         else:
             print("      (provider reported no usage; token counts for this call are unknown, not zero)", flush=True)
         print(f"      reasoning {len(''.join(think)):,} chars, content {len(reply):,}, stop={finish}", flush=True)
-        if block or (finish and finish not in GEMINI_FINISH_OK):
+        if block or finish in GEMINI_FINISH_POLICY:
             if block:
                 print(f"      blocked: block_reason={block}", flush=True)
             raise ReplyBlocked(f"gemini withheld the reply: "
                                + (f"block_reason={block}" if block else f"finish_reason={finish}"))
+        if finish and finish not in GEMINI_FINISH_OK:
+            raise ReplyGlitch(f"gemini ended the reply on finish_reason={finish}", reply)
         if finish == "MAX_TOKENS" and not _has_fence(reply):
             if not room["on"] and max_tokens:
                 room["on"] = True
