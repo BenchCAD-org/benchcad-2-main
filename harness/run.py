@@ -2164,11 +2164,18 @@ def main() -> int:
 
     # Records keyed by case path, in case order, so a resumed run and a
     # parallel run both write the same file a sequential run would.
+    # A resumed file may hold cases outside this --cases (a run task by task
+    # into one file): they are carried over untouched, whatever their state.
+    # Measured 2026-10-09: --cases task3 then --cases task4 into one file left
+    # only task4's 25 records; task3's 28 were gone.
     kept: dict[str, dict] = {}
+    others: dict[str, dict] = {}
     if a.resume and out_path.exists():
         prior = json.loads(out_path.read_text())
-        kept = {r["case"]: r for r in prior.get("cases", []) if _done(r)}
-        rescore = {r["case"]: r for r in prior.get("cases", []) if _rescore_only(r)}
+        scope = {str(c) for c in cases}
+        others = {r["case"]: r for r in prior.get("cases", []) if r["case"] not in scope}
+        kept = {r["case"]: r for r in prior.get("cases", []) if r["case"] in scope and _done(r)}
+        rescore = {r["case"]: r for r in prior.get("cases", []) if r["case"] in scope and _rescore_only(r)}
         stamp = prior.get("started", stamp)
     else:
         rescore = {}
@@ -2182,7 +2189,8 @@ def main() -> int:
           + (f"  task-budget {a.task_budget:,}" if a.task_budget else "")
           + (f"  max-execs {a.max_execs}" if a.max_execs else "")
           + (f"  shard {a.shard}" if a.shard else "")
-          + (f"  resume: {len(kept)} kept, {len(again)} to re-score, {len(todo)} to run" if a.resume else ""),
+          + (f"  resume: {len(kept)} kept, {len(again)} to re-score, {len(todo)} to run" if a.resume else "")
+          + (f", {len(others)} other cases carried over" if others else ""),
           flush=True)
     if prefix == "gemini/":
         print(f"gemini auth {gemini_auth()[1]}", flush=True)       # fails here, before any case, when unset
@@ -2194,10 +2202,11 @@ def main() -> int:
     lock = threading.Lock()
 
     def write() -> None:
+        rows = {**others, **{str(c): records[str(c)] for c in cases if str(c) in records}}
         out_path.write_text(json.dumps(
             {"model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
              "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep, "started": stamp,
-             "cases": [records[str(c)] for c in cases if str(c) in records]},
+             "cases": [rows[k] for k in sorted(rows, key=Path)]},
             indent=1, default=str) + "\n")
 
     def one(case: Path) -> dict:

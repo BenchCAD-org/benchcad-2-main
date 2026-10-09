@@ -51,7 +51,7 @@ Run it again to resume. The summary is written to `results/core/<model>/core_sum
 | `--model` | `anthropic/<id>`, `openai/<id>`, `gemini/<id>`, `xai/<id>`, `openrouter/<id>` (**required**) |
 | `--effort` | comma-separated, e.g. `low,medium,high`; one run each (default: the provider's ladder) |
 | `--rounds` | default `30`, the published setting; anything else is labelled a smoke run |
-| `--cases` | a task or case directory inside the dataset, for a subset |
+| `--cases` | a task or case directory inside the dataset, for a subset; runs add up in one results file, and the table says `SUBSET n/100` until all cases are in |
 | `--workers` | episodes in parallel (default: from a memory budget, printed at the start) |
 | `--dry-run` | set everything up and check keys, dataset access and the scorers; no API calls |
 

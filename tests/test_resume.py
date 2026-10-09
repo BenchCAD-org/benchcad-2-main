@@ -78,3 +78,19 @@ def test_an_episode_error_with_no_answer_is_still_rerun():
     import run as R
     assert not R._rescore_only({"error": "APIConnectionError: boom", "step": None})
     assert not R._rescore_only({"error": "RuntimeError: scorer exited 1", "step": "/no/such/answer.step"})
+
+
+def test_a_run_task_by_task_into_one_file_keeps_every_task(tmp_path, home_work):
+    """--resume into a file that holds other cases carries them over untouched.
+    Measured 2026-10-09: --cases task3 then --cases task4 into one results file
+    left task4's 25 records; task3's 28 were gone."""
+    out = tmp_path / "r.json"
+    args = ("--model", "mock/oracle", "--rounds", "1", "--out", str(out), "--resume")
+    first = _out(run("--cases", "examples/task1", *args, "--work", str(home_work / "a")))["cases"]
+    r = run("--cases", "examples/task2", *args, "--work", str(home_work / "b"))
+    assert "resume: 0 kept, 0 to re-score, " in r.stdout and f"{len(first)} other cases carried over" in r.stdout
+    both = _out(r)["cases"]
+    assert [c for c in both if "/task1/" in c["case"]] == first
+    n2 = sum(1 for _ in (ROOT / "examples/task2").rglob("case.json"))
+    assert n2 and sum("/task2/" in c["case"] for c in both) == n2 and len(both) == len(first) + n2
+    assert [c["case"] for c in both] == sorted((c["case"] for c in both), key=Path)

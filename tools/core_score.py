@@ -15,9 +15,12 @@ The rule, per (model, effort):
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
 - A run at other than 30 rounds is a smoke run, not a reportable score.
+- Records covering fewer cases than the dataset holds (dataset.json n_cases,
+  from --dataset-info) are a SUBSET: per-task lines, no headline.
 
-Also per effort: mean $ per case (tools/prices.json, list prices, an estimate),
-mean input / output tokens per case, median wall-clock per case.
+Also per effort: mean $ per case (tools/prices.json, list prices of that exact
+model id, an estimate; "price unknown" for any other id), mean input / output
+tokens per case, median wall-clock per case.
 """
 from __future__ import annotations
 
@@ -82,9 +85,19 @@ def prices() -> dict:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
+def price_of(model: str | None, table: dict) -> dict | None:
+    """The list price of this exact model id (or a dated snapshot of it,
+    <id>-YYYYMMDD), else None: a price is never borrowed from another model."""
+    if not model or model.startswith("_"):
+        return None
+    if model in table:
+        return table[model]
+    m = re.fullmatch(r"(.+)-\d{8}", model)
+    return table.get(m.group(1)) if m else None
+
+
 def usd(model: str, tok: dict, table: dict) -> float | None:
-    keys = [k for k in table if not k.startswith("_") and model and model.startswith(k)]
-    p = table[max(keys, key=len)] if keys else None
+    p = price_of(model, table)
     if not p or not tok:
         return None
     cached = tok.get("cached", 0) or 0
@@ -110,8 +123,9 @@ def harness_commit() -> str | None:
         return None
 
 
-def summarize(files: list[Path], dataset: Path | None = None) -> list[dict]:
-    """One summary per (model, effort) found in `files`."""
+def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None = None) -> list[dict]:
+    """One summary per (model, effort) found in `files`. `n_core`: the cases
+    the dataset holds; fewer cases than that is a subset, with no headline."""
     want = expected_cases(dataset)
     table = prices()
     groups: dict[tuple, dict] = {}
@@ -162,16 +176,19 @@ def summarize(files: list[Path], dataset: Path | None = None) -> list[dict]:
                         "resolved": sum(1 for k in per_case if k[0] == t),
                         "cases": sum(1 for k in keys if k[0] == t)} for t in tasks}
         rounds = sorted(r for r in g["rounds"] if r is not None)
-        complete = not pending and n > 0
+        subset = n_core is not None and n < n_core
+        complete = not pending and n > 0 and not subset
         out.append({
             "model": model, "effort": effort, "effort_sent": sorted(sent, key=str),
             "rounds": rounds[0] if len(rounds) == 1 else rounds,
             "smoke": rounds != [ROUNDS],
-            "n_cases": n, "resolved": len(per_case), "pending": pending, "complete": complete,
+            "n_cases": n, "n_core": n_core, "subset": subset,
+            "resolved": len(per_case), "pending": pending, "complete": complete,
             "core_mean": statistics.mean(per_case.values()) if complete else None,
             "provisional_mean": statistics.mean(per_case.values()) if per_case else None,
             "per_task": per_task,
             "usd_per_case": (sum(costs) / n) if costs and n else None,
+            "price": "list" if price_of(model, table) else "unknown",
             "input_tokens_per_case": (sum(tin) / n) if n else None,
             "output_tokens_per_case": (sum(tout) / n) if n else None,
             "median_seconds_per_case": statistics.median(secs) if secs else None,
@@ -193,13 +210,17 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
         if r["smoke"]:
             lines.append(f"   SMOKE RUN, rounds={r['rounds']}: not a reportable score "
                          f"(reported numbers use {ROUNDS} rounds)")
+        of = f" ({r['n_cases']}/{r['n_core']} Core cases)" if r.get("subset") else ""
         if r["complete"]:
             lines.append(f"   CORE MEAN {r['core_mean']:.4f}   over {r['n_cases']} cases")
+        elif r["pending"]:
+            lines.append(f"   INCOMPLETE: {len(r['pending'])} of {r['n_cases']} cases pending{of}, no headline")
         else:
-            lines.append(f"   INCOMPLETE: {len(r['pending'])} of {r['n_cases']} cases pending, no headline")
-            if provisional and r["provisional_mean"] is not None:
-                lines.append(f"   provisional mean over the {r['resolved']} resolved cases: "
-                             f"{r['provisional_mean']:.4f} (NOT the headline)")
+            lines.append(f"   SUBSET {r['n_cases']}/{r['n_core']}: these records cover {r['n_cases']} of the "
+                         f"{r['n_core']} Core cases, no headline")
+        if not r["complete"] and provisional and r["provisional_mean"] is not None:
+            lines.append(f"   provisional mean over the {r['resolved']} resolved cases: "
+                         f"{r['provisional_mean']:.4f} (NOT the headline)")
         if reference:
             ref = next((x for x in reference.get("lines", [])
                         if x.get("model") == r["model"] and x.get("effort") == r["effort"]), None)
@@ -208,7 +229,9 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
                              + (f"  [{ref['noise_note']}]" if ref.get("noise_note") else ""))
         lines.append("   " + "  ".join(f"{t} {fmt(v['mean'], 3)} ({v['resolved']}/{v['cases']})"
                                        for t, v in r["per_task"].items()))
-        lines.append(f"   per case: ${fmt(r['usd_per_case'], 2)}  in {fmt(r['input_tokens_per_case'], 0)} tok  "
+        cost = (f"${fmt(r['usd_per_case'], 2)}" if r.get("price", "list") == "list"
+                else f"price unknown for {r['model']}")
+        lines.append(f"   per case: {cost}  in {fmt(r['input_tokens_per_case'], 0)} tok  "
                      f"out {fmt(r['output_tokens_per_case'], 0)} tok  median {fmt(r['median_seconds_per_case'], 0)} s")
         for p in r["pending"][:20]:
             lines.append(f"   pending {p['task']} {p['case']}: {p['why']}")
@@ -229,15 +252,16 @@ def main(argv=None) -> int:
                     help="on an incomplete run, also print the mean over the resolved cases, labelled")
     ap.add_argument("--compare", type=Path, default=None, help="a core_reference.json to print beside each line")
     a = ap.parse_args(argv)
-    rows = summarize([f for f in a.results if f.exists()], a.dataset)
-    if not rows:
-        print("no case records in", ", ".join(map(str, a.results)))
-        return 1
     meta = {"harness_commit": harness_commit()}
     info = a.dataset_info or a.dataset
     if info and (Path(info) / "dataset.json").exists():
         ds = json.loads((Path(info) / "dataset.json").read_text())
         meta["dataset"] = {k: ds.get(k) for k in ("name", "version", "scorer_digest", "n_cases")}
+    rows = summarize([f for f in a.results if f.exists()], a.dataset,
+                     (meta.get("dataset") or {}).get("n_cases"))
+    if not rows:
+        print("no case records in", ", ".join(map(str, a.results)))
+        return 1
     ref = json.loads(a.compare.read_text()) if a.compare else None
     print(f"harness {meta['harness_commit']}  dataset "
           + (f"{meta['dataset']['name']} {meta['dataset']['version']}  scorer_digest "

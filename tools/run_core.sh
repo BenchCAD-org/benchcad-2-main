@@ -8,8 +8,8 @@
 #               gemini low,medium,high; anthropic and openai low,medium,high,xhigh,max)
 #   --rounds N  rounds per episode (default 30, the published setting; anything else is a smoke run)
 #   --cases D   run a subset: a task or case directory inside the downloaded Core tree
-#   --workers N episodes in flight per effort (default: min(32, max(4, 2 x CPUs)), at most
-#               one per GB of available memory; the value chosen is printed)
+#   --workers N episodes in flight per effort (default: two per GB of available memory left
+#               after run.py and the scorers, at most 2 x CPUs and 32; the value chosen is printed)
 #   --data D    where Core is downloaded (default ~/.cache/benchcad/benchcad-2.0-core)
 #   --dry-run   every free step (uv, the environment, the image, the scorer self-test,
 #               dataset access), then print the commands; no download, no API call
@@ -46,13 +46,18 @@ done
 step() { echo "[run_core] $*"; }
 
 # The memory budget, from MemAvailable (BENCHCAD_NPROC / BENCHCAD_MEM_GB override what is
-# measured, for tests). Measured on an 8 vCPU / 16 GB box: run.py itself grows to 2.4-3.4 GB
-# with episodes in flight, a scorer process takes ~1 GB and up to its 4 GB cap, a sandbox
-# execution up to 2 GB. So: run.py 3 GB + 2 GB per scorer is reserved; the rest gives one
-# episode per GB (two per CPU at most, 32 at most) and one concurrent sandbox execution per
-# 2 GB; scorers are max(1, min(4, GB / 4)). Sandbox executions and scorers together stay
+# measured, for tests). run.py 3 GB and 3 GB per scorer are reserved; the rest gives two
+# episodes per GB (two per CPU at most, 32 at most) and one concurrent sandbox execution per
+# 2 GB; scorers are max(1, min(4, GB / 5)). Sandbox executions and scorers together stay
 # within the CPUs (each execution takes one; 16 on 8 cores starved the scorers), whatever
 # --workers is. Another run_core on this machine halves it.
+# Measured 2026-10-09 on an 8 vCPU / 16 GB box (14 GB available), Gemini flash at low:
+#   5 workers  ~60 cases/h,  run.py peak RSS 2.8 GB, least available 8.1 GB, load 6.2
+#   12 workers ~161 cases/h, run.py RSS 0.6 GB, least available 12.6 GB, load 4.4; per-case
+#   wall time the same (median 58 vs 52 s); no OOM; at most 3 scorers and 3 containers
+#   Haiku high, 30 rounds, 16 workers: run.py peak 2.4-2.8 GB
+# so an episode costs well under the 1 GB the budget gave it; scorers measured 1-1.4 GB RSS
+# (cap 4 GB), and T5/T6 scorers spike, so they keep 3 GB each. That box now gets 10 workers.
 mem_budget() {
     local cpus mem s reserve free w e
     cpus=${BENCHCAD_NPROC:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
@@ -60,12 +65,12 @@ mem_budget() {
     elif [ -r /proc/meminfo ]; then mem=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
     else mem=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 2147483648 )); fi   # macOS: half of RAM
     [ "${SHARED:-0}" = 1 ] && mem=$(( mem / 2 ))
-    s=$(( mem / 4 )); [ "$s" -gt 4 ] && s=4; [ "$s" -lt 1 ] && s=1
-    reserve=$(( 3 + 2 * s ))
-    free=$(( mem - reserve )); [ "$free" -lt 1 ] && free=1
-    w=$(( 2 * cpus )); [ "$w" -gt 32 ] && w=32; [ "$w" -gt "$free" ] && w=$free; [ "$w" -lt 1 ] && w=1
+    s=$(( mem / 5 )); [ "$s" -gt 4 ] && s=4; [ "$s" -lt 1 ] && s=1
+    reserve=$(( 3 + 3 * s ))
+    free=$(( mem - reserve )); [ "$free" -lt 0 ] && free=0
+    w=$(( 2 * free )); [ "$w" -gt $(( 2 * cpus )) ] && w=$(( 2 * cpus )); [ "$w" -gt 32 ] && w=32; [ "$w" -lt 1 ] && w=1
     e=$(( free / 2 )); [ "$e" -gt $(( cpus - s )) ] && e=$(( cpus - s )); [ "$e" -lt 1 ] && e=1   # execs + scorers <= CPUs
-    echo "$w $s $e $cpus CPUs, $mem GB available: run.py 3 GB + $s scorers x 2 GB reserved, $free GB for $w episodes, $e sandbox executions at once"
+    echo "$w $s $e $cpus CPUs, $mem GB available: run.py 3 GB + $s scorers x 3 GB reserved, $free GB for $w episodes, $e sandbox executions at once"
 }
 
 # 1. tools: uv is installed if missing (and found again at ~/.local/bin on the next run);

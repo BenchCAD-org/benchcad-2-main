@@ -157,14 +157,15 @@ def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_p
 
 
 @pytest.mark.parametrize("cpus,mem,want", [
-    (8, 14, (5, 3, 2)),          # run's 8 vCPU / 16 GB box: 14 GB available
-    (8, 64, (16, 4, 4)), (32, 256, (32, 4, 28)), (1, 64, (2, 4, 1)), (16, 6, (1, 1, 1)), (2, 0, (1, 1, 1))])
+    (8, 14, (10, 2, 2)),         # run's 8 vCPU / 16 GB box: 14 GB available
+    (8, 30, (16, 4, 4)), (8, 64, (16, 4, 4)), (32, 256, (32, 4, 28)), (1, 64, (2, 4, 1)), (16, 6, (1, 1, 1)),
+    (2, 0, (1, 1, 1))])
 def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, mem, want):
-    """run.py 3 GB + 2 GB per scorer reserved; one episode per remaining GB (two per CPU,
-    32 at most); scorers max(1, min(4, GB/4)); one sandbox execution per 2 GB, and
-    executions + scorers within the CPUs. A run at --workers 16 on 16 GB went out of
-    memory, and 16 executions on 8 cores starved the scorers. --workers overrides the
-    episodes only: the execution and scorer caps stay."""
+    """run.py 3 GB + 3 GB per scorer reserved; two episodes per remaining GB (two per CPU,
+    32 at most); scorers max(1, min(4, GB/5)); one sandbox execution per 2 GB, and
+    executions + scorers within the CPUs. 16 executions on 8 cores starved the scorers;
+    on the 16 GB box 12 workers ran 2.7x the cases/h of the old default 5, with no OOM.
+    --workers overrides the episodes only: the execution and scorer caps stay."""
     data = fake_core(tmp_path / "core")
     env = {"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)}
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", env_extra=env)
@@ -199,3 +200,37 @@ def test_a_record_waiting_for_its_score_is_pending(tmp_path):
                              "cases": [_rec("task3/cases/case001", None, step="/a.step", pending_score=True)]}))
     [row] = C.summarize([f])
     assert not row["complete"] and row["pending"][0]["why"].startswith("episode finished, not scored")
+
+
+def test_a_subset_prints_no_headline_and_the_union_does(tmp_path, capsys):
+    """Measured 2026-10-09: a --cases task4 run printed "CORE MEAN 0.0063 over
+    25 cases" as if it were the headline. Fewer cases than dataset.json's
+    n_cases is a SUBSET: per-task lines, no CORE MEAN, exit 3."""
+    data = fake_core(tmp_path / "core")                                   # n_cases 3
+    f = tmp_path / "r.json"
+    recs = [_rec(f"task3/cases/case00{i}", {"score": 0.5}) for i in (1, 2)]
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30, "cases": recs}))
+    assert C.main([str(f), "--dataset", str(data / "task3/cases/case001"), "--dataset-info", str(data)]) == 3
+    out = capsys.readouterr().out
+    assert "SUBSET 2/3" in out and "CORE MEAN" not in out and "T3 0.500 (2/2)" in out
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30,
+                             "cases": recs + [_rec("task3/cases/case003", {"score": 0.5})]}))
+    assert C.main([str(f), "--dataset", str(data / "task3/cases/case003"), "--dataset-info", str(data)]) == 0
+    assert "CORE MEAN 0.5000   over 3 cases" in capsys.readouterr().out
+
+
+def test_a_price_belongs_to_one_model_id():
+    """gemini-3.8-flash was billed at another Gemini's price ($0.08/case shown
+    to its own maker). Only the exact id, or a dated snapshot of it, is priced."""
+    table = C.prices()
+    tok = {"input": 1_000_000, "cached": 0, "output": 0}
+    assert C.usd("gemini/gemini-3.8-flash", tok, table) is None
+    assert C.usd("anthropic/claude-haiku-5-5", tok, table) == pytest.approx(0.1)
+    assert C.usd("anthropic/claude-haiku-5-5-20261001", tok, table) == pytest.approx(0.1)
+    assert C.usd("anthropic/claude-haiku-5-5-fast", tok, table) is None
+    f = {"model": "gemini/gemini-3.8-flash", "effort": "low", "rounds": 30, "n_cases": 1, "n_core": None,
+         "subset": False, "complete": True, "core_mean": 0.1, "pending": [], "effort_sent": [], "smoke": False,
+         "per_task": {}, "usd_per_case": None, "price": "unknown", "input_tokens_per_case": 1000,
+         "output_tokens_per_case": 100, "median_seconds_per_case": 10}
+    line = next(l for l in C.report([f]).splitlines() if "per case:" in l)
+    assert "price unknown for gemini/gemini-3.8-flash" in line and "in 1000 tok" in line and "$" not in line
