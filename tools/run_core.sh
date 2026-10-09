@@ -50,7 +50,9 @@ step() { echo "[run_core] $*"; }
 # with episodes in flight, a scorer process takes ~1 GB and up to its 4 GB cap, a sandbox
 # execution up to 2 GB. So: run.py 3 GB + 2 GB per scorer is reserved; the rest gives one
 # episode per GB (two per CPU at most, 32 at most) and one concurrent sandbox execution per
-# 2 GB; scorers are max(1, min(4, GB / 4)). Another run_core on this machine halves it.
+# 2 GB; scorers are max(1, min(4, GB / 4)). Sandbox executions and scorers together stay
+# within the CPUs (each execution takes one; 16 on 8 cores starved the scorers), whatever
+# --workers is. Another run_core on this machine halves it.
 mem_budget() {
     local cpus mem s reserve free w e
     cpus=${BENCHCAD_NPROC:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
@@ -62,7 +64,7 @@ mem_budget() {
     reserve=$(( 3 + 2 * s ))
     free=$(( mem - reserve )); [ "$free" -lt 1 ] && free=1
     w=$(( 2 * cpus )); [ "$w" -gt 32 ] && w=32; [ "$w" -gt "$free" ] && w=$free; [ "$w" -lt 1 ] && w=1
-    e=$(( free / 2 )); [ "$e" -lt 1 ] && e=1
+    e=$(( free / 2 )); [ "$e" -gt $(( cpus - s )) ] && e=$(( cpus - s )); [ "$e" -lt 1 ] && e=1   # execs + scorers <= CPUs
     echo "$w $s $e $cpus CPUs, $mem GB available: run.py 3 GB + $s scorers x 2 GB reserved, $free GB for $w episodes, $e sandbox executions at once"
 }
 

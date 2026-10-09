@@ -158,11 +158,13 @@ def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_p
 
 @pytest.mark.parametrize("cpus,mem,want", [
     (8, 14, (5, 3, 2)),          # run's 8 vCPU / 16 GB box: 14 GB available
-    (8, 64, (16, 4, 26)), (32, 256, (32, 4, 122)), (1, 64, (2, 4, 26)), (16, 6, (1, 1, 1)), (2, 0, (1, 1, 1))])
+    (8, 64, (16, 4, 4)), (32, 256, (32, 4, 28)), (1, 64, (2, 4, 1)), (16, 6, (1, 1, 1)), (2, 0, (1, 1, 1))])
 def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, mem, want):
     """run.py 3 GB + 2 GB per scorer reserved; one episode per remaining GB (two per CPU,
-    32 at most); scorers max(1, min(4, GB/4)); one sandbox execution per 2 GB. A run at
-    --workers 16 on 16 GB went out of memory. --workers still overrides."""
+    32 at most); scorers max(1, min(4, GB/4)); one sandbox execution per 2 GB, and
+    executions + scorers within the CPUs. A run at --workers 16 on 16 GB went out of
+    memory, and 16 executions on 8 cores starved the scorers. --workers overrides the
+    episodes only: the execution and scorer caps stay."""
     data = fake_core(tmp_path / "core")
     env = {"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)}
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", env_extra=env)
@@ -172,7 +174,8 @@ def test_the_memory_budget_sets_workers_scorers_and_executions(tmp_path, cpus, m
     cmd = next(l for l in r.stdout.splitlines() if "would run:" in l)
     assert f"--workers {w} --score-workers {s} --max-execs {e} " in cmd, cmd
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3", env_extra=env)
-    assert "workers 3 per effort (memory budget:" in r.stdout and "--workers 3 " in r.stdout
+    assert "workers 3 per effort (memory budget:" in r.stdout
+    assert f"--workers 3 --score-workers {s} --max-execs {e} " in r.stdout
 
 
 def test_a_killed_run_says_so_and_how_to_resume(tmp_path):
