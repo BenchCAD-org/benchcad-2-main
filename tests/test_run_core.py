@@ -260,3 +260,21 @@ def test_run_core_gives_a_score_four_hours(tmp_path):
     data = fake_core(tmp_path / "core")
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run")
     assert r.returncode == 0 and "scorer timeout 14400 s per case" in r.stdout
+
+
+def test_the_published_reference_ships_and_prints_beside_a_line(tmp_path, capsys):
+    """results/core_reference.json: the published Core lines, for core_score --compare
+    (run_core passes it). Bound to this dataset and this T6 scorer."""
+    ref_path = ROOT / "results/core_reference.json"
+    ref = json.loads(ref_path.read_text())
+    assert (ref["case_set"], ref["dataset_version"]) == ("benchcad-2.0-core", "1.0")
+    assert ref["scorer_digest"] == scorer_digest()
+    assert len(ref["lines"]) == 25 and all(l["n_cases"] == 100 for l in ref["lines"])
+    assert "--compare results/core_reference.json" in SCRIPT.read_text()
+    f = tmp_path / "r.json"
+    f.write_text(json.dumps({"model": "anthropic/claude-haiku-5-5", "effort": "high", "rounds": 30,
+                             "cases": [dict(_rec("task3/cases/case001", {"score": 0.1}),
+                                            model="anthropic/claude-haiku-5-5")]}))
+    C.main([str(f), "--compare", str(ref_path)])
+    haiku = next(l for l in ref["lines"] if (l["model"], l["effort"]) == ("anthropic/claude-haiku-5-5", "high"))
+    assert f"reference (v2.0-core1): {haiku['core_mean']:.4f}" in capsys.readouterr().out

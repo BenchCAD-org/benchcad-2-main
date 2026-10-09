@@ -250,4 +250,6 @@ done
 
 # 7. the score
 [ "$DRY" = 1 ] && { step "dry run: all checks passed"; exit 0; }
-"${PY[@]}" tools/core_score.py "${FILES[@]}" --dataset "${CASES:-$DATA}" --dataset-info "$DATA" --json "$OUT/core_summary.json"
+# The published lines beside each of yours (results/core_reference.json, the same rule and dataset).
+REF=(); [ -f results/core_reference.json ] && REF=(--compare results/core_reference.json)
+"${PY[@]}" tools/core_score.py "${FILES[@]}" --dataset "${CASES:-$DATA}" --dataset-info "$DATA" --json "$OUT/core_summary.json" ${REF[@]+"${REF[@]}"}

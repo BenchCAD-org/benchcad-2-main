@@ -1,0 +1,434 @@
+{
+ "version": "v2.0-core1",
+ "case_set": "benchcad-2.0-core",
+ "dataset_version": "1.0",
+ "scorer_digest": "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa",
+ "rule": "per case mean over reps, then plain mean over the 100 Core cases; no submission = 0; T6 position mode only",
+ "lines": [
+  {
+   "model": "anthropic/claude-opus-5-5",
+   "effort": "low",
+   "core_mean": 0.0628,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.123,
+    "t2": 0.0026,
+    "t3": 0.1668,
+    "t4": 0.0319,
+    "t5": 0.0022,
+    "t6": 0.0009
+   },
+   "usd_per_case": 0.056,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-opus-5-5",
+   "effort": "medium",
+   "core_mean": 0.1335,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.2784,
+    "t2": 0.2009,
+    "t3": 0.1837,
+    "t4": 0.0698,
+    "t5": 0.1263,
+    "t6": 0.026
+   },
+   "usd_per_case": 0.683,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-opus-5-5",
+   "effort": "high",
+   "core_mean": 0.184,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.3574,
+    "t2": 0.3078,
+    "t3": 0.1807,
+    "t4": 0.0971,
+    "t5": 0.2496,
+    "t6": 0.0743
+   },
+   "usd_per_case": 2.358,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-opus-5-5",
+   "effort": "xhigh",
+   "core_mean": 0.3183,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.5881,
+    "t2": 0.433,
+    "t3": 0.2833,
+    "t4": 0.2189,
+    "t5": 0.4681,
+    "t6": 0.1426
+   },
+   "usd_per_case": 8.161,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-opus-5-5",
+   "effort": "max",
+   "core_mean": 0.5662,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.8368,
+    "t2": 0.6665,
+    "t3": 0.5922,
+    "t4": 0.4402,
+    "t5": 0.6613,
+    "t6": 0.3983
+   },
+   "usd_per_case": 27.575,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "low",
+   "core_mean": 0.0873,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.2373,
+    "t2": 0.0467,
+    "t3": 0.1716,
+    "t4": 0.0332,
+    "t5": 0.0503,
+    "t6": 0.0211
+   },
+   "usd_per_case": 1.738,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "medium",
+   "core_mean": 0.107,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.2346,
+    "t2": 0.1602,
+    "t3": 0.1769,
+    "t4": 0.0384,
+    "t5": 0.0832,
+    "t6": 0.0095
+   },
+   "usd_per_case": 4.755,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "high",
+   "core_mean": 0.1258,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.2784,
+    "t2": 0.1421,
+    "t3": 0.193,
+    "t4": 0.06,
+    "t5": 0.1084,
+    "t6": 0.0411
+   },
+   "usd_per_case": 10.798,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "xhigh",
+   "core_mean": 0.2741,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.5655,
+    "t2": 0.3059,
+    "t3": 0.3281,
+    "t4": 0.1861,
+    "t5": 0.2593,
+    "t6": 0.1793
+   },
+   "usd_per_case": 31.61,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "core_mean": 0.3027,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.5211,
+    "t2": 0.3979,
+    "t3": 0.3098,
+    "t4": 0.2462,
+    "t5": 0.3719,
+    "t6": 0.1038
+   },
+   "usd_per_case": 48.456,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-sonnet-5-5",
+   "effort": "low",
+   "core_mean": 0.0497,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.1008,
+    "t2": 0.0044,
+    "t3": 0.133,
+    "t4": 0.0231,
+    "t5": 0.0006,
+    "t6": 0.0
+   },
+   "usd_per_case": 0.051,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-sonnet-5-5",
+   "effort": "medium",
+   "core_mean": 0.0596,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.1506,
+    "t2": 0.0199,
+    "t3": 0.1314,
+    "t4": 0.0321,
+    "t5": 0.0184,
+    "t6": 0.0025
+   },
+   "usd_per_case": 0.148,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-sonnet-5-5",
+   "effort": "high",
+   "core_mean": 0.1355,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.2042,
+    "t2": 0.1832,
+    "t3": 0.17,
+    "t4": 0.066,
+    "t5": 0.1753,
+    "t6": 0.0624
+   },
+   "usd_per_case": 1.48,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-sonnet-5-5",
+   "effort": "xhigh",
+   "core_mean": 0.3142,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.7333,
+    "t2": 0.401,
+    "t3": 0.3185,
+    "t4": 0.2461,
+    "t5": 0.3331,
+    "t6": 0.1284
+   },
+   "usd_per_case": 5.161,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-sonnet-5-5",
+   "effort": "max",
+   "core_mean": 0.4141,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.7932,
+    "t2": 0.3418,
+    "t3": 0.5909,
+    "t4": 0.4382,
+    "t5": 0.2233,
+    "t6": 0.1141
+   },
+   "usd_per_case": 43.325,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-haiku-5-5",
+   "effort": "low",
+   "core_mean": 0.0059,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.0,
+    "t2": 0.0022,
+    "t3": 0.0143,
+    "t4": 0.0067,
+    "t5": 0.0001,
+    "t6": 0.0001
+   },
+   "usd_per_case": 0.023,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-haiku-5-5",
+   "effort": "medium",
+   "core_mean": 0.0255,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.0527,
+    "t2": 0.0073,
+    "t3": 0.0559,
+    "t4": 0.0223,
+    "t5": 0.0012,
+    "t6": 0.0007
+   },
+   "usd_per_case": 0.026,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-haiku-5-5",
+   "effort": "high",
+   "core_mean": 0.0815,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.3164,
+    "t2": 0.0154,
+    "t3": 0.1472,
+    "t4": 0.065,
+    "t5": 0.0171,
+    "t6": 0.0022
+   },
+   "usd_per_case": 0.057,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-haiku-5-5",
+   "effort": "xhigh",
+   "core_mean": 0.1543,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.4803,
+    "t2": 0.078,
+    "t3": 0.2407,
+    "t4": 0.1347,
+    "t5": 0.0365,
+    "t6": 0.0777
+   },
+   "usd_per_case": 0.81,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "anthropic/claude-haiku-5-5",
+   "effort": "max",
+   "core_mean": 0.1812,
+   "n_cases": 100,
+   "reps": 1,
+   "per_task": {
+    "t1": 0.5613,
+    "t2": 0.0912,
+    "t3": 0.3162,
+    "t4": 0.1535,
+    "t5": 0.0104,
+    "t6": 0.0723
+   },
+   "usd_per_case": 8.688,
+   "noise_note": "single rep; line-mean noise about +/-0.03 (estimated from astra reps)"
+  },
+  {
+   "model": "openai/gpt-6-astra",
+   "effort": "low",
+   "core_mean": 0.135,
+   "n_cases": 100,
+   "reps": 3,
+   "per_task": {
+    "t1": 0.5293,
+    "t2": 0.086,
+    "t3": 0.1714,
+    "t4": 0.1207,
+    "t5": 0.0809,
+    "t6": 0.0088
+   },
+   "usd_per_case": 0.436,
+   "noise_note": "3 reps (T6 1 rep); line-mean spread across reps <=0.035"
+  },
+  {
+   "model": "openai/gpt-6-astra",
+   "effort": "medium",
+   "core_mean": 0.3094,
+   "n_cases": 100,
+   "reps": 3,
+   "per_task": {
+    "t1": 0.6124,
+    "t2": 0.261,
+    "t3": 0.3793,
+    "t4": 0.2648,
+    "t5": 0.3269,
+    "t6": 0.1054
+   },
+   "usd_per_case": 2.731,
+   "noise_note": "3 reps (T6 1 rep); line-mean spread across reps <=0.035"
+  },
+  {
+   "model": "openai/gpt-6-astra",
+   "effort": "high",
+   "core_mean": 0.4062,
+   "n_cases": 100,
+   "reps": 3,
+   "per_task": {
+    "t1": 0.7293,
+    "t2": 0.4108,
+    "t3": 0.4495,
+    "t4": 0.3869,
+    "t5": 0.4082,
+    "t6": 0.1764
+   },
+   "usd_per_case": 5.111,
+   "noise_note": "3 reps (T6 1 rep); line-mean spread across reps <=0.035"
+  },
+  {
+   "model": "openai/gpt-6-astra",
+   "effort": "xhigh",
+   "core_mean": 0.4492,
+   "n_cases": 100,
+   "reps": 3,
+   "per_task": {
+    "t1": 0.761,
+    "t2": 0.5379,
+    "t3": 0.459,
+    "t4": 0.4209,
+    "t5": 0.4613,
+    "t6": 0.2298
+   },
+   "usd_per_case": 6.67,
+   "noise_note": "3 reps (T6 1 rep); line-mean spread across reps <=0.035"
+  },
+  {
+   "model": "openai/gpt-6-astra",
+   "effort": "max",
+   "core_mean": 0.5943,
+   "n_cases": 100,
+   "reps": 3,
+   "per_task": {
+    "t1": 0.8069,
+    "t2": 0.7207,
+    "t3": 0.5764,
+    "t4": 0.5013,
+    "t5": 0.6902,
+    "t6": 0.4639
+   },
+   "usd_per_case": 11.045,
+   "noise_note": "3 reps (T6 1 rep); line-mean spread across reps <=0.035"
+  }
+ ]
+}

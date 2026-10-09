@@ -2,4 +2,5 @@ __pycache__/
 *.pyc
 .venv/
 work/
-results/
+results/*
+!results/core_reference.json
