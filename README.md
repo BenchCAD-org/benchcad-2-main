@@ -5,6 +5,7 @@
 **Can a model build real CAD from drawings, photos and parts?**
 
 [![Website](https://img.shields.io/badge/🌐%20Website-benchcad.com-2ea44f.svg)](https://benchcad.com)
+[![Leaderboard](https://img.shields.io/badge/🏆%20Leaderboard-view-orange.svg)](https://benchcad.com/leaderboard.html)
 [![Dataset](https://img.shields.io/badge/🤗%20HuggingFace-benchcad--2.0--core-yellow.svg)](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core)
 [![Access](https://img.shields.io/badge/Core%20access-request-blue.svg)](https://benchcad.com/access.html)
 
