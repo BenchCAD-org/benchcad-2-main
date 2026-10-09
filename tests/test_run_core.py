@@ -43,7 +43,8 @@ def fake_core(root: Path, version="1.0", digest=None) -> Path:
 
 def run_core(*args, env_extra=None):
     env = {k: v for k, v in os.environ.items() if not is_secret_env(k)}
-    env.update({"BENCHCAD_PYTHON": sys.executable, **(env_extra or {})})
+    env.update({"BENCHCAD_PYTHON": sys.executable, "BENCHCAD_SKIP_SETUP": "1",
+                "HF_HOME": str(Path(os.environ.get("TMPDIR", "/tmp")) / "run_core_test_hf_home"), **(env_extra or {})})
     return subprocess.run(["bash", str(SCRIPT), *args], cwd=ROOT, capture_output=True, text=True, env=env)
 
 
@@ -83,7 +84,8 @@ def test_it_refuses_before_any_spend(tmp_path):
     assert r.returncode != 0 and "different T6 scorer" in r.stderr
     (data / "dataset.json").write_text((data / "dataset.json").read_text().replace('"1.0"', '"1.1"'))
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run")
-    assert r.returncode != 0 and "no verified dataset" in r.stderr             # the manifest no longer matches
+    assert r.returncode != 0 and "no Hugging Face token" in r.stderr           # the manifest no longer matches:
+                                                                                # a dry run checks access, not downloads
 
 
 def _rec(case, score=None, **kw):
@@ -167,3 +169,12 @@ def test_default_workers_follow_the_machine(tmp_path, cpus, mem, want):
     r = run_core("--model", "mock/oracle", "--data", str(data), "--dry-run", "--workers", "3",
                  env_extra={"BENCHCAD_NPROC": str(cpus), "BENCHCAD_MEM_GB": str(mem)})
     assert "workers 3 per effort" in r.stdout and "auto" not in r.stdout
+
+
+def test_dry_run_does_the_free_setup_and_the_scorer_self_test():
+    """A dry run on a fresh clone failed: it skipped uv sync and then could not
+    import the provider SDK. It now does every free step; and the scorer
+    self-test (OCP needs libGL.so.1 on a bare Ubuntu) runs before any spend."""
+    s = SCRIPT.read_text()
+    assert 'if [ "$SETUP" = 1 ]; then step "uv sync"' in s and 'SETUP=1; [ -n "${BENCHCAD_SKIP_SETUP:-}" ] && SETUP=0' in s
+    assert "import OCP.TopoDS, vtk, cadquery" in s and "apt-get" in s and "libgl1" in s

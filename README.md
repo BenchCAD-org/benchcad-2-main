@@ -31,7 +31,8 @@ geometry against the reference, deterministic, with no LLM judge.
 Needs Docker and a Hugging Face account with Core access
 ([request it here](https://benchcad.com/access.html)). Docker on Linux:
 `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER`, then log in
-again (on a freshly booted box, apt may hold its lock for a minute).
+again (on a freshly booted box, apt may hold its lock for a minute). The scorers also need
+`libgl1` (`sudo apt-get install -y libgl1`); `run_core.sh` installs it when it can.
 
 ```bash
 git clone https://github.com/BenchCAD-org/benchcad-2-main && cd benchcad-2-main
@@ -52,7 +53,7 @@ Run it again to resume. The summary is written to `results/core/<model>/core_sum
 | `--rounds` | default `30`, the published setting; anything else is labelled a smoke run |
 | `--cases` | a task or case directory inside the dataset, for a subset |
 | `--workers` | episodes in parallel (default: two per CPU, 4 to 32, capped by memory) |
-| `--dry-run` | check keys, dataset and sandbox; run nothing |
+| `--dry-run` | set everything up and check keys, dataset access and the scorers; no API calls |
 
 **Gemini.** `--effort low|medium|high` is sent as `thinking_level`. Use `GEMINI_API_KEY`,
 or Vertex AI with `GOOGLE_GENAI_USE_VERTEXAI=true` plus an express key in `GOOGLE_API_KEY`.

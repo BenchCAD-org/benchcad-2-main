@@ -2015,6 +2015,14 @@ def _done(rec: dict) -> bool:
     return not rec.get("error") and ("score" in rec or "skipped" in rec)
 
 
+def _rescore_only(rec: dict) -> bool:
+    """A record whose episode finished and whose only failure was its score
+    (the scorer's environment, its memory budget): --resume scores the answer
+    again and does not re-run the episode -- the model is not paid for twice
+    because of a host problem."""
+    return bool(rec.get("score_error") and rec.get("step"))
+
+
 def _shard(cases: list, spec: str | None) -> list:
     """--shard k/n keeps cases k, k+n, k+2n, ... of the sorted list."""
     if not spec:
@@ -2123,8 +2131,12 @@ def main() -> int:
     if a.resume and out_path.exists():
         prior = json.loads(out_path.read_text())
         kept = {r["case"]: r for r in prior.get("cases", []) if _done(r)}
+        rescore = {r["case"]: r for r in prior.get("cases", []) if _rescore_only(r)}
         stamp = prior.get("started", stamp)
-    todo = [c for c in cases if str(c) not in kept]
+    else:
+        rescore = {}
+    todo = [c for c in cases if str(c) not in kept and str(c) not in rescore]
+    again = [c for c in cases if str(c) in rescore]
     effort_note = (f" ({prefix.rstrip('/')}'s top level)" if defaulted and a.effort else
                    " (no effort knob)" if a.effort is None else "")
     print(f"model {a.model}  provider {prefix.rstrip('/')}  "
@@ -2133,7 +2145,7 @@ def main() -> int:
           + (f"  task-budget {a.task_budget:,}" if a.task_budget else "")
           + (f"  max-execs {a.max_execs}" if a.max_execs else "")
           + (f"  shard {a.shard}" if a.shard else "")
-          + (f"  resume: {len(kept)} kept, {len(todo)} to run" if a.resume else ""),
+          + (f"  resume: {len(kept)} kept, {len(again)} to re-score, {len(todo)} to run" if a.resume else ""),
           flush=True)
     if prefix == "gemini/":
         print(f"gemini auth {gemini_auth()[1]}", flush=True)       # fails here, before any case, when unset
@@ -2244,9 +2256,11 @@ def main() -> int:
                 # infrastructure, not the answer: no score; re-score alone under a larger budget
                 rec["error"] = f"{type(e).__name__}: {e}"
                 rec["memory_budget_exceeded"] = True
+                rec["score_error"] = True
             except Exception as e:                               # noqa: BLE001
                 rec["error"] = f"{type(e).__name__}: {e}"
                 rec["traceback"] = traceback.format_exc()[-2000:]
+                rec["score_error"] = True                        # --resume re-scores, never re-runs
             rec["seconds_score"] = round(time.time() - t0, 1)
         return rec
 
@@ -2262,7 +2276,7 @@ def main() -> int:
         line = (show(score) if score
                 else rec.get("skipped") and f"skipped: {rec['skipped']}"
                 or rec.get("error") or ("unscored" if rec.get("unscored") else "no submission"))
-        print(f"  [{n}/{len(todo)}] {case.name}: {line}  "
+        print(f"  [{n}/{len(todo) + len(again)}] {case.name}: {line}  "
               f"({rec['seconds']}s)", flush=True)
 
     # Episodes and scoring are two pools: a worker hands its finished record
@@ -2273,6 +2287,10 @@ def main() -> int:
     write()
     with ThreadPoolExecutor(max_workers=max(1, a.score_workers)) as scorers, \
          ThreadPoolExecutor(max_workers=max(1, a.workers)) as ex:
+        for c in again:                                  # answers already in hand: score them only
+            rec = {k: v for k, v in rescore[str(c)].items()
+                   if k not in ("error", "traceback", "score_error", "memory_budget_exceeded", "score")}
+            scorers.submit(score, c, rec).add_done_callback(lambda sf, c=c: finish(c, sf.result()))
         episodes = {ex.submit(one, c): c for c in todo}
         # Each score is recorded the moment it lands (a done-callback on the
         # scoring thread), not after the last episode: the results file is
