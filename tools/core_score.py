@@ -48,6 +48,8 @@ def resolve(rec: dict) -> tuple[str, float | None, str]:
     """('scored' | 'no_submission' | 'pending', value, why) for one record."""
     task = task_of(rec.get("case", ""))
     err = rec.get("error") or ""
+    if rec.get("pending_score"):                     # the episode finished; its score never landed
+        return "pending", None, "episode finished, not scored yet (re-run to score it)"
     if rec.get("skipped"):
         return "pending", None, "skipped: " + str(rec["skipped"])[:80]
     if err:

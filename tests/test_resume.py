@@ -49,7 +49,9 @@ def home_work(tmp_path):
     {"error": "ImportError: libGL.so.1: cannot open shared object file", "score_error": True},
     # the shape the harness wrote before score_error existed (main 5d36424..acc118d)
     {"error": "RuntimeError: scorer exited 1: ImportError: libGL.so.1: cannot open shared object file"},
-], ids=["score_error", "pre-1cb51ab"])
+    # finished, recorded, then the run was killed before its score landed
+    {"pending_score": True},
+], ids=["score_error", "pre-1cb51ab", "killed-before-scoring"])
 def test_resume_rescores_a_scorer_failure_and_never_reruns_its_episode(tmp_path, home_work, marks):
     """A score that failed for the host's sake (a missing system library, the
     memory budget) is re-scored on --resume from the answer already on disk:

@@ -2012,7 +2012,7 @@ def _done(rec: dict) -> bool:
     is a result. An error is the harness's or the network's, not the
     model's, and is re-run.
     """
-    return not rec.get("error") and ("score" in rec or "skipped" in rec)
+    return not rec.get("error") and not rec.get("pending_score") and ("score" in rec or "skipped" in rec)
 
 
 def _rescore_only(rec: dict) -> bool:
@@ -2024,7 +2024,7 @@ def _rescore_only(rec: dict) -> bool:
         return False
     # Records from before score_error existed (harness before 1cb51ab) say it only in the
     # error text: the scorer's child process failed, or could not load its libraries.
-    return bool(rec.get("score_error") or rec.get("memory_budget_exceeded")
+    return bool(rec.get("score_error") or rec.get("memory_budget_exceeded") or rec.get("pending_score")
                 or _SCORER_FAILED.search(rec.get("error") or ""))
 
 
@@ -2297,7 +2297,7 @@ def main() -> int:
          ThreadPoolExecutor(max_workers=max(1, a.workers)) as ex:
         for c in again:                                  # answers already in hand: score them only
             rec = {k: v for k, v in rescore[str(c)].items()
-                   if k not in ("error", "traceback", "score_error", "memory_budget_exceeded", "score")}
+                   if k not in ("error", "traceback", "score_error", "memory_budget_exceeded", "score", "pending_score")}
             scorers.submit(score, c, rec).add_done_callback(lambda sf, c=c: finish(c, sf.result()))
         episodes = {ex.submit(one, c): c for c in todo}
         # Each score is recorded the moment it lands (a done-callback on the
@@ -2307,7 +2307,14 @@ def main() -> int:
         # record" shape held 14 finished episodes unrecorded for an hour.
         for f in as_completed(episodes):
             case = episodes[f]
-            scorers.submit(score, case, f.result()).add_done_callback(
+            rec = f.result()
+            if rec.get("step") and "error" not in rec:
+                # On disk before it is scored: a run killed while scores queue
+                # (out of memory) keeps the episode, and --resume scores it.
+                with lock:
+                    records[str(case)] = {**rec, "pending_score": True}
+                    write()
+            scorers.submit(score, case, rec).add_done_callback(
                 lambda sf, c=case: finish(c, sf.result()))
         scorers.shutdown(wait=True)
     print(f"\n{len(records)} cases -> {out_path}")
