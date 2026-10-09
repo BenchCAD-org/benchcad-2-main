@@ -139,3 +139,16 @@ def test_the_frozen_command_line_and_the_bare_form(tmp_path):
                     env_extra={"ANTHROPIC_API_KEY": "x"})
     assert anth.returncode == 0 and sum("would run:" in l for l in anth.stdout.splitlines()) == 5
     assert "gemini auth: gemini-api-key" in frozen.stderr
+
+
+def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_path, capsys):
+    """A fresh clone failed every real model: uv sync without --group harness
+    installs no provider SDK. And with --cases a subset, the summary still
+    names the dataset it came from."""
+    assert "uv sync --frozen --quiet --group harness" in SCRIPT.read_text()
+    data = fake_core(tmp_path / "core")
+    f = tmp_path / "r.json"
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 30,
+                             "cases": [_rec("task3/cases/case001", {"score": 1.0})]}))
+    C.main([str(f), "--dataset", str(data / "task3/cases/case001"), "--dataset-info", str(data)])
+    assert "dataset benchcad-2.0-core 1.0  scorer_digest" in capsys.readouterr().out

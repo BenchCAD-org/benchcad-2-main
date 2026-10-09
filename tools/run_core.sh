@@ -55,7 +55,7 @@ if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
 fi
 
 # 2. the environment
-if [ "$DRY" = 0 ]; then step "uv sync"; uv sync --frozen --quiet; fi
+if [ "$DRY" = 0 ]; then step "uv sync"; uv sync --frozen --quiet --group harness; fi   # the provider SDKs live in the harness group
 PY=(uv run --no-sync python)
 [ -z "${BENCHCAD_PYTHON:-}" ] || PY=("$BENCHCAD_PYTHON")
 
@@ -101,6 +101,12 @@ n = sum(1 for _ in Path(data).rglob("case.json"))
 if n != ds.get("n_cases"):
     sys.exit(f"run_core: {n} cases on disk, dataset.json says {ds.get('n_cases')}")
 prefix, prov, _ = R.split_model(model)
+sdk = {"anthropic": "anthropic", "openai_compat": "openai", "gemini": "google.genai"}.get(prov.kind)
+if sdk:
+    try:
+        __import__(sdk)
+    except ImportError:
+        sys.exit(f"run_core: the {sdk} SDK is not installed; run: uv sync --frozen --group harness")
 # Unset: the provider's ladder, every level but none (a provider without a knob runs once).
 levels = [e for e in efforts.split(",") if e] or \
     [e for e in (R.PROVIDER_EFFORTS.get(prefix) or (None,)) if e != "none"]
@@ -135,4 +141,4 @@ done
 
 # 7. the score
 [ "$DRY" = 1 ] && { step "dry run: all checks passed"; exit 0; }
-"${PY[@]}" tools/core_score.py "${FILES[@]}" --dataset "${CASES:-$DATA}" --json "$OUT/core_summary.json"
+"${PY[@]}" tools/core_score.py "${FILES[@]}" --dataset "${CASES:-$DATA}" --dataset-info "$DATA" --json "$OUT/core_summary.json"

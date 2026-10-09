@@ -220,6 +220,8 @@ def main(argv=None) -> int:
     ap.add_argument("results", nargs="+", type=Path)
     ap.add_argument("--dataset", type=Path, default=None,
                     help="the downloaded Core tree: every case in it is expected (a missing one is pending)")
+    ap.add_argument("--dataset-info", type=Path, default=None,
+                    help="the dataset root holding dataset.json (default: --dataset)")
     ap.add_argument("--json", type=Path, default=None, help="write the summary here")
     ap.add_argument("--provisional", action="store_true",
                     help="on an incomplete run, also print the mean over the resolved cases, labelled")
@@ -230,12 +232,14 @@ def main(argv=None) -> int:
         print("no case records in", ", ".join(map(str, a.results)))
         return 1
     meta = {"harness_commit": harness_commit()}
-    if a.dataset and (Path(a.dataset) / "dataset.json").exists():
-        ds = json.loads((Path(a.dataset) / "dataset.json").read_text())
+    info = a.dataset_info or a.dataset
+    if info and (Path(info) / "dataset.json").exists():
+        ds = json.loads((Path(info) / "dataset.json").read_text())
         meta["dataset"] = {k: ds.get(k) for k in ("name", "version", "scorer_digest", "n_cases")}
     ref = json.loads(a.compare.read_text()) if a.compare else None
     print(f"harness {meta['harness_commit']}  dataset "
-          + (f"{meta['dataset']['name']} {meta['dataset']['version']}" if "dataset" in meta else "-"))
+          + (f"{meta['dataset']['name']} {meta['dataset']['version']}  scorer_digest "
+             f"{str(meta['dataset']['scorer_digest'])[:12]}" if "dataset" in meta else "-"))
     print(report(rows, a.provisional, ref))
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
