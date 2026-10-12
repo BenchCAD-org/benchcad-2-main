@@ -28,7 +28,7 @@ DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
 
-MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0 HF_PROBE=""
+MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -55,8 +55,6 @@ case "$SET" in
         DATASET_REPO=BenchCAD/benchcad-2.0-public
         DATASET_NAME=benchcad-2.0-public
         PUBLIC_TERMS="https://huggingface.co/datasets/$DATASET_REPO"   # evaluation only, no republishing; accepted with one click
-        # The repo's file listing answers anyone; a file answers 403 until the account has accepted the terms.
-        HF_PROBE="$PUBLIC_TERMS/resolve/main/dataset.json"
         [ "$DATA_GIVEN" = 1 ] || DATA="$HOME/.cache/benchcad/$DATASET_NAME"
         step "PUBLIC SET ($DATASET_REPO): for anyone to look at, not a reportable score -- report Core" ;;
     *) die "--set $SET: core or public" ;;
@@ -154,12 +152,13 @@ verify() {
     if command -v sha256sum >/dev/null 2>&1; then (cd "$DATA" && sha256sum -c --quiet MANIFEST.sha256)
     else (cd "$DATA" && shasum -a 256 -c --quiet MANIFEST.sha256); fi
 }
-hf_access() {   # 0 when this account can read the gated repo (one metadata request, no download)
+hf_access() {   # 0 when this account can read the gated repo (one small file, not the dataset)
     local tok="${HF_TOKEN:-}"
     [ -n "$tok" ] || tok=$(cat "${HF_HOME:-$HOME/.cache/huggingface}/token" 2>/dev/null || true)
     [ -n "$tok" ] || return 2
+    # A gated repo's file listing answers anyone; its files answer 403 to an account without access.
     [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
-        "${HF_PROBE:-https://huggingface.co/api/datasets/$DATASET_REPO/tree/main}")" = 200 ]
+        "https://huggingface.co/datasets/$DATASET_REPO/resolve/main/dataset.json")" = 200 ]
 }
 HAVE_DATA=1
 if ! verify >/dev/null 2>&1; then
