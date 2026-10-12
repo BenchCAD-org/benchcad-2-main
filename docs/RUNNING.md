@@ -26,8 +26,10 @@ prompt is `envs/<task>/TASK.md`.
 
 - Python 3.12 via [uv](https://docs.astral.sh/uv/) (`uv sync` installs cadquery, OCP, vtk, ...).
 - Docker for the sandbox the model's code runs in (on macOS: Docker Desktop or
-  colima with a few GB). The image is built once from `sandbox/`; on an x86
-  host tag it as you like and point `CADENV_DOCKER_IMAGE` at it. Without Docker,
+  colima with a few GB). The image is built once from `sandbox/` and tagged for the
+  machine, `benchcad-sandbox:arm64` on ARM (Apple silicon) and `benchcad-sandbox:amd64`
+  on x86, which is the tag the harness looks for; another tag works through
+  `CADENV_DOCKER_IMAGE`. Without Docker,
   `CADENV_LOCAL=1` runs the model's code as a plain subprocess — fine for a look,
   not for a run you report.
 - An API key for the provider you run: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
@@ -35,7 +37,7 @@ prompt is `envs/<task>/TASK.md`.
 
 ```sh
 uv sync --group harness --group dev
-docker build -t benchcad-sandbox:arm64 sandbox/     # no network inside, 2 GB, 1 CPU
+docker build -t benchcad-sandbox:arm64 sandbox/     # :amd64 on x86; no network inside, 2 GB, 1 CPU
 ```
 
 ## Score in one command

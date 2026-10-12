@@ -11,6 +11,9 @@
 #   --workers N episodes in flight per effort (default: two per GB of available memory left
 #               after run.py and the scorers, at most 2 x CPUs and 32; the value chosen is printed)
 #   --data D    where Core is downloaded (default ~/.cache/benchcad/benchcad-2.0-core)
+#   --set S     core (default): the reported score. public: the open Public Set
+#               (BenchCAD/benchcad-2.0-public, no token needed, results/public/<model>/),
+#               for anyone to look at -- not a reportable score; report Core
 #   --dry-run   every free step (uv, the environment, the image, the scorer self-test,
 #               dataset access), then print the commands; no download, no API call
 #   -- ...      anything after -- is passed to harness/run.py
@@ -25,7 +28,7 @@ DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
 
-MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=()
+MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -35,15 +38,26 @@ while [ $# -gt 0 ]; do
         --rounds) ROUNDS=$2; shift 2 ;;
         --cases) CASES=$2; shift 2 ;;
         --workers) WORKERS=$2; shift 2 ;;
-        --data) DATA=$2; shift 2 ;;
+        --data) DATA=$2; DATA_GIVEN=1; shift 2 ;;
         --dry-run) DRY=1; shift ;;
         --) shift; EXTRA=("$@"); break ;;
-        -h|--help) sed -n 2,19p "$0"; exit 0 ;;
+        --set) SET=$2; shift 2 ;;
+        -h|--help) sed -n 2,22p "$0"; exit 0 ;;
         *) die "unknown argument $1 (see --help)" ;;
     esac
 done
 [ -n "$MODEL" ] || die "--model <provider>/<model-id> is required (see --help)"
 step() { echo "[run_core] $*"; }
+# The Public Set: Core's layout, scorers and rule on 100 other cases, open to anyone.
+case "$SET" in
+    core) ;;
+    public)
+        DATASET_REPO=BenchCAD/benchcad-2.0-public
+        DATASET_NAME=benchcad-2.0-public
+        [ "$DATA_GIVEN" = 1 ] || DATA="$HOME/.cache/benchcad/$DATASET_NAME"
+        step "PUBLIC SET ($DATASET_REPO): for anyone to look at, not a reportable score -- report Core" ;;
+    *) die "--set $SET: core or public" ;;
+esac
 
 # The memory budget, from MemAvailable (BENCHCAD_NPROC / BENCHCAD_MEM_GB override what is
 # measured, for tests). run.py 3 GB and 3 GB per scorer are reserved; the rest gives two
@@ -138,10 +152,11 @@ verify() {
     else (cd "$DATA" && shasum -a 256 -c --quiet MANIFEST.sha256); fi
 }
 hf_access() {   # 0 when this account can read the gated repo (one metadata request, no download)
-    local tok="${HF_TOKEN:-}"
+    local tok="${HF_TOKEN:-}" auth=()
     [ -n "$tok" ] || tok=$(cat "${HF_HOME:-$HOME/.cache/huggingface}/token" 2>/dev/null || true)
-    [ -n "$tok" ] || return 2
-    [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
+    [ -n "$tok" ] || [ "$SET" = public ] || return 2                 # the Public Set needs no token
+    [ -z "$tok" ] || auth=(-H "Authorization: Bearer $tok")
+    [ "$(curl -s -o /dev/null -w '%{http_code}' ${auth[@]+"${auth[@]}"} \
         "https://huggingface.co/api/datasets/$DATASET_REPO/tree/main")" = 200 ]
 }
 HAVE_DATA=1
@@ -152,14 +167,17 @@ if ! verify >/dev/null 2>&1; then
         case $rc in
             0) step "dataset not downloaded yet; Hugging Face access to $DATASET_REPO: OK" ;;
             2) die "no Hugging Face token: set HF_TOKEN (an account with access to $DATASET_REPO)" ;;
-            *) die "this Hugging Face account cannot read $DATASET_REPO: request access at https://benchcad.com/access.html" ;;
+            *) [ "$SET" = public ] && die "cannot read $DATASET_REPO from Hugging Face (check the network; with a token set, check HF_TOKEN)"
+               die "this Hugging Face account cannot read $DATASET_REPO: request access at https://benchcad.com/access.html" ;;
         esac
     else
     step "downloading $DATASET_REPO to $DATA"
     mkdir -p "$DATA"
     HF_HUB_DISABLE_PROGRESS_BARS=1 uvx --quiet --from huggingface_hub hf download "$DATASET_REPO" --repo-type dataset \
         --local-dir "$DATA" > "$DATA.download.log" 2>&1 \
-        || { tail -5 "$DATA.download.log" >&2; die "download failed: $DATASET_REPO is gated -- request access on its Hugging Face page, then set HF_TOKEN (or run: uvx --from huggingface_hub hf auth login)"; }
+        || { tail -5 "$DATA.download.log" >&2
+             [ "$SET" = public ] && die "download failed: $DATASET_REPO needs no token; check the network and run again (the download resumes)"
+             die "download failed: $DATASET_REPO is gated -- request access on its Hugging Face page, then set HF_TOKEN (or run: uvx --from huggingface_hub hf auth login)"; }
     verify || die "$DATA does not match MANIFEST.sha256; delete it and run again"
     fi
 fi
@@ -222,7 +240,7 @@ fi
 export BENCHCAD_SCORE_TIMEOUT_S=${BENCHCAD_SCORE_TIMEOUT_S:-14400}
 step "scorer timeout $BENCHCAD_SCORE_TIMEOUT_S s per case (BENCHCAD_SCORE_TIMEOUT_S; a timed-out case is re-scored on the next run)"
 TAG=$(echo "$MODEL" | tr '/:' '__')
-OUT="results/core/$TAG"
+OUT="results/$SET/$TAG"
 mkdir -p "$OUT"
 [ "$ROUNDS" = 30 ] || step "SMOKE RUN: rounds=$ROUNDS, not a reportable score (reported numbers use 30)"
 
@@ -234,7 +252,7 @@ for E in ${EFFORTS//,/ }; do
     CMD=("${PY[@]}" -u harness/run.py --model "$MODEL" ${EFF[@]+"${EFF[@]}"} --cases "${CASES:-$DATA}"
          --rounds "$ROUNDS" --rep 0 --workers "$WORKERS" --score-workers "$SCORERS" --max-execs "$EXECS" --score-workers-max "$SCORERS_MAX" --memory-gb "$MEM_GB"
          --resume --out "$OUT/$NAME.json"
-         --work "work/core/$TAG/$NAME" ${EXTRA[@]+"${EXTRA[@]}"})
+         --work "work/$SET/$TAG/$NAME" ${EXTRA[@]+"${EXTRA[@]}"})
     FILES+=("$OUT/$NAME.json")
     if [ "$DRY" = 1 ]; then echo "[run_core] would run: ${CMD[*]}"; continue; fi
     step "effort $NAME: $OUT/$NAME.json (log $OUT/$NAME.log)"
@@ -251,5 +269,6 @@ done
 # 7. the score
 [ "$DRY" = 1 ] && { step "dry run: all checks passed"; exit 0; }
 # The published lines beside each of yours (results/core_reference.json, the same rule and dataset).
-REF=(); [ -f results/core_reference.json ] && REF=(--compare results/core_reference.json)
-"${PY[@]}" tools/core_score.py "${FILES[@]}" --dataset "${CASES:-$DATA}" --dataset-info "$DATA" --json "$OUT/core_summary.json" ${REF[@]+"${REF[@]}"}
+# Core only: the reference lines are Core's.
+REF=(); [ "$SET" = core ] && [ -f results/core_reference.json ] && REF=(--compare results/core_reference.json)
+"${PY[@]}" tools/core_score.py "${FILES[@]}" --dataset "${CASES:-$DATA}" --dataset-info "$DATA" --json "$OUT/${SET}_summary.json" ${REF[@]+"${REF[@]}"}

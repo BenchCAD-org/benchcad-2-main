@@ -70,6 +70,20 @@ uv run python harness/run.py --model mock/oracle --cases examples      # every s
 uv run python harness/run.py --model gemini/<model-id> --cases examples/task3 --effort low
 ```
 
+## Public set
+
+A second set of 100 cases, open to everyone (no agreement, no token):
+[`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public).
+Same tasks, scorers and rule as Core; no case or family in common with it.
+T1 21, T2 14, T3 23, T4 27, T5 6, T6 9.
+
+```bash
+tools/run_core.sh --set public --model gemini/<model-id> --effort low,medium,high
+```
+
+Results go to `results/public/<model>/`, and the table says `PUBLIC SET`. It is there for
+anyone to look at and compare; it is not a reportable score. Report Core.
+
 ## Reporting a score
 
 Send `results/core/<model>/core_summary.json` from a run at the published settings

@@ -10,8 +10,8 @@ log lives outside the mount point, so a reset cannot erase it and a failure can 
 diagnosed without rerunning the model.
 
 There are two levels of isolation:
-- Docker present and the image available (default `benchcad-sandbox:arm64`, the same
-  image the reference sandbox uses): no network, read-only root, capped memory and CPU,
+- Docker present and the image available (default `benchcad-sandbox:<arm64|amd64>` for
+  this machine, the tag tools/run_core.sh builds): no network, read-only root, capped memory and CPU,
   and the task's working directory as the only writable path.
 - No Docker: `CADENV_LOCAL=1` must be set explicitly to fall back to a local
   subprocess (for internal experiments only; a silent downgrade is worse than having no
@@ -29,7 +29,16 @@ from pathlib import Path
 
 from .submission import SUB_ROOT
 
-DOCKER_IMAGE = os.environ.get("CADENV_DOCKER_IMAGE", "benchcad-sandbox:arm64")
+def _default_image() -> str:
+    """benchcad-sandbox:<arch>, the tag tools/run_core.sh builds on this machine. A fixed
+    :arm64 sent a direct harness/run.py on x86 looking for an image no one had built there
+    (measured 2026-10-10: :amd64 present, "sandbox image 'benchcad-sandbox:arm64' is not
+    available")."""
+    import platform
+    return "benchcad-sandbox:" + ("arm64" if platform.machine().lower() in ("arm64", "aarch64") else "amd64")
+
+
+DOCKER_IMAGE = os.environ.get("CADENV_DOCKER_IMAGE") or _default_image()
 MEMORY, CPUS = "2g", "1"
 
 

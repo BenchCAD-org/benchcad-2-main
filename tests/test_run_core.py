@@ -29,11 +29,11 @@ SCRIPT = ROOT / "tools/run_core.sh"
 FIXTURES = sorted(p.parent for p in (ROOT / "tests/fixtures").rglob("case.json"))
 
 
-def fake_core(root: Path, version="1.0", digest=None) -> Path:
+def fake_core(root: Path, version="1.0", digest=None, name="benchcad-2.0-core") -> Path:
     for i, case in enumerate(FIXTURES[:3], 1):
         shutil.copytree(case, root / "task3" / "cases" / f"case{i:03d}")
     (root / "dataset.json").write_text(json.dumps({
-        "name": "benchcad-2.0-core", "version": version, "n_cases": 3,
+        "name": name, "version": version, "n_cases": 3,
         "scorer_digest": digest or scorer_digest(), "case_counts": {"task3": 3}}, indent=2) + "\n")
     lines = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root)}"
              for p in sorted(root.rglob("*")) if p.is_file()]
@@ -278,3 +278,74 @@ def test_the_published_reference_ships_and_prints_beside_a_line(tmp_path, capsys
     C.main([str(f), "--compare", str(ref_path)])
     haiku = next(l for l in ref["lines"] if (l["model"], l["effort"]) == ("anthropic/claude-haiku-5-5", "high"))
     assert f"reference (v2.0-core1): {haiku['core_mean']:.4f}" in capsys.readouterr().out
+
+
+# The Public Set: tools/run_core.sh --set public, beside Core and apart from it.
+
+def _curl_stub(tmp_path: Path) -> dict:
+    """A curl on PATH that answers 200 only to a request without a token: the
+    public repo, read anonymously."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "curl").write_text('#!/bin/sh\nfor a in "$@"; do case "$a" in *Authorization*) echo 401; exit 0;; esac; done\n'
+                               'echo 200\n')
+    (bin_ / "curl").chmod(0o755)
+    return {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": ""}
+
+
+def test_the_public_set_runs_beside_core_with_its_own_results(tmp_path):
+    data = fake_core(tmp_path / "public", name="benchcad-2.0-public")
+    r = run_core("--model", "gemini/some-model-id", "--set", "public", "--data", str(data), "--dry-run",
+                 env_extra={"GEMINI_API_KEY": "x"})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "PUBLIC SET (BenchCAD/benchcad-2.0-public): for anyone to look at, not a reportable score" in r.stdout
+    runs = [l for l in r.stdout.splitlines() if "would run:" in l]
+    assert len(runs) == 3 and all("--out results/public/gemini_some-model-id/" in l and
+                                  "--work work/public/gemini_some-model-id/" in l and f"--cases {data} " in l
+                                  and "--rounds 30" in l for l in runs)
+    core = run_core("--model", "gemini/some-model-id", "--set", "public", "--data",
+                    str(fake_core(tmp_path / "core")), "--dry-run", env_extra={"GEMINI_API_KEY": "x"})
+    assert core.returncode != 0 and "expects benchcad-2.0-public 1.0, the download is benchcad-2.0-core" in core.stderr
+    bad = run_core("--model", "mock/oracle", "--set", "heldout", "--dry-run")
+    assert bad.returncode != 0 and "--set heldout: core or public" in bad.stderr
+
+
+def test_the_public_set_needs_no_token_and_core_still_does(tmp_path):
+    env = _curl_stub(tmp_path)
+    pub = run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "none"), "--dry-run",
+                   env_extra=env)
+    assert pub.returncode == 0, pub.stdout + pub.stderr
+    assert "dataset not downloaded yet; Hugging Face access to BenchCAD/benchcad-2.0-public: OK" in pub.stdout
+    core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "none"), "--dry-run", env_extra=env)
+    assert core.returncode != 0 and "no Hugging Face token" in core.stderr
+
+
+def test_a_failed_public_download_does_not_send_people_to_request_access(tmp_path):
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "uvx").write_text("#!/bin/sh\necho 'Server error 504 Gateway Timeout'\nexit 1\n")    # a Hugging Face hiccup
+    (bin_ / "uvx").chmod(0o755)
+    env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": ""}
+    pub = run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "pub"), env_extra=env)
+    assert pub.returncode != 0 and "needs no token; check the network and run again" in pub.stderr, pub.stderr
+    assert "gated" not in pub.stderr
+    core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "core"), env_extra=env)
+    assert core.returncode != 0 and "is gated -- request access" in core.stderr, core.stderr
+
+
+def test_a_public_set_line_says_it_is_not_the_reported_score(tmp_path):
+    rec = {"case": "/d/task3/cases/case001", "case_id": "case001", "model": "anthropic/claude-haiku-5-5",
+           "effort": "high", "rounds": 30, "score": {"score": 0.5, "status": "ok"}}
+    f = tmp_path / "high.json"
+    f.write_text(json.dumps({"model": rec["model"], "effort": "high", "rounds": 30, "cases": [rec]}))
+    lines = {}
+    for name in ("benchcad-2.0-public", "benchcad-2.0-core"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "dataset.json").write_text(json.dumps({"name": name, "version": "1.0", "n_cases": 1}))
+        lines[name] = C.report(C.summarize([f], None, 1), public=name == C.PUBLIC_SET)
+        assert C.main([str(f), "--dataset-info", str(d), "--json", str(d / "s.json")]) == 0
+        assert json.loads((d / "s.json").read_text()).get("set") == ("public" if name == C.PUBLIC_SET else None)
+    assert "PUBLIC MEAN 0.5000" in lines["benchcad-2.0-public"] and "CORE MEAN" not in lines["benchcad-2.0-public"]
+    assert "PUBLIC SET: for anyone to look at, not a reportable score (report Core)" in lines["benchcad-2.0-public"]
+    assert "CORE MEAN 0.5000" in lines["benchcad-2.0-core"] and "PUBLIC" not in lines["benchcad-2.0-core"]

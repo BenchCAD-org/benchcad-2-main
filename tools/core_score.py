@@ -17,6 +17,9 @@ The rule, per (model, effort):
 - A run at other than 30 rounds is a smoke run, not a reportable score.
 - Records covering fewer cases than the dataset holds (dataset.json n_cases,
   from --dataset-info) are a SUBSET: per-task lines, no headline.
+- The Public Set (dataset.json name benchcad-2.0-public; tools/run_core.sh
+  --set public) is scored by the same rule and labelled PUBLIC: for anyone to
+  look at, not a reportable score.
 
 Also per effort: mean $ per case (tools/prices.json, list prices of that exact
 model id, an estimate; "price unknown" for any other id), mean input / output
@@ -33,6 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUNDS = 30
+PUBLIC_SET = "benchcad-2.0-public"      # dataset.json name of the open Public Set (run_core.sh --set public)
 PENDING_ERR = re.compile(r"memory|MemoryBudget|OOM|timeout|timed out|Timeout|evaluator_error|"
                          r"APIError|APIConnection|Connection|ServerError|InternalServerError|exhausted|"
                          r"RateLimit|\b429\b|\b5\d\d\b", re.I)
@@ -212,8 +216,10 @@ def fmt(x, nd=4):
     return "-" if x is None else f"{x:.{nd}f}"
 
 
-def report(rows: list[dict], provisional: bool = False, reference: dict | None = None) -> str:
+def report(rows: list[dict], provisional: bool = False, reference: dict | None = None,
+           public: bool = False) -> str:
     lines = []
+    head, cases = ("PUBLIC MEAN", "Public Set") if public else ("CORE MEAN", "Core")
     for r in rows:
         lines.append(f"== {r['model']}  effort {r['effort']}"
                      + (f" (sent {', '.join(map(str, r['effort_sent']))})" if r["effort_sent"]
@@ -221,14 +227,16 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
         if r["smoke"]:
             lines.append(f"   SMOKE RUN, rounds={r['rounds']}: not a reportable score "
                          f"(reported numbers use {ROUNDS} rounds)")
-        of = f" ({r['n_cases']}/{r['n_core']} Core cases)" if r.get("subset") else ""
+        if public:
+            lines.append("   PUBLIC SET: for anyone to look at, not a reportable score (report Core)")
+        of = f" ({r['n_cases']}/{r['n_core']} {cases} cases)" if r.get("subset") else ""
         if r["complete"]:
-            lines.append(f"   CORE MEAN {r['core_mean']:.4f}   over {r['n_cases']} cases")
+            lines.append(f"   {head} {r['core_mean']:.4f}   over {r['n_cases']} cases")
         elif r["pending"]:
             lines.append(f"   INCOMPLETE: {len(r['pending'])} of {r['n_cases']} cases pending{of}, no headline")
         else:
             lines.append(f"   SUBSET {r['n_cases']}/{r['n_core']}: these records cover {r['n_cases']} of the "
-                         f"{r['n_core']} Core cases, no headline")
+                         f"{r['n_core']} {cases} cases, no headline")
         if not r["complete"] and provisional and r["provisional_mean"] is not None:
             lines.append(f"   provisional mean over the {r['resolved']} resolved cases: "
                          f"{r['provisional_mean']:.4f} (NOT the headline)")
@@ -282,10 +290,12 @@ def main(argv=None) -> int:
     print(f"harness {ran}  dataset "
           + (f"{meta['dataset']['name']} {meta['dataset']['version']}  scorer_digest "
              f"{str(meta['dataset']['scorer_digest'])[:12]}" if "dataset" in meta else "-"))
-    print(report(rows, a.provisional, ref))
+    public = (meta.get("dataset") or {}).get("name") == PUBLIC_SET
+    print(report(rows, a.provisional, ref, public))
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
-        a.json.write_text(json.dumps({**meta, "efforts": rows}, indent=1) + "\n")
+        a.json.write_text(json.dumps({**meta, **({"set": "public"} if public else {}), "efforts": rows},
+                                     indent=1) + "\n")
         print(f"summary -> {a.json}")
     return 0 if all(r["complete"] for r in rows) else 3
 

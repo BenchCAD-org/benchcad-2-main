@@ -229,3 +229,19 @@ def test_an_over_budget_call_is_a_discarded_round_the_model_hears_about(tmp_path
     assert "CallOverBudget" in out["rounds"][0]["error"]
     assert seen[1].startswith("Round 1: your reply did not finish within the time budget") and "Round 2 of 5" in seen[1]
     assert out["submitted"]
+
+
+def test_the_default_sandbox_image_is_the_tag_run_core_builds_here(monkeypatch):
+    """tools/run_core.sh builds benchcad-sandbox:arm64 on arm64/aarch64 and :amd64
+    elsewhere; a direct harness/run.py looks for the same tag (it looked for
+    :arm64 on x86 too). CADENV_DOCKER_IMAGE still wins."""
+    import os
+    import platform
+    from envs.common import sandbox as S
+    for machine, tag in (("arm64", "arm64"), ("aarch64", "arm64"), ("x86_64", "amd64"), ("AMD64", "amd64")):
+        monkeypatch.setattr(platform, "machine", lambda m=machine: m)
+        assert S._default_image() == f"benchcad-sandbox:{tag}"
+    probe = [sys.executable, "-c", "import envs.common.sandbox as S; print(S.DOCKER_IMAGE)"]
+    env = {k: v for k, v in os.environ.items() if k != "CADENV_DOCKER_IMAGE"}
+    assert subprocess.run(probe, cwd=ROOT, env={**env, "CADENV_DOCKER_IMAGE": "mine:1"},
+                          capture_output=True, text=True).stdout.strip() == "mine:1"
