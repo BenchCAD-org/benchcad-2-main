@@ -13,7 +13,8 @@ for or submitted on the model's behalf: the budget is in the prompt and every
 observation counts the rounds, and an episode whose rounds run out without a
 ```submit has no answer. A submitted program runs once, as submitted; if it
 does not run, or leaves no answer, there is no answer -- no fallback to an
-earlier STEP.
+earlier STEP. A call that fails for the infrastructure's reasons does not spend
+one of the model's rounds (run_episode).
 """
 
 from __future__ import annotations
@@ -29,6 +30,10 @@ MAX_ROUNDS = 8
 # How many consecutive failed calls before treating it as a real fault rather
 # than one network hiccup.
 MAX_DEAD_ROUNDS = 3
+# How many infrastructure failures one episode absorbs in all. They do not spend
+# the model's rounds, so without a total a flapping endpoint never ends a case.
+# Each one is already harness.run.drive's retries (~2.5 min) giving up.
+MAX_INFRA_FAILURES = 10
 # The cadquery version in the sandbox image. Telling the model reduces API
 # hallucination (measured: it called cadquery.selectors.and_, which exists in
 # neither 2.3.0 nor 2.8.0).
@@ -491,6 +496,32 @@ def _summarize(call_fn, system: str, turns: list, brief: str, box: Sandbox,
             {"role": "user", "text": HANDOFF_PROMPT.format(answers=answers), "images": []}]
 
 
+def _models_round(e: Exception) -> bool:
+    """Does this failed call spend the model's round?
+
+    Yes when the failure is the model's, as served:
+      ReplyBlocked   the provider withheld the reply on policy. It is the
+                     provider's verdict on this model's conversation; the
+                     same request draws the same verdict, so asking again
+                     would not give the model its round back.
+      CallOverBudget the model was still answering when the call's wall budget
+                     (30 min from medium up) ran out. The length of its
+                     reasoning is its own; asking again re-runs it.
+      context length the conversation no longer fits the model's context even
+                     after summarising (Terminus 2's three calls). Its size is
+                     the model's own rounds against the model's own window,
+                     and it fails the same way every time it is asked.
+    No for everything else: the network, a 5xx, a stream that stayed silent,
+    a 4xx about the request -- what drive() retries, failing past its retries.
+    That is the infrastructure's, and costs the model nothing. (A Gemini
+    ReplyGlitch never gets here: past drive()'s retries its partial reply is
+    handed back and played as the model's round, like a reply cut off at the
+    output ceiling -- it is the model's own sample, and a context that keeps
+    drawing it must still let the case finish.)"""
+    return (type(e).__name__ in ("ReplyBlocked", "CallOverBudget")
+            or bool(_CONTEXT_ERROR.search(str(e))))
+
+
 def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 max_rounds: int = MAX_ROUNDS, exec_timeout: int = 600) -> dict:
     """Run one case.
@@ -521,23 +552,29 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
               "image_labels": [p.relative_to(box.dir).as_posix() for p in seed_imgs]}]
 
     rounds, submitted = [], ""
-    dead = 0
+    dead = 0                     # consecutive failed calls, of any kind
     blocked = 0                  # consecutive rounds the provider withheld on policy
+    infra = 0                    # infrastructure failures this episode
     summaries = 0
-    for rnd in range(1, max_rounds + 1):
+    rnd = 1                      # the model's round about to be played
+    while rnd <= max_rounds:
         needed, last_tokens, limit = _needs_summary(call_fn)
         if needed:
             print(f"      last request {last_tokens:,} tokens of a {limit:,} context; "
                   f"summarising proactively", flush=True)
             summaries += 1
             turns = _summarize(call_fn, system, turns, task_brief, box, rounds, "proactive", summaries)
-        # A failed call should waste THIS ROUND, not the whole case. Measured
-        # in v2: PART-0043 / -0199 / -0211 all hit a stream interruption on
-        # the first call (the provider never sent response.completed), the
-        # exception propagated out, and the case scored 0 with none of its 30
-        # rounds used -- that is the network's score, not the model's.
-        # Only after MAX_DEAD_ROUNDS consecutive failures is it a real fault,
-        # and only then is the exception allowed out.
+        # A failed call must not cost the case. Measured in v2: PART-0043 /
+        # -0199 / -0211 all hit a stream interruption on the first call (the
+        # provider never sent response.completed), the exception propagated
+        # out, and the case scored 0 with none of its 30 rounds used -- that
+        # is the network's score, not the model's. Nor may it cost the model a
+        # round (GDM's review, 2026-10-12): an infrastructure failure is asked
+        # again for the same round. Only a failure that is the model's
+        # (_models_round) spends one. After MAX_DEAD_ROUNDS consecutive
+        # failures, or MAX_INFRA_FAILURES in the episode, it is a real fault
+        # and the exception is allowed out (the case is an error, re-run by
+        # --resume, never a score).
         try:
             try:
                 raw = call_fn(system, turns)
@@ -552,8 +589,10 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         except Exception as e:                           # noqa: BLE001
             dead += 1
             blocked = blocked + 1 if type(e).__name__ == "ReplyBlocked" else 0
+            mine = _models_round(e)
+            infra += not mine
             rounds.append({"round": rnd, "action": "call_failed",
-                           "error": f"{type(e).__name__}: {e}"})
+                           "error": f"{type(e).__name__}: {e}"} | ({} if mine else {"infra": True}))
             if blocked >= MAX_DEAD_ROUNDS:
                 # The provider refused this conversation on policy every time
                 # (harness.run.ReplyBlocked): its verdict on the model's
@@ -562,12 +601,19 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 # scored 0 -- so one refusal cannot leave a case pending.
                 print(f"      round {rnd} reply withheld {blocked} rounds in a row; "
                       f"ending the episode with no submission", flush=True)
+                rnd += 1
                 break
-            if dead >= MAX_DEAD_ROUNDS:
+            if dead >= MAX_DEAD_ROUNDS or infra >= MAX_INFRA_FAILURES:
                 print(f"      round {rnd} call failed ({type(e).__name__}), "
-                      f"{dead} in a row -- treating as a real fault, "
-                      f"abandoning this case", flush=True)
+                      + (f"{dead} in a row" if dead >= MAX_DEAD_ROUNDS else
+                         f"{infra} infrastructure failures this episode")
+                      + " -- treating as a real fault, abandoning this case", flush=True)
                 raise
+            if not mine:
+                print(f"      round {rnd} call failed ({type(e).__name__}), not the model's: "
+                      f"asking again for round {rnd} [{dead}/{MAX_DEAD_ROUNDS} in a row, "
+                      f"{infra}/{MAX_INFRA_FAILURES} this episode]", flush=True)
+                continue
             print(f"      round {rnd} call failed ({type(e).__name__}), "
                   f"round discarded, continuing "
                   f"[{dead}/{MAX_DEAD_ROUNDS}]", flush=True)
@@ -579,6 +625,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                               "text": f"Round {rnd}: your reply did not finish within the time "
                                       f"budget for one call and was discarded. Round {rnd + 1} of "
                                       f"{max_rounds}."})
+            rnd += 1
             continue
         # The raw reply must be archived. When no parsable block comes back
         # (no_block), without it there is no way to tell whether the model
@@ -594,6 +641,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         if sub is not None:
             submitted = sub
             rounds.append({"round": rnd, "action": "submit"})
+            rnd += 1
             break
         if py is None:
             rounds.append({"round": rnd, "action": "no_block"})
@@ -615,11 +663,13 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                           "Start your reply with the opening ``` -- no preamble, "
                           "no analysis before it.",
                           "images": []})
+            rnd += 1
             continue
         res = box.run(py, timeout=exec_timeout)
         rounds.append({"round": rnd, "action": "exec", "rc": res.returncode})
         text, imgs = _observation(rnd, res, max_rounds)
         turns.append({"role": "user", "text": text, "images": imgs})
+        rnd += 1
 
     # No forced final submission and no rescue: an episode whose rounds run
     # out without a ```submit has no answer, and is scored as such (the
@@ -628,7 +678,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     # the harness, not the model (the two rescues were
     # the whole apparent advantage over mini-swe-agent).
     if not submitted and rounds:
-        rounds.append({"round": len(rounds) + 1, "action": "no_submission"})
+        rounds.append({"round": rnd, "action": "no_submission"})
 
     # The submitted program runs once, exactly as submitted. If it fails to
     # execute, or leaves no answer, there is no answer: no resubmission with
@@ -643,7 +693,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         if res.ok:
             step = _artifact(box)
         if step is None:
-            rounds.append({"round": len(rounds) + 1, "action": "submit_failed",
+            rounds.append({"round": rnd, "action": "submit_failed",
                            "rc": res.returncode,
                            "stderr": (res.stderr or "").strip()[-1500:]})
 

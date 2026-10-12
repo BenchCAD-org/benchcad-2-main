@@ -245,3 +245,66 @@ def test_the_default_sandbox_image_is_the_tag_run_core_builds_here(monkeypatch):
     env = {k: v for k, v in os.environ.items() if k != "CADENV_DOCKER_IMAGE"}
     assert subprocess.run(probe, cwd=ROOT, env={**env, "CADENV_DOCKER_IMAGE": "mine:1"},
                           capture_output=True, text=True).stdout.strip() == "mine:1"
+
+
+def _counting_episode(tmp_path, monkeypatch, script, max_rounds):
+    """Run the t3 fixture with a call_fn that plays `script`, one entry per call:
+    an exception to raise, or a reply. Returns (episode result, the text of the
+    last turn each call was sent)."""
+    from envs.common import episode as E
+    from envs.common import sandbox as S
+    monkeypatch.setenv("CADENV_LOCAL", "1")
+    monkeypatch.setattr(S, "_docker_ready", lambda: False)
+    seen = []
+
+    def call_fn(system, turns, plain=False):
+        seen.append(turns[-1]["text"])
+        step = script[min(len(seen), len(script)) - 1]
+        if isinstance(step, Exception):
+            raise step
+        return step
+    call_fn.usage = []
+    call_fn.context_tokens = 200_000
+    out = E.run_episode(ROOT / "tests/fixtures/t3/case1", tmp_path / "w", call_fn,
+                        max_rounds=max_rounds, exec_timeout=60)
+    return out, seen
+
+
+PRINT = "```python\nprint('ok')\n```"
+
+
+def test_an_infrastructure_failure_does_not_spend_the_models_round(tmp_path, monkeypatch):
+    """GDM's review (2026-10-12): a call that fails past drive()'s retries for
+    the infrastructure's reasons is asked again for the same round, so the
+    model still plays every one of its rounds."""
+    from envs.common import episode as E
+    out, seen = _counting_episode(tmp_path, monkeypatch,
+                                  [ConnectionError("Connection error."), ConnectionError("Connection error."), PRINT], 30)
+    assert [r["action"] for r in out["rounds"]].count("exec") == 30
+    assert [r["round"] for r in out["rounds"] if r["action"] == "exec"] == list(range(1, 31))
+    assert [r.get("infra") for r in out["rounds"][:2]] == [True, True] and len(seen) == 32
+    assert out["rounds"][-1] == {"round": 31, "action": "no_submission"}     # numbered by the model's rounds
+    # ... within a total per episode, so a flapping endpoint still ends the case
+    flap = [ConnectionError("Connection error."), PRINT] * 20
+    with pytest.raises(ConnectionError):
+        _counting_episode(tmp_path / "flap", monkeypatch, flap, 30)
+    assert E.MAX_INFRA_FAILURES < 20
+
+
+
+def test_a_withheld_reply_still_spends_the_round(tmp_path, monkeypatch):
+    """ReplyBlocked keeps its semantics: the provider's verdict on the model's
+    conversation spends the round (and MAX_DEAD_ROUNDS in a row end the episode
+    with no submission, test_a_reply_withheld_round_after_round_...). So do
+    an over-budget reply and a context that no longer fits; the rest is the
+    infrastructure's."""
+    from envs.common import episode as E
+    from harness.run import CallOverBudget, ReplyBlocked
+    blocked = ReplyBlocked("gemini withheld the reply: finish_reason=SAFETY")
+    out, seen = _counting_episode(tmp_path, monkeypatch, [blocked, blocked, PRINT], 4)
+    assert [r["action"] for r in out["rounds"]] == ["call_failed", "call_failed", "exec", "exec", "no_submission"]
+    assert not any(r.get("infra") for r in out["rounds"]) and len(seen) == 4
+    assert E._models_round(blocked) and E._models_round(CallOverBudget("still streaming after 1800 s"))
+    assert E._models_round(RuntimeError("Error code: 400 - prompt is too long: 1,050,000 tokens"))
+    assert not any(E._models_round(e) for e in (ConnectionError("Connection error."), TimeoutError("idle"),
+                                                 RuntimeError("Error code: 503 - overloaded")))
