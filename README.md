@@ -61,6 +61,22 @@ or Vertex AI with `GOOGLE_GENAI_USE_VERTEXAI=true` plus an express key in `GOOGL
 `gemini-3.8-flash`; please check model-specific details (levels, endpoint, auth) on
 your side, and report `effort_sent`, `auth`, the model id, rounds and rep with the numbers.
 
+**Anthropic.** `--effort low|medium|high|xhigh|max` is sent as `output_config.effort`,
+with `thinking: {"type": "adaptive"}`; `max_tokens` is the model's own output ceiling,
+as the Models API reports it. Use `ANTHROPIC_API_KEY`; an organization-level key, one
+not scoped to a workspace, also needs `ANTHROPIC_WORKSPACE_ID` (sent as the
+`anthropic-workspace-id` header). The default ladder is `low,medium,high,xhigh,max`.
+There is no step-down on a 400: a level the model refuses fails the call. If the Models
+API lists the model's levels and the one asked for is not among them, the highest
+listed level below it is sent instead, and the log says so.
+
+**OpenAI.** `--effort low|medium|high|xhigh|max` is sent as `reasoning.effort` on the
+Responses API (streamed, `reasoning.summary` `auto`, `max_output_tokens` 128k). Use
+`OPENAI_API_KEY`. The default ladder is `low,medium,high,xhigh,max`. A 400 that names the
+effort steps it down, `max` → `xhigh` → `high` → not sent, and repeats the call; the
+lower level is kept for the rest of that episode. The level actually sent is each
+record's `effort_sent`.
+
 ## Try the public examples first
 
 Nine samples ship in `examples/`, no download needed:
@@ -99,6 +115,25 @@ count.
 Changed 2026-10-12: before, an infrastructure failure past the retries used up the
 round. This changes only which failed calls count as rounds. How a played round and a
 submission are scored is unchanged.
+
+## Reproducing the published lines
+
+The reference lines in `results/core_reference.json` were run with this harness at
+30 rounds on all 100 Core cases. The Claude lines are one rep, rep 0, which is what
+`run_core` runs. The `openai/gpt-6-astra` lines are the mean of 3 reps (T6: 1 rep), so
+compare your single run against the spread in that line's `noise_note`. The model ids are
+`anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-5-5`,
+`anthropic/claude-fable-5-1` and `openai/gpt-6-astra`, each at `low`, `medium`, `high`,
+`xhigh` and `max`, which is the default ladder:
+
+```bash
+tools/run_core.sh --model anthropic/claude-opus-5-5     # ANTHROPIC_API_KEY
+tools/run_core.sh --model openai/gpt-6-astra            # OPENAI_API_KEY
+```
+
+`run_core` prints the published line beside each of yours, with the same model and effort.
+The reference lines predate the 2026-10-12 change in [Rounds](#rounds). That change
+affects only calls that fail for infrastructure reasons.
 
 ## Reporting a score
 
