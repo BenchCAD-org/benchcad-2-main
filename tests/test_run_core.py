@@ -283,12 +283,13 @@ def test_the_published_reference_ships_and_prints_beside_a_line(tmp_path, capsys
 # The Public Set: tools/run_core.sh --set public, beside Core and apart from it.
 
 def _curl_stub(tmp_path: Path) -> dict:
-    """A curl on PATH that answers 200 only to a request without a token: the
-    public repo, read anonymously."""
+    """A curl on PATH standing in for Hugging Face's gate: 200 for the token of an
+    account that accepted the terms ("accepted"), 403 for any other token, 401 without one."""
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "curl").write_text('#!/bin/sh\nfor a in "$@"; do case "$a" in *Authorization*) echo 401; exit 0;; esac; done\n'
-                               'echo 200\n')
+    (bin_ / "curl").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/curl.log\n'
+                               'for a in "$@"; do case "$a" in *"Bearer accepted"*) echo 200; exit 0;; '
+                               '*Authorization*) echo 403; exit 0;; esac; done\necho 401\n')
     (bin_ / "curl").chmod(0o755)
     return {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": ""}
 
@@ -310,25 +311,38 @@ def test_the_public_set_runs_beside_core_with_its_own_results(tmp_path):
     assert bad.returncode != 0 and "--set heldout: core or public" in bad.stderr
 
 
-def test_the_public_set_needs_no_token_and_core_still_does(tmp_path):
+def test_the_public_set_needs_its_terms_accepted_and_says_where(tmp_path):
     env = _curl_stub(tmp_path)
-    pub = run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "none"), "--dry-run",
-                   env_extra=env)
-    assert pub.returncode == 0, pub.stdout + pub.stderr
-    assert "dataset not downloaded yet; Hugging Face access to BenchCAD/benchcad-2.0-public: OK" in pub.stdout
+    terms = "accept the terms at https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public (one click, no review)"
+    args = ("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "none"), "--dry-run")
+    none = run_core(*args, env_extra=env)
+    assert none.returncode != 0 and f"no Hugging Face token: {terms}, then set HF_TOKEN" in none.stderr, none.stderr
+    not_yet = run_core(*args, env_extra={**env, "HF_TOKEN": "not-accepted"})
+    assert not_yet.returncode != 0 and f"this Hugging Face account cannot read BenchCAD/benchcad-2.0-public: {terms}" \
+        in not_yet.stderr, not_yet.stderr
+    ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
+    assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-public: OK" in ok.stdout, ok.stderr
+    # the listing answers anyone, so the check asks for a file: that is what the terms gate
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/main/dataset.json" \
+        in (tmp_path / "curl.log").read_text()
     core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "none"), "--dry-run", env_extra=env)
-    assert core.returncode != 0 and "no Hugging Face token" in core.stderr
+    assert core.returncode != 0 and "no Hugging Face token: set HF_TOKEN (an account with access to " \
+        "BenchCAD/benchcad-2.0-core)" in core.stderr
+    core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "none"), "--dry-run",
+                    env_extra={**env, "HF_TOKEN": "not-accepted"})
+    assert core.returncode != 0 and "request access at https://benchcad.com/access.html" in core.stderr
 
 
-def test_a_failed_public_download_does_not_send_people_to_request_access(tmp_path):
+def test_a_failed_public_download_points_at_the_terms_not_at_core_access(tmp_path):
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     (bin_ / "uvx").write_text("#!/bin/sh\necho 'Server error 504 Gateway Timeout'\nexit 1\n")    # a Hugging Face hiccup
     (bin_ / "uvx").chmod(0o755)
     env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": ""}
     pub = run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "pub"), env_extra=env)
-    assert pub.returncode != 0 and "needs no token; check the network and run again" in pub.stderr, pub.stderr
-    assert "gated" not in pub.stderr
+    assert pub.returncode != 0 and "download failed: accept the terms at https://huggingface.co/datasets/" \
+        "BenchCAD/benchcad-2.0-public with the account HF_TOKEN belongs to" in pub.stderr, pub.stderr
+    assert "request access" not in pub.stderr
     core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "core"), env_extra=env)
     assert core.returncode != 0 and "is gated -- request access" in core.stderr, core.stderr
 

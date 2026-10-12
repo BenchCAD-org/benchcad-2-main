@@ -11,9 +11,9 @@
 #   --workers N episodes in flight per effort (default: two per GB of available memory left
 #               after run.py and the scorers, at most 2 x CPUs and 32; the value chosen is printed)
 #   --data D    where Core is downloaded (default ~/.cache/benchcad/benchcad-2.0-core)
-#   --set S     core (default): the reported score. public: the open Public Set
-#               (BenchCAD/benchcad-2.0-public, no token needed, results/public/<model>/),
-#               for anyone to look at -- not a reportable score; report Core
+#   --set S     core (default): the reported score. public: the Public Set (BenchCAD/
+#               benchcad-2.0-public; accept its terms on Hugging Face once, no review),
+#               results/public/<model>/, for anyone to look at -- not a reportable score; report Core
 #   --dry-run   every free step (uv, the environment, the image, the scorer self-test,
 #               dataset access), then print the commands; no download, no API call
 #   -- ...      anything after -- is passed to harness/run.py
@@ -28,7 +28,7 @@ DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
 
-MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
+MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0 HF_PROBE=""
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -48,12 +48,15 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$MODEL" ] || die "--model <provider>/<model-id> is required (see --help)"
 step() { echo "[run_core] $*"; }
-# The Public Set: Core's layout, scorers and rule on 100 other cases, open to anyone.
+# The Public Set: Core's layout, scorers and rule on 100 other cases; its terms are accepted with one click.
 case "$SET" in
     core) ;;
     public)
         DATASET_REPO=BenchCAD/benchcad-2.0-public
         DATASET_NAME=benchcad-2.0-public
+        PUBLIC_TERMS="https://huggingface.co/datasets/$DATASET_REPO"   # evaluation only, no republishing; accepted with one click
+        # The repo's file listing answers anyone; a file answers 403 until the account has accepted the terms.
+        HF_PROBE="$PUBLIC_TERMS/resolve/main/dataset.json"
         [ "$DATA_GIVEN" = 1 ] || DATA="$HOME/.cache/benchcad/$DATASET_NAME"
         step "PUBLIC SET ($DATASET_REPO): for anyone to look at, not a reportable score -- report Core" ;;
     *) die "--set $SET: core or public" ;;
@@ -152,12 +155,11 @@ verify() {
     else (cd "$DATA" && shasum -a 256 -c --quiet MANIFEST.sha256); fi
 }
 hf_access() {   # 0 when this account can read the gated repo (one metadata request, no download)
-    local tok="${HF_TOKEN:-}" auth=()
+    local tok="${HF_TOKEN:-}"
     [ -n "$tok" ] || tok=$(cat "${HF_HOME:-$HOME/.cache/huggingface}/token" 2>/dev/null || true)
-    [ -n "$tok" ] || [ "$SET" = public ] || return 2                 # the Public Set needs no token
-    [ -z "$tok" ] || auth=(-H "Authorization: Bearer $tok")
-    [ "$(curl -s -o /dev/null -w '%{http_code}' ${auth[@]+"${auth[@]}"} \
-        "https://huggingface.co/api/datasets/$DATASET_REPO/tree/main")" = 200 ]
+    [ -n "$tok" ] || return 2
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
+        "${HF_PROBE:-https://huggingface.co/api/datasets/$DATASET_REPO/tree/main}")" = 200 ]
 }
 HAVE_DATA=1
 if ! verify >/dev/null 2>&1; then
@@ -166,8 +168,9 @@ if ! verify >/dev/null 2>&1; then
         rc=0; hf_access || rc=$?
         case $rc in
             0) step "dataset not downloaded yet; Hugging Face access to $DATASET_REPO: OK" ;;
-            2) die "no Hugging Face token: set HF_TOKEN (an account with access to $DATASET_REPO)" ;;
-            *) [ "$SET" = public ] && die "cannot read $DATASET_REPO from Hugging Face (check the network; with a token set, check HF_TOKEN)"
+            2) [ "$SET" = public ] && die "no Hugging Face token: accept the terms at $PUBLIC_TERMS (one click, no review), then set HF_TOKEN to that account's token"
+               die "no Hugging Face token: set HF_TOKEN (an account with access to $DATASET_REPO)" ;;
+            *) [ "$SET" = public ] && die "this Hugging Face account cannot read $DATASET_REPO: accept the terms at $PUBLIC_TERMS (one click, no review), with the account HF_TOKEN belongs to"
                die "this Hugging Face account cannot read $DATASET_REPO: request access at https://benchcad.com/access.html" ;;
         esac
     else
@@ -176,7 +179,7 @@ if ! verify >/dev/null 2>&1; then
     HF_HUB_DISABLE_PROGRESS_BARS=1 uvx --quiet --from huggingface_hub hf download "$DATASET_REPO" --repo-type dataset \
         --local-dir "$DATA" > "$DATA.download.log" 2>&1 \
         || { tail -5 "$DATA.download.log" >&2
-             [ "$SET" = public ] && die "download failed: $DATASET_REPO needs no token; check the network and run again (the download resumes)"
+             [ "$SET" = public ] && die "download failed: accept the terms at $PUBLIC_TERMS with the account HF_TOKEN belongs to, check the network, and run again (the download resumes)"
              die "download failed: $DATASET_REPO is gated -- request access on its Hugging Face page, then set HF_TOKEN (or run: uvx --from huggingface_hub hf auth login)"; }
     verify || die "$DATA does not match MANIFEST.sha256; delete it and run again"
     fi

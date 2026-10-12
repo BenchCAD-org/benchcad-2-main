@@ -72,8 +72,10 @@ uv run python harness/run.py --model gemini/<model-id> --cases examples/task3 --
 
 ## Public set
 
-A second set of 100 cases, open to everyone (no agreement, no token):
+A second set of 100 cases, open to everyone:
 [`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public).
+Accept its terms on that page once (evaluation only; do not republish the set or its
+cases). It is one click, with no review. Then use that account's token as `HF_TOKEN`.
 Same tasks, scorers and rule as Core; no case or family in common with it.
 T1 21, T2 14, T3 23, T4 27, T5 6, T6 9.
 
