@@ -8,11 +8,12 @@ Each round the model replies with one fenced block:
               geometry in `result`. The harness runs it, exports STEP, and
               computes voxel IoU against the ground truth.
 
-Three inherited lessons: the prompt states the interface and does not teach
-strategy; the final round explicitly demands a submission (otherwise the model
-spends the whole budget measuring and the case is wasted); and a failed
-submission falls back to the last usable STEP in the log rather than scoring
-zero.
+The prompt states the interface and does not teach strategy. Nothing is asked
+for or submitted on the model's behalf: the budget is in the prompt and every
+observation counts the rounds, and an episode whose rounds run out without a
+```submit has no answer. A submitted program runs once, as submitted; if it
+does not run, or leaves no answer, there is no answer -- no fallback to an
+earlier STEP.
 """
 
 from __future__ import annotations
