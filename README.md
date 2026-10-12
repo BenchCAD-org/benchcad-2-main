@@ -86,6 +86,20 @@ tools/run_core.sh --set public --model gemini/<model-id> --effort low,medium,hig
 Results go to `results/public/<model>/`, and the table says `PUBLIC SET`. It is there for
 anyone to look at and compare; it is not a reportable score. Report Core.
 
+## Rounds
+
+Each observation the model gets back starts `Round N/30`, for the round just played, so
+the last one it sees before its final reply says `Round 29/30`. Nothing is submitted for
+it: a case whose 30 rounds run out without a `submit` has no answer. A call that fails
+for the infrastructure's reasons (the network, a server error, a stalled stream) after
+the harness's retries is made again and does not count as one of the 30 rounds. A reply
+the provider withholds on policy, or one still running at the call's time budget, does
+count.
+
+Changed 2026-10-12: before, an infrastructure failure past the retries used up the
+round. This changes only which failed calls count as rounds. How a played round and a
+submission are scored is unchanged.
+
 ## Reporting a score
 
 Send `results/core/<model>/core_summary.json` from a run at the published settings

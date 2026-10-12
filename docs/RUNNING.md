@@ -99,7 +99,10 @@ the clocks -- a 60 s idle limit on a stream (both carry reasoning progress while
 the model thinks), a wall budget per call (`CALL_BUDGET_S` in harness/run.py:
 300 s at `none`, 600 s at `low`, 1800 s from `medium` up) past which the round is discarded and the model told in one
 sentence -- the retry rules (a 429 waits for the endpoint's own hint; a silent
-stream is re-requested three times), the image handling (every image kept; over
+stream is re-requested three times; a call that still fails for the
+infrastructure's reasons is made again for the same round and does not use one
+of the model's rounds -- three failed calls in a row, or ten in one episode, end
+the case as an error that `--resume` re-runs), the image handling (every image kept; over
 20 images, 2000 px each) and prompt caching (OpenAI's automatic prefix cache,
 Anthropic's top-level `cache_control`); every usage record carries the call's
 seconds. Scoring runs in child processes from a separate pool, so a slow score
