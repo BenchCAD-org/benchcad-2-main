@@ -13,31 +13,31 @@
  "input": [
   {
    "path": "input/bom.json",
-   "sha256": "cb70ef2d5b8468b20555a52e6f2348bfb23dc810013a353c3043a6c438398841"
+   "sha256": "7fe3a28ba1e3492de63e94fe561eb6e9f75d1057559baebf4f8fb1c3d1ba2415"
   },
   {
    "path": "input/drawing.pdf",
-   "sha256": "bd988610a081c21c97635b2ee6d49eab5574e987c7efc8fe9c7e882f8df35a6d"
+   "sha256": "4bd201af5a703ec510a6b7ad742062b15c68d67d831bfbeb4929de84b477a4e8"
   },
   {
    "path": "input/part_drawings/part_03.pdf",
-   "sha256": "10852f91827f84906261e3f6cf3ddc9141a49bc6fb6078ad4db422409509aa8a"
+   "sha256": "43a9f00808c7b09a0f62aae7617eb461174262e9013e51781591ea6974ef0d79"
   },
   {
    "path": "input/part_drawings/part_14.pdf",
-   "sha256": "f26bd75e47c3f47bd9b46c21e6e4abf3ecfce22434f44707a63184d6a7a1da99"
+   "sha256": "2345e3132123732ca8847d9ce247cbf61a1da4fb1f22812baa8330bd21788ead"
   },
   {
    "path": "input/part_drawings/part_16.pdf",
-   "sha256": "326bac6a07bcb833ead111b8f9e9695edeadcf493effb9fc9f7f40e3bf6c8b40"
+   "sha256": "a74b87d5abb0c114719fbceddf2cf22e27ae0732583adc1506e17a1e22b827c8"
   },
   {
    "path": "input/part_drawings/part_19.pdf",
-   "sha256": "03d8f0ffb748f2939a5012aa4d78816e3a04fb791403870c4dbcde42c656ea7a"
+   "sha256": "3792b1ec6b65cff39a5bc9253fc906d9182376f88b827c764f7c9502c7356874"
   },
   {
    "path": "input/part_drawings/part_21.pdf",
-   "sha256": "f3adc677e27b1fc39d1c9a3eda53474e593dcd94a53c3235057ca6d81f11decb"
+   "sha256": "a3fbc3312f4cc117d2f0c169d5d3cdf20812a4d98b648792890a9f0d925ef5c3"
   },
   {
    "path": "input/step_files/part_01.step",
@@ -199,10 +199,10 @@
  "gates": {},
  "redaction": {
   "status": "clean",
-  "note": "The five part drawings were exported from SOLIDWORKS 2023 SP5 using the local BenchCAD Pro A3 sheet format, populated with case1 part identifiers and English annotations. PDF Info and document metadata are cleared. The unchanged assembly drawing retains the source delivery report pin.",
+  "note": "The five part drawings were exported from SOLIDWORKS 2023 SP5 using the local BenchCAD Pro A3 sheet format, with English annotations; each part sheet reads CASE 1 / PART NN. The assembly drawing is the source sheet with its title set to ASSEMBLY DRAWING and the vendor model strings removed from two part names (and from bom.json); report_sha256 pins the source case's delivery report. PDF Info and document metadata are cleared.",
   "report_sha256": "c4a89cf0458f15c618054330a0ac71225e42f828819ede28d2381c0f4199cae4"
  },
- "notes": "Cutting assembly, 21 part types / 25 instances. Reconstruct part_03, part_14, part_16, part_19 and part_21 (6 instances) from the five supplied part drawings. The other 16 types (19 instances) are supplied de-posed under input/step_files. Existing gt/parts files retain the canonical reference frames used by gt/instances.json.",
+ "notes": "Assembly of 21 part types / 25 instances. Reconstruct part_03, part_14, part_16, part_19 and part_21 (6 instances) from the five supplied part drawings. The other 16 types (19 instances) are supplied de-posed under input/step_files. Existing gt/parts files retain the canonical reference frames used by gt/instances.json.",
  "parts": [
   {
    "part_id": "part_01",

@@ -13,7 +13,7 @@
  "input": [
   {
    "path": "input/drawing.pdf",
-   "sha256": "b2458164ca01ec91e7f0910c9e4b88efbcc6e660fbdc7e4825386809efa7fb33"
+   "sha256": "b2c427862957dc5c822660338438bcd6ba2d62de218e06158e77aee4b4649db6"
   }
  ],
  "gt": [
@@ -32,8 +32,8 @@
  },
  "gates": {},
  "redaction": {
-  "status": "placeholder_title_block",
-  "note": "BenchCAD Pro title block with <PART TITLE>/<CASE ID> placeholders; no source drawing numbers; PDF Info dictionary cleared in this copy; page content untouched. Full note: provenance/case.source.json."
+  "status": "clean",
+  "note": "Standard BenchCAD T1 title block reading CASE 1; no source drawing numbers; PDF Info dictionary cleared in this copy; page content outside the title block untouched. Full note: provenance/case.source.json."
  },
- "notes": "Camera mounting bracket. See provenance/README.md and provenance/SOURCE_CAVEAT.txt; drawing-to-STEP agreement not certified."
+ "notes": "Mounting bracket. See provenance/README.md and provenance/SOURCE_CAVEAT.txt; drawing-to-STEP agreement not certified."
 }

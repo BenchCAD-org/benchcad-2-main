@@ -36,14 +36,14 @@
    "quantity": 1,
    "source": "step",
    "file": "step_files/part_05.step",
-   "name": "ACQS-40X50 cylinder body"
+   "name": "cylinder body"
   },
   {
    "part_id": "part_06",
    "quantity": 1,
    "source": "step",
    "file": "step_files/part_06.step",
-   "name": "ACQS-40X50 cylinder rod"
+   "name": "cylinder rod"
   },
   {
    "part_id": "part_07",
