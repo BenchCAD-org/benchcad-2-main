@@ -32,6 +32,10 @@ prompt is `envs/<task>/TASK.md`.
   `CADENV_DOCKER_IMAGE`. Without Docker,
   `CADENV_LOCAL=1` runs the model's code as a plain subprocess — fine for a look,
   not for a run you report.
+- Docker on Linux: `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER`,
+  then log in again (on a freshly booted box, apt may hold its lock for a minute). The
+  scorers also need `libgl1` (`sudo apt-get install -y libgl1`); `run_core.sh` installs it
+  when it can.
 - An API key for the provider you run: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
   `OPENAI_API_KEY`, `GEMINI_API_KEY` or `XAI_API_KEY`.
 
@@ -169,6 +173,28 @@ The interface a model sees — the prompt, the tools, the round protocol — is
 in `GOOGLE_API_KEY`, or Application Default Credentials with `GOOGLE_CLOUD_PROJECT`
 (`GOOGLE_CLOUD_LOCATION`, default `global`). `GEMINI_BASE_URL` points either at another
 endpoint. Records carry `auth`, the route taken, never the key.
+The adapter was smoke-tested on `gemini-3.8-flash`; please check model-specific details
+(levels, endpoint, auth) on your side, and report `effort_sent`, `auth`, the model id,
+rounds and rep with the numbers.
+
+## Anthropic
+
+`--effort low|medium|high|xhigh|max` is sent as `output_config.effort`, with
+`thinking: {"type": "adaptive"}`; `max_tokens` is the model's own output ceiling, as the
+Models API reports it. Use `ANTHROPIC_API_KEY`; an organization-level key, one not scoped
+to a workspace, also needs `ANTHROPIC_WORKSPACE_ID` (sent as the `anthropic-workspace-id`
+header). The default ladder is `low,medium,high,xhigh,max`. There is no step-down on a
+400: a level the model refuses fails the call. If the Models API lists the model's levels
+and the one asked for is not among them, the highest listed level below it is sent
+instead, and the log says so.
+
+## OpenAI
+
+`--effort low|medium|high|xhigh|max` is sent as `reasoning.effort` on the Responses API
+(streamed, `reasoning.summary` `auto`, `max_output_tokens` 128k). Use `OPENAI_API_KEY`.
+The default ladder is `low,medium,high,xhigh,max`. A 400 that names the effort steps it
+down, `max` -> `xhigh` -> `high` -> not sent, and repeats the call; the lower level is kept
+for the rest of that episode. The level actually sent is each record's `effort_sent`.
 
 ## Core
 

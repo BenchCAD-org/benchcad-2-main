@@ -28,11 +28,8 @@ geometry against the reference, deterministic, with no LLM judge.
 
 ## Quick start
 
-Needs Docker and a Hugging Face account with Core access
-([request it here](https://benchcad.com/access.html)). Docker on Linux:
-`curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER`, then log in
-again (on a freshly booted box, apt may hold its lock for a minute). The scorers also need
-`libgl1` (`sudo apt-get install -y libgl1`); `run_core.sh` installs it when it can.
+Needs Docker, `libgl1`, and a Hugging Face account with
+[Core access](https://benchcad.com/access.html).
 
 ```bash
 git clone https://github.com/BenchCAD-org/benchcad-2-main && cd benchcad-2-main
@@ -40,121 +37,50 @@ export HF_TOKEN=...  GEMINI_API_KEY=...      # or ANTHROPIC_API_KEY / OPENAI_API
 tools/run_core.sh --model gemini/<model-id> --effort low,medium,high
 ```
 
-An Anthropic organization-level key also needs `ANTHROPIC_WORKSPACE_ID`.
-
-That one command installs the environment, builds the sandbox, downloads and
-verifies the dataset, runs all 100 cases, scores them and prints the result.
-Run it again to resume. The summary is written to `results/core/<model>/core_summary.json`.
+One command installs the environment, builds the sandbox, downloads and verifies the
+dataset, runs all 100 cases and scores them. Run it again to resume. The summary is
+`results/core/<model>/core_summary.json`; send that file to report a score.
 
 | Flag | Meaning |
 |---|---|
-| `--model` | `anthropic/<id>`, `openai/<id>`, `gemini/<id>`, `xai/<id>`, `openrouter/<id>` (**required**) |
-| `--effort` | comma-separated, e.g. `low,medium,high`; one run each (default: the provider's ladder) |
-| `--rounds` | default `30`, the published setting; anything else is labelled a smoke run |
-| `--cases` | a task or case directory inside the dataset, for a subset; runs add up in one results file, and the table says `SUBSET n/100` until all cases are in |
-| `--workers` | episodes in parallel (default: from a memory budget, printed at the start) |
-| `--dry-run` | set everything up and check keys, dataset access and the scorers; no API calls |
+| `--model` | `anthropic/<id>`, `openai/<id>`, `gemini/<id>`, `xai/<id>`, `openrouter/<id>` |
+| `--effort` | comma-separated levels, one run each (default: the provider's full ladder) |
+| `--rounds` | default `30`, the published setting; anything else is a smoke run |
+| `--cases` | a task or case directory, for a subset |
+| `--set public` | run the Public set instead of Core |
+| `--dry-run` | check keys, dataset access and scorers; no API calls |
 
-**Gemini.** `--effort low|medium|high` is sent as `thinking_level`. Use `GEMINI_API_KEY`,
-or Vertex AI with `GOOGLE_GENAI_USE_VERTEXAI=true` plus an express key in `GOOGLE_API_KEY`.
-`GEMINI_BASE_URL` points at another endpoint. The adapter was smoke-tested on
-`gemini-3.8-flash`; please check model-specific details (levels, endpoint, auth) on
-your side, and report `effort_sent`, `auth`, the model id, rounds and rep with the numbers.
-
-**Anthropic.** `--effort low|medium|high|xhigh|max` is sent as `output_config.effort`,
-with `thinking: {"type": "adaptive"}`; `max_tokens` is the model's own output ceiling,
-as the Models API reports it. Use `ANTHROPIC_API_KEY`; an organization-level key, one
-not scoped to a workspace, also needs `ANTHROPIC_WORKSPACE_ID` (sent as the
-`anthropic-workspace-id` header). The default ladder is `low,medium,high,xhigh,max`.
-There is no step-down on a 400: a level the model refuses fails the call. If the Models
-API lists the model's levels and the one asked for is not among them, the highest
-listed level below it is sent instead, and the log says so.
-
-**OpenAI.** `--effort low|medium|high|xhigh|max` is sent as `reasoning.effort` on the
-Responses API (streamed, `reasoning.summary` `auto`, `max_output_tokens` 128k). Use
-`OPENAI_API_KEY`. The default ladder is `low,medium,high,xhigh,max`. A 400 that names the
-effort steps it down, `max` → `xhigh` → `high` → not sent, and repeats the call; the
-lower level is kept for the rest of that episode. The level actually sent is each
-record's `effort_sent`.
-
-## Try the public examples first
-
-Nine samples ship in `examples/`, no download needed:
-
-```bash
-uv run python harness/run.py --model mock/oracle --cases examples      # every score should be 1.0
-uv run python harness/run.py --model gemini/<model-id> --cases examples/task3 --effort low
-```
+How each provider's effort level is sent, auth options and the other flags:
+[`docs/RUNNING.md`](docs/RUNNING.md).
 
 ## Public set
 
-A second set of 100 cases, open to everyone:
-[`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public).
-Accept its terms on that page once (evaluation only; do not republish the set or its
-cases). It is one click, with no review. Then use that account's token as `HF_TOKEN`.
-Same tasks, scorers and rule as Core; no case or family in common with it.
-T1 21, T2 14, T3 23, T4 27, T5 6, T6 9.
-
-```bash
-tools/run_core.sh --set public --model gemini/<model-id> --effort low,medium,high
-```
-
-Results go to `results/public/<model>/`, and the table says `PUBLIC SET`. It is there for
-anyone to look at and compare; it is not a reportable score. Report Core.
+[`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public):
+100 more cases, same tasks and scorers, no overlap with Core. Accept its terms once
+(one click, no review), then add `--set public`. Its scores are for trying the harness,
+not for reporting. Nine samples also ship in `examples/`, no download needed.
 
 ## Rounds
 
-Each observation the model gets back starts `Round N/30`, for the round just played, so
-the last one it sees before its final reply says `Round 29/30`. Nothing is submitted for
-it: a case whose 30 rounds run out without a `submit` has no answer. A call that fails
-for the infrastructure's reasons (the network, a server error, a stalled stream) after
-the harness's retries is made again and does not count as one of the 30 rounds. A reply
-the provider withholds on policy, or one still running at the call's time budget, does
-count.
-
-Changed 2026-10-12: before, an infrastructure failure past the retries used up the
-round. This changes only which failed calls count as rounds. How a played round and a
-submission are scored is unchanged.
+Each observation starts `Round N/30`. A case whose 30 rounds run out without a `submit`
+has no answer. A call that fails for infrastructure reasons (network, server error,
+stalled stream) is retried and does not count as a round. (Changed 2026-10-12.)
 
 ## Reproducing the published lines
 
-The reference lines in `results/core_reference.json` were run with this harness at
-30 rounds on all 100 Core cases. The Claude lines are one rep, rep 0, which is what
-`run_core` runs. The `openai/gpt-6-astra` lines are the mean of 3 reps (T6: 1 rep), so
-compare your single run against the spread in that line's `noise_note`. The model ids are
-`anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-5-5`,
-`anthropic/claude-fable-5-1` and `openai/gpt-6-astra`, each at `low`, `medium`, `high`,
-`xhigh` and `max`, which is the default ladder:
+`results/core_reference.json` holds the published lines: 30 rounds, all 100 Core cases.
+Claude lines are one rep; `openai/gpt-6-astra` is the mean of 3 reps (T6: 1 rep), with
+the spread in `noise_note`. `run_core` prints the published line beside yours.
 
 ```bash
 tools/run_core.sh --model anthropic/claude-opus-5-5     # ANTHROPIC_API_KEY
 tools/run_core.sh --model openai/gpt-6-astra            # OPENAI_API_KEY
 ```
 
-`run_core` prints the published line beside each of yours, with the same model and effort.
-The reference lines predate the 2026-10-12 change in [Rounds](#rounds). That change
-affects only calls that fail for infrastructure reasons.
-
-## Reporting a score
-
-Send `results/core/<model>/core_summary.json` from a run at the published settings
-(30 rounds, rep 0, all 100 cases resolved). A run with pending cases or other rounds is
-marked INCOMPLETE or SMOKE and is not a reportable score.
-
-## Dataset
-
-Core, the 100 cases behind the published scores, is available under an agreement:
-[benchcad.com/access.html](https://benchcad.com/access.html), then
-[`BenchCAD/benchcad-2.0-core`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core).
-T1 6, T2 11, T3 28, T4 25, T5 18, T6 12. `run_core.sh` checks its `MANIFEST.sha256`
-and its version before every run.
-
 ## More
 
-- `docs/RUNNING.md`: the harness in detail (providers, flags, clocks, your own agent).
-- `docs/METRICS.md`: every metric; `docs/CASE_FORMAT.md`: a case and a submission.
+- `docs/RUNNING.md`: providers, flags, clocks, running your own agent.
+- `docs/METRICS.md`: every metric. `docs/CASE_FORMAT.md`: a case and a submission.
 - `envs/<task>/TASK.md`: the prompt each task gives the model.
 
-## Contact
-
-benchcad.team@gmail.com
+Contact: benchcad.team@gmail.com
