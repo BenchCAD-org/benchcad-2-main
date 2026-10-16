@@ -4,6 +4,8 @@
  "dataset_version": "1.0",
  "scorer_digest": "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa",
  "rule": "per case mean over reps, then plain mean over the 100 Core cases; no submission = 0; T6 position mode only",
+ "rounds": 30,
+ "harness": "run before 2026-10-15, when only the text of earlier rounds went back -- a different setting from the current one",
  "lines": [
   {
    "model": "anthropic/claude-opus-5-5",

@@ -140,4 +140,4 @@ def test_each_provider_names_the_field_it_counts(monkeypatch):
     assert R.anthropic_call("claude-opus-5-5", None, [], "max").output_field == "usage.output_tokens (thinking included)"
     assert R.openai_responses_call("gpt-6-astra", None, [], "k", "max").output_field == "usage.output_tokens (reasoning included)"
     assert R.openai_compat_call("m", None, [], "k", "https://openrouter.ai/api/v1", "high").output_field == "usage.completion_tokens"
-    assert R.DEFAULT_ROUNDS == 30 and R.TOKEN_BUDGET_ROUNDS == 200
+    assert R.DEFAULT_ROUNDS == 40 and R.TOKEN_BUDGET_ROUNDS == 200

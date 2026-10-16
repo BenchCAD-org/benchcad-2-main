@@ -59,7 +59,7 @@ uv run python tools/summarize.py results/astra.json results/opus5.json
 `--cases` takes any directory and finds every case under it, so `examples` is
 all nine samples, `examples/task3` one task, `examples/task3/cases/case1` one
 case, and a path into your own case tree works the same way. The defaults are
-the benchmark's contract: **30 rounds per case** (`--rounds` changes it) at the
+the benchmark's contract: **40 rounds per case** (30 before 2026-10-16; `--rounds` changes it) at the
 provider's top effort (`--effort` changes it), no cap on a reply (the model's
 own maximum output; `--max-tokens` sets one), every image the episode produced
 kept in the conversation, the observation text limited the way Terminus 2
@@ -138,7 +138,7 @@ only errors, so a run interrupted anywhere continues with the same command.
 Budget for the full contract: a part case is tens of thousands of input
 tokens per round (cached after round one); an assembly case starts at 12–20
 images per round. Reckon on a few dollars per part case and around ten per
-assembly case at 30 rounds.
+assembly case at 40 rounds.
 
 ## Check your setup before you spend anything
 
