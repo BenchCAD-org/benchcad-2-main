@@ -111,14 +111,12 @@ GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
 # episodes still changing their answer past round 30 (2026-10-16). The published
 # reference lines (results/core_reference.json) are 30 rounds, run before.
 DEFAULT_ROUNDS = 40
-# --token-budget N ends an episode once its calls have used N output tokens,
-# thinking included (envs.common.episode.output_tokens), checked between
-# calls; the rounds are then a guard, TOKEN_BUDGET_ROUNDS unless --rounds
-# says otherwise. The two settings offered to Anthropic (2026-10-15), neither the
-# default yet:
-#   A  --rounds 50 --token-budget 1000000    rounds, with an output guard
-#   B  --token-budget 500000                 output tokens, 200 rounds' guard
-TOKEN_BUDGET_ROUNDS = 200
+# The output tokens an episode gets when --token-budget is not given: its
+# calls' output, thinking included (envs.common.episode.output_tokens),
+# checked between calls; the episode ends at the first of a submission,
+# DEFAULT_ROUNDS and this. 500k since 2026-10-16 (none before), with 40
+# rounds (2026-10-16). --token-budget 0 runs with no budget.
+DEFAULT_TOKEN_BUDGET = 500_000
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
 # the model's ceiling is sent -- what the Models API reports as max_tokens
@@ -2451,14 +2449,14 @@ def main() -> int:
                          "reasoning_effort none..max; openrouter "
                          "reasoning.effort none..high. Default: the "
                          "provider's top level (max, max, high)")
-    ap.add_argument("--rounds", type=int, default=None,
-                    help=f"rounds per episode (default: {DEFAULT_ROUNDS}; "
-                         f"{TOKEN_BUDGET_ROUNDS} with --token-budget)")
-    ap.add_argument("--token-budget", type=int, default=None,
+    ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
+                    help=f"rounds per episode (default: {DEFAULT_ROUNDS})")
+    ap.add_argument("--token-budget", type=int, default=DEFAULT_TOKEN_BUDGET,
                     help="output tokens per episode, thinking included, as each provider's usage "
                          "counts them; checked between calls, never inside one. The episode ends "
                          "at the first of a submission, --rounds and this, and every observation "
-                         "shows what is left. Default: none. Not Anthropic's --task-budget")
+                         f"shows what is left. Default: {DEFAULT_TOKEN_BUDGET:,}; 0 = none. "
+                         "Not Anthropic's --task-budget")
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
                     help="cap on one reply (thinking included). Default: none "
                          "-- the model's own maximum")
@@ -2513,10 +2511,9 @@ def main() -> int:
                          "a skip or a finished episode are kept, errors are "
                          "re-run, the rest are run")
     a = ap.parse_args()
-    if a.rounds is None:
-        a.rounds = TOKEN_BUDGET_ROUNDS if a.token_budget else DEFAULT_ROUNDS
-    if a.token_budget is not None and a.token_budget <= 0:
-        raise SystemExit(f"--token-budget {a.token_budget}: give a positive number of output tokens")
+    if a.token_budget < 0:
+        raise SystemExit(f"--token-budget {a.token_budget}: give a number of output tokens, or 0 for none")
+    a.token_budget = a.token_budget or None
 
     prefix, prov, model_id = split_model(a.model)
     defaulted = a.effort is None

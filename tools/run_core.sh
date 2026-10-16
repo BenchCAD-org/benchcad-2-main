@@ -7,6 +7,8 @@
 #   --effort    comma-separated levels, one full run each (default: the provider's ladder --
 #               gemini low,medium,high; anthropic and openai low,medium,high,xhigh,max)
 #   --rounds N  rounds per episode (default 40, the published setting since 2026-10-16; anything else is a smoke run)
+#   --token-budget N  output tokens per episode, thinking included (default 500000, the published setting
+#               since 2026-10-16; 0 = none; anything else is a smoke run)
 #   --cases D   run a subset: a task or case directory inside the downloaded Core tree
 #   --workers N episodes in flight per effort (default: two per GB of available memory left
 #               after run.py and the scorers, at most 2 x CPUs and 32; the value chosen is printed)
@@ -28,7 +30,7 @@ DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
 
-MODEL="" EFFORTS="" ROUNDS=40 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
+MODEL="" EFFORTS="" ROUNDS=40 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -36,6 +38,7 @@ while [ $# -gt 0 ]; do
         --model) MODEL=$2; shift 2 ;;
         --effort) EFFORTS=$2; shift 2 ;;
         --rounds) ROUNDS=$2; shift 2 ;;
+        --token-budget) TOKEN_BUDGET=$2; shift 2 ;;
         --cases) CASES=$2; shift 2 ;;
         --workers) WORKERS=$2; shift 2 ;;
         --data) DATA=$2; DATA_GIVEN=1; shift 2 ;;
@@ -244,7 +247,7 @@ step "scorer timeout $BENCHCAD_SCORE_TIMEOUT_S s per case (BENCHCAD_SCORE_TIMEOU
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/$SET/$TAG"
 mkdir -p "$OUT"
-[ "$ROUNDS" = 40 ] || step "SMOKE RUN: rounds=$ROUNDS, not a reportable score (reported numbers use 40)"
+{ [ "$ROUNDS" = 40 ] && [ "$TOKEN_BUDGET" = 500000 ]; } || step "SMOKE RUN: rounds=$ROUNDS, token budget=$TOKEN_BUDGET, not a reportable score (reported numbers use 40 rounds and 500000 output tokens)"
 
 # 6. one run per effort, resumable
 FILES=()
@@ -252,7 +255,7 @@ for E in ${EFFORTS//,/ }; do
     EFF=(); [ "$E" = "-" ] || EFF=(--effort "$E")
     NAME=${E/-/default}
     CMD=("${PY[@]}" -u harness/run.py --model "$MODEL" ${EFF[@]+"${EFF[@]}"} --cases "${CASES:-$DATA}"
-         --rounds "$ROUNDS" --rep 0 --workers "$WORKERS" --score-workers "$SCORERS" --max-execs "$EXECS" --score-workers-max "$SCORERS_MAX" --memory-gb "$MEM_GB"
+         --rounds "$ROUNDS" --token-budget "$TOKEN_BUDGET" --rep 0 --workers "$WORKERS" --score-workers "$SCORERS" --max-execs "$EXECS" --score-workers-max "$SCORERS_MAX" --memory-gb "$MEM_GB"
          --resume --out "$OUT/$NAME.json"
          --work "work/$SET/$TAG/$NAME" ${EXTRA[@]+"${EXTRA[@]}"})
     FILES+=("$OUT/$NAME.json")
