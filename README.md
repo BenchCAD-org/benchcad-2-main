@@ -54,6 +54,17 @@ dataset, runs all 100 cases and scores them. Run it again to resume. The summary
 How each provider's effort level is sent, auth options and the other flags:
 [`docs/RUNNING.md`](docs/RUNNING.md).
 
+## Versions
+
+| Version | Tag | Use |
+|---|---|---|
+| **2.1-beta** | `v2.1-beta` | Recommended. Reasoning carried across rounds; 40 rounds and 500k output tokens per case, both provisional. Core data unchanged. |
+| 2.0 | `v2.0-core1` | Only to reproduce the published reference lines (30 rounds, thinking not carried). |
+
+Don't mix versions or run from `main` for a reported score; check out a tag
+(`git checkout v2.1-beta`). Every record and `core_summary.json` carry `harness_version`;
+scores from 2.0 and 2.1-beta are not comparable.
+
 ## Public set
 
 [`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public):
@@ -75,12 +86,14 @@ only the text went back.)
 
 ## Reproducing the published lines
 
-`results/core_reference.json` holds the published lines: 30 rounds, all 100 Core cases,
+`results/core_reference.json` holds the published lines: harness 2.0, 30 rounds, all 100 Core cases,
 run before the 2026-10-15 change above -- a different setting from today's 40 rounds and 500k tokens.
 Claude lines are one rep; `openai/gpt-6-astra` is the mean of 3 reps (T6: 1 rep), with
-the spread in `noise_note`. `run_core` prints the published line beside yours.
+the spread in `noise_note`. `run_core` prints the published line beside yours. To rerun
+them in their own setting, check out `v2.0-core1` first:
 
 ```bash
+git checkout v2.0-core1
 tools/run_core.sh --model anthropic/claude-opus-5-5     # ANTHROPIC_API_KEY
 tools/run_core.sh --model openai/gpt-6-astra            # OPENAI_API_KEY
 ```

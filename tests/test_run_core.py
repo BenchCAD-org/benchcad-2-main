@@ -245,15 +245,15 @@ def test_the_table_names_the_harness_the_records_ran_on(tmp_path, capsys):
             _rec("task3/cases/case003", {"score": 1.0}, harness_commit="db98eef00000")]
     f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": recs}))
     C.main([str(f), "--json", str(tmp_path / "s.json")])
-    assert "harness 1cb51ab00000 (2), db98eef00000 (1)  dataset" in capsys.readouterr().out
+    assert "harness 2.0 at 1cb51ab00000 (2), db98eef00000 (1)  dataset" in capsys.readouterr().out
     assert json.loads((tmp_path / "s.json").read_text())["harness_commits"] == {"1cb51ab00000": 2, "db98eef00000": 1}
     f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": recs[:1]}))
     C.main([str(f)])
-    assert "harness 1cb51ab00000  dataset" in capsys.readouterr().out
+    assert "harness 2.0 at 1cb51ab00000  dataset" in capsys.readouterr().out
     f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000,
                              "cases": [_rec("task3/cases/case001", {"score": 1.0})]}))
     C.main([str(f)])
-    assert "harness unknown (checkout " in capsys.readouterr().out
+    assert "harness 2.0 at unknown (checkout " in capsys.readouterr().out
 
 
 def test_run_core_gives_a_score_four_hours(tmp_path):
@@ -279,7 +279,7 @@ def test_the_published_reference_ships_and_prints_beside_a_line(tmp_path, capsys
     haiku = next(l for l in ref["lines"] if (l["model"], l["effort"]) == ("anthropic/claude-haiku-5-5", "high"))
     out = capsys.readouterr().out
     # the published lines are a different setting from the current default: said on the line
-    assert (f"reference (v2.0-core1; 30 rounds, run before 2026-10-15, when only the text of earlier rounds "
+    assert (f"reference (v2.0-core1; harness 2.0, 30 rounds, run before 2026-10-15, when only the text of earlier rounds "
             f"went back -- a different setting from the current one): {haiku['core_mean']:.4f}") in out
 
 

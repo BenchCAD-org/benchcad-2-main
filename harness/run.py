@@ -117,6 +117,12 @@ DEFAULT_ROUNDS = 40
 # DEFAULT_ROUNDS and this. 500k since 2026-10-16 (none before), with 40
 # rounds (2026-10-16). --token-budget 0 runs with no budget.
 DEFAULT_TOKEN_BUDGET = 500_000
+# The harness release this checkout is, stamped in every record and in the
+# run's file; core_score carries it into the summary. A score is reported
+# from a tagged release (README, Versions): 2.1-beta since 2026-10-16
+# (reasoning carried, 40 rounds, 500k tokens); 2.0 before, unstamped, the
+# setting of results/core_reference.json.
+HARNESS_VERSION = "2.1-beta"
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
 # the model's ceiling is sent -- what the Models API reports as max_tokens
@@ -2581,7 +2587,8 @@ def main() -> int:
     def write() -> None:
         rows = {**others, **{str(c): records[str(c)] for c in cases if str(c) in records}}
         out_path.write_text(json.dumps(
-            {"model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
+            {"harness_version": HARNESS_VERSION,
+             "model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
              "token_budget": a.token_budget,
              "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep, "started": stamp,
              "cases": [rows[k] for k in sorted(rows, key=Path)]},
@@ -2594,7 +2601,7 @@ def main() -> int:
         rec = {"case": str(case), "case_id": case.name, "model": a.model,
                "provider": prefix.rstrip("/"), "rounds": a.rounds, "token_budget": a.token_budget,
                "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep,
-               "harness_commit": rev}
+               "harness_version": HARNESS_VERSION, "harness_commit": rev}
         gt = case / "gt/gt.step"
         rec["gt_sha256"] = sha256(gt) if gt.exists() else None
         rec["inputs_sha256"] = inputs_sha256(case)
