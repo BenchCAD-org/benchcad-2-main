@@ -63,7 +63,7 @@ _CODEISH = re.compile(
 # never reaches `text` at all (measured: 50-token completions, four consecutive
 # retries the same way, none of 10 cases able to start). With it, they emit a
 # well-formed fenced block immediately.
-SYSTEM = """You are solving a CAD task in a working directory, over {rounds} rounds.
+SYSTEM = """You are solving a CAD task in a working directory, over {limits}.
 
 {task_brief}
 
@@ -255,8 +255,31 @@ def _artifact(box: Sandbox):
     return None
 
 
-def _observation(rnd, res, max_rounds):
-    parts = [f"Round {rnd}/{max_rounds} -- exit {res.returncode}"]
+def limits_text(max_rounds: int, token_budget: int | None) -> str:
+    """The episode's limits as the system prompt states them. Without a token
+    budget, the sentence every run before 2026-10-15 had."""
+    if not token_budget:
+        return f"{max_rounds} rounds"
+    return (f"at most {max_rounds} rounds and {token_budget:,} output tokens, your thinking "
+            f"included -- the episode ends at whichever runs out first")
+
+
+def round_status(rnd: int, max_rounds: int, spent: int = 0, token_budget: int | None = None) -> str:
+    """Where the episode stands after round `rnd`: the rounds, and with a
+    token budget the output tokens spent of it."""
+    head = f"Round {rnd}/{max_rounds}"
+    return head + (f" \u00b7 output tokens {spent:,} / {token_budget:,}" if token_budget else "")
+
+
+def output_tokens(call_fn) -> int:
+    """The output tokens the episode's calls have used, thinking included, as
+    each provider's usage reports them (harness.run: call.output_field names
+    the field): every call of the episode, a retried or summarising one too."""
+    return sum(int(u.get("output_tokens", 0) or 0) for u in (getattr(call_fn, "usage", None) or []))
+
+
+def _observation(rnd, res, max_rounds, spent=0, token_budget=None):
+    parts = [f"{round_status(rnd, max_rounds, spent, token_budget)} -- exit {res.returncode}"]
     if res.stdout.strip():
         parts.append(f"stdout:\n{_limit_output(res.stdout)}")
     if res.stderr.strip():
@@ -523,11 +546,22 @@ def _models_round(e: Exception) -> bool:
 
 
 def run_episode(case_dir: Path, work_dir: Path, call_fn,
-                max_rounds: int = MAX_ROUNDS, exec_timeout: int = 600) -> dict:
+                max_rounds: int = MAX_ROUNDS, exec_timeout: int = 600,
+                token_budget: int | None = None) -> dict:
     """Run one case.
 
+    The episode ends at the first of: a ```submit, `max_rounds` rounds, and
+    -- when `token_budget` is given -- that many output tokens (thinking
+    included, output_tokens) spent. The budget is checked between calls,
+    never inside one: a call made while budget remained runs to its end and
+    its round is played, and no call is made once it is spent. Every
+    observation says what is left (round_status).
+
     call_fn(system, turns) -> str, where turns is
-    [{"role", "text", "images": [Path, ...]}, ...].
+    [{"role", "text", "images": [Path, ...]}, ...]. A reply is kept as the
+    assistant turn's text exactly as call_fn returned it: the object may
+    carry the provider's own record of the turn, its reasoning included,
+    which the provider sends back next round (harness.run.Reply).
     Returns the submitted code and the final STEP.
     """
     case_dir = Path(case_dir)
@@ -539,7 +573,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                            file_list="\n".join(f"  {n}" for n in files),
                            tools_help=tools_help(case_dir),
                            submit_what=_submit_what(case_dir),
-                           rounds=max_rounds, cq_version=SANDBOX_CQ_VERSION)
+                           limits=limits_text(max_rounds, token_budget), cq_version=SANDBOX_CQ_VERSION)
     answer = ANSWER[kind]
     # Images must be collected RECURSIVELY. T5's part drawings live in the
     # part_drawings/ subdirectory; the original scan was top-level only, so the
@@ -557,7 +591,15 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     infra = 0                    # infrastructure failures this episode
     summaries = 0
     rnd = 1                      # the model's round about to be played
+    ended_by = "rounds"
     while rnd <= max_rounds:
+        if token_budget and output_tokens(call_fn) >= token_budget:
+            ended_by = "token_budget"
+            rounds.append({"round": rnd, "action": "token_budget_spent",
+                           "output_tokens": output_tokens(call_fn)})
+            print(f"      {output_tokens(call_fn):,} output tokens of a {token_budget:,} budget spent; "
+                  f"the episode ends before round {rnd}", flush=True)
+            break
         needed, last_tokens, limit = _needs_summary(call_fn)
         if needed:
             print(f"      last request {last_tokens:,} tokens of a {limit:,} context; "
@@ -601,6 +643,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 # scored 0 -- so one refusal cannot leave a case pending.
                 print(f"      round {rnd} reply withheld {blocked} rounds in a row; "
                       f"ending the episode with no submission", flush=True)
+                ended_by = "blocked"
                 rnd += 1
                 break
             if dead >= MAX_DEAD_ROUNDS or infra >= MAX_INFRA_FAILURES:
@@ -624,7 +667,9 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 turns.append({"role": "user", "images": [],
                               "text": f"Round {rnd}: your reply did not finish within the time "
                                       f"budget for one call and was discarded. Round {rnd + 1} of "
-                                      f"{max_rounds}."})
+                                      f"{max_rounds}."
+                                      + (f" Output tokens {output_tokens(call_fn):,} / {token_budget:,}."
+                                         if token_budget else "")})
             rnd += 1
             continue
         # The raw reply must be archived. When no parsable block comes back
@@ -641,6 +686,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         if sub is not None:
             submitted = sub
             rounds.append({"round": rnd, "action": "submit"})
+            ended_by = "submit"
             rnd += 1
             break
         if py is None:
@@ -667,7 +713,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
             continue
         res = box.run(py, timeout=exec_timeout)
         rounds.append({"round": rnd, "action": "exec", "rc": res.returncode})
-        text, imgs = _observation(rnd, res, max_rounds)
+        text, imgs = _observation(rnd, res, max_rounds, output_tokens(call_fn), token_budget)
         turns.append({"role": "user", "text": text, "images": imgs})
         rnd += 1
 
@@ -700,6 +746,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     out = {"code": submitted, "step": str(step) if step else None,
            "artifact": (None if step is None else
                         "submission_directory" if step.is_dir() else "step"),
-           "rounds": rounds, "submitted": bool(submitted)}
+           "rounds": rounds, "submitted": bool(submitted),
+           "ended_by": ended_by, "output_tokens": output_tokens(call_fn)}
     (box.log_dir / "episode.json").write_text(json.dumps(out, indent=1))
     return out

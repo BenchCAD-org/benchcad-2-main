@@ -66,7 +66,10 @@ kept in the conversation, the observation text limited the way Terminus 2
 limits it (10,000 bytes, first and last halves), and context summarised the way
 Terminus 2 summarises it when the model's window fills. An episode ends when
 the model submits, or with no answer when its rounds run out -- nothing is
-asked on its behalf. The run writes one JSON with a record per case (headline
+asked on its behalf. `--token-budget N` adds a second limit: the episode also
+ends once its calls have used N output tokens, thinking included (checked
+between calls, never inside one; the rounds then default to 200, and every
+observation shows what is left); it is off by default. The run writes one JSON with a record per case (headline
 `score`, the diagnostic columns, tokens, seconds), and `work/<run>/` keeps
 every case's working directory and transcript; `summarize.py` prints the
 per-case table, the mean per task and the mean of the task means, with the
@@ -95,10 +98,10 @@ Claude 5 family). It is off by default, since no other provider has the knob
 and a run with it is not one every provider can repeat; the value is written
 into the results. The context window is 1M on both (gpt-6-astra
 1.05M; the Claude 5 family's `max_input_tokens`); the context summarisation
-works against the smaller of that window and 180k tokens (`COMPACT_TOKENS`),
-the same point on every provider -- a request that size is near the 32 MB
-request limit of both APIs, and runs that compact at one point are comparable
-across providers; `--context-tokens` overrides either way. Both adapters share
+works against the smaller of that window and 800k tokens (`COMPACT_TOKENS`;
+180k before 2026-10-15), the same point on every provider, so runs compact
+alike across them; the 32 MB request limit is bounded separately by the image
+rule below, and `--context-tokens` overrides either way. Both adapters share
 the clocks -- a 60 s idle limit on a stream (both carry reasoning progress while
 the model thinks), a wall budget per call (`CALL_BUDGET_S` in harness/run.py:
 300 s at `none`, 600 s at `low`, 1800 s from `medium` up) past which the round is discarded and the model told in one
@@ -106,8 +109,9 @@ sentence -- the retry rules (a 429 waits for the endpoint's own hint; a silent
 stream is re-requested three times; a call that still fails for the
 infrastructure's reasons is made again for the same round and does not use one
 of the model's rounds -- three failed calls in a row, or ten in one episode, end
-the case as an error that `--resume` re-runs), the image handling (every image kept; over
-20 images, 2000 px each) and prompt caching (OpenAI's automatic prefix cache,
+the case as an error that `--resume` re-runs), the image handling (every image kept, at
+most 2000 px from its first request on, and sent in the same bytes on every later request,
+so each request is the previous one plus the new turns) and prompt caching (OpenAI's automatic prefix cache,
 Anthropic's top-level `cache_control`); every usage record carries the call's
 seconds. Scoring runs in child processes from a separate pool, so a slow score
 never holds an episode. Images go to OpenAI at `detail: high`. Every provider
@@ -188,6 +192,15 @@ header). The default ladder is `low,medium,high,xhigh,max`. There is no step-dow
 and the one asked for is not among them, the highest listed level below it is sent
 instead, and the log says so.
 
+Each assistant turn goes back as the API returned it, its `thinking` blocks and signatures
+included. Requests carry the `thinking-binding-controls-2026-08-01` beta with
+`thinking.block_binding.prefix_mismatch_behavior: "drop_block"`: a block whose conversation
+changed is dropped by the API, not refused. The conversation only changes as a last resort
+(past 600 images or 20 MB the oldest observation images leave in one chunk, down to 500
+images or 14 MB, so each crossing is one edit; or a retry without images; both counted in
+each record's `prefix_edits`), and each record counts what the API dropped
+(`tokens.thinking_dropped`, with its `input_transformations`).
+
 ## OpenAI
 
 `--effort low|medium|high|xhigh|max` is sent as `reasoning.effort` on the Responses API
@@ -195,6 +208,9 @@ instead, and the log says so.
 The default ladder is `low,medium,high,xhigh,max`. A 400 that names the effort steps it
 down, `max` -> `xhigh` -> `high` -> not sent, and repeats the call; the lower level is kept
 for the rest of that episode. The level actually sent is each record's `effort_sent`.
+Requests are stateless (`store: false`) and ask for `include: ["reasoning.encrypted_content"]`;
+each assistant turn goes back as the response's own output items, the reasoning item with its
+encrypted content included.
 
 ## Core
 

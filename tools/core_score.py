@@ -149,8 +149,9 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
         for rec in d.get("cases", []):
             model = rec.get("model") or d.get("model")
             effort = rec.get("effort") or d.get("effort")
-            g = groups.setdefault((model, effort), {"rounds": set(), "cases": {}, "files": set()})
+            g = groups.setdefault((model, effort), {"rounds": set(), "budgets": set(), "cases": {}, "files": set()})
             g["rounds"].add(rec.get("rounds") or d.get("rounds"))
+            g["budgets"].add(rec.get("token_budget") or d.get("token_budget"))
             g["files"].add(str(f))
             key = (task_of(rec.get("case", "")), rec.get("case_id") or Path(rec.get("case", "")).name)
             g["cases"].setdefault(key, []).append(rec)
@@ -191,12 +192,14 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
                         "resolved": sum(1 for k in per_case if k[0] == t),
                         "cases": sum(1 for k in keys if k[0] == t)} for t in tasks}
         rounds = sorted(r for r in g["rounds"] if r is not None)
+        budgets = sorted(b for b in g["budgets"] if b)
         subset = n_core is not None and n < n_core
         complete = not pending and n > 0 and not subset
         out.append({
             "model": model, "effort": effort, "effort_sent": sorted(sent, key=str),
             "rounds": rounds[0] if len(rounds) == 1 else rounds,
-            "smoke": rounds != [ROUNDS],
+            "token_budget": (budgets[0] if len(budgets) == 1 else budgets) if budgets else None,
+            "smoke": rounds != [ROUNDS] or bool(budgets),
             "n_cases": n, "n_core": n_core, "subset": subset,
             "resolved": len(per_case), "pending": pending, "complete": complete,
             "core_mean": statistics.mean(per_case.values()) if complete else None,
@@ -225,8 +228,9 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
                      + (f" (sent {', '.join(map(str, r['effort_sent']))})" if r["effort_sent"]
                         and r["effort_sent"] != [r["effort"]] else "") + f"  rounds {r['rounds']}")
         if r["smoke"]:
-            lines.append(f"   SMOKE RUN, rounds={r['rounds']}: not a reportable score "
-                         f"(reported numbers use {ROUNDS} rounds)")
+            lines.append(f"   SMOKE RUN, rounds={r['rounds']}"
+                         + (f", token budget {r['token_budget']}" if r.get("token_budget") else "")
+                         + f": not a reportable score (reported numbers use {ROUNDS} rounds, no token budget)")
         if public:
             lines.append("   PUBLIC SET: for anyone to look at, not a reportable score (report Core)")
         of = f" ({r['n_cases']}/{r['n_core']} {cases} cases)" if r.get("subset") else ""

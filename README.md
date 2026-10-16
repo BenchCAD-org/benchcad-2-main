@@ -66,9 +66,15 @@ Each observation starts `Round N/30`. A case whose 30 rounds run out without a `
 has no answer. A call that fails for infrastructure reasons (network, server error,
 stalled stream) is retried and does not count as a round. (Changed 2026-10-12.)
 
+Each round the model gets its earlier reasoning back, as its provider returned it:
+Anthropic's thinking blocks with their signatures, OpenAI's encrypted reasoning items,
+Gemini's thought signatures, OpenRouter's `reasoning_details`. (Changed 2026-10-15; before,
+only the text went back.)
+
 ## Reproducing the published lines
 
-`results/core_reference.json` holds the published lines: 30 rounds, all 100 Core cases.
+`results/core_reference.json` holds the published lines: 30 rounds, all 100 Core cases,
+run before the 2026-10-15 change above.
 Claude lines are one rep; `openai/gpt-6-astra` is the mean of 3 reps (T6: 1 rep), with
 the spread in `noise_note`. `run_core` prints the published line beside yours.
 

@@ -109,6 +109,14 @@ GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
 # on the trial runs the model submitted on its own well inside that, and
 # the rounds past it bought re-crops, not answers.
 DEFAULT_ROUNDS = 30
+# --token-budget N ends an episode once its calls have used N output tokens,
+# thinking included (envs.common.episode.output_tokens), checked between
+# calls; the rounds are then a guard, TOKEN_BUDGET_ROUNDS unless --rounds
+# says otherwise. The two settings offered to Anthropic (2026-10-15), neither the
+# default yet:
+#   A  --rounds 50 --token-budget 1000000    rounds, with an output guard
+#   B  --token-budget 500000                 output tokens, 200 rounds' guard
+TOKEN_BUDGET_ROUNDS = 200
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
 # the model's ceiling is sent -- what the Models API reports as max_tokens
@@ -120,6 +128,18 @@ DEFAULT_ROUNDS = 30
 DEFAULT_MAX_TOKENS = None
 ANTHROPIC_MAX_OUTPUT = {"claude-haiku-4-5": 64_000}
 ANTHROPIC_MAX_OUTPUT_DEFAULT = 128_000
+# The thinking that goes back with each turn (Reply) is bound by the API to
+# the conversation that produced it: on the Claude 5.5 family and Fable 5.1 a
+# block replayed after any earlier turn changed is a 400 for accounts created
+# from 2026-08-31, and passes for older ones. The harness keeps the
+# conversation append-only (SentImages: an image goes in the bytes of its
+# first request) except as a last resort (prefix_edits): past HARD_IMAGE_CAP
+# or REQUEST_IMAGE_BYTES the oldest observation images leave the request, and
+# drive() retries an image 400 without images. So every request also asks
+# the API to drop a block whose conversation changed (prefix_mismatch_behavior
+# "drop_block", the binding-controls beta) instead of failing, the same on
+# every account, and the record counts the drops (tokens.thinking_dropped).
+THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
 # OpenAI's own endpoint gets the same ceiling as a reply: 128k, which is
 # gpt-6-astra's own maximum output and the Claude 5 family's -- so a reply
 # on either provider is bounded the same way. Decided 2026-09-17 after the
@@ -196,6 +216,43 @@ class EmptyContent(RuntimeError):
     such round printed only `reply has no executable block (len 0, tail '')`,
     which is indistinguishable from a model that wrote prose.
     """
+
+
+class Reply(str):
+    """A reply's text, carrying the provider's own record of the turn.
+
+    The episode sees a str, as the call_fn contract says, and keeps the
+    object in its turn (envs.common.episode appends it as the assistant
+    turn's text). Next round the provider sends that turn back as `carry` --
+    what the API returned for it, reasoning included -- instead of the text
+    alone. Without it every round began with the model's earlier reasoning
+    gone: the model saw only its own fenced blocks and worked its reasoning
+    out again each round (Anthropic's review of Core, 2026-10-15: about 9x
+    the output tokens on Claude).
+
+      anthropic   the content blocks as returned: thinking (with its
+                  signature), redacted_thinking, text
+      openai      the response's output items: reasoning (with its
+                  encrypted_content), message
+      openrouter  the assistant message's reasoning_details
+
+    A turn the episode wrote itself (a summary hand-off) is a plain str and
+    goes back as text, as before."""
+    carry = None
+
+
+def _reply(text: str, carry) -> str:
+    """`text`, carrying `carry` when there is any."""
+    if not carry:
+        return text
+    r = Reply(text)
+    r.carry = carry
+    return r
+
+
+def _carried(t: dict):
+    """The provider's record of an assistant turn, or None for plain text."""
+    return getattr(t.get("text"), "carry", None)
 
 
 @dataclass
@@ -288,9 +345,13 @@ def check_task_budget(prefix: str, task_budget: int | None) -> None:
 # pass, 21 do not, 21 of 2000 px pass. Every image the episode has produced
 # stays in the request (nothing is dropped: the model's own figures are its
 # working memory, and a figure that left the request was re-made -- measured
-# on gpt-6-astra, 49 of 49 rounds re-cropping the same box), so once the
-# count passes MANY_IMAGES every image goes at MANY_IMAGE_PX from then on:
-# one cache rewrite, then a stable prefix.
+# on gpt-6-astra, 49 of 49 rounds re-cropping the same box), so a request
+# may pass MANY_IMAGES at any round. Every image therefore goes at most
+# MANY_IMAGE_PX from its first request on, on every provider (SentImages):
+# no request re-encodes an image an earlier one sent. (Until 2026-10-15 the bound
+# switched on at the request that passed MANY_IMAGES, which re-encoded every
+# earlier image over it: one cache rewrite, and with reasoning replayed, the
+# end of every earlier thinking block.)
 #   MANY_IMAGE_PX     the per-image bound over MANY_IMAGES images
 #   HARD_IMAGE_CAP    the API's own ceiling on image blocks per request
 #                     (600 on a 1M-context Anthropic model; OpenAI allows
@@ -305,9 +366,15 @@ HARD_IMAGE_CAP = 600
 # harness, 2026-09-21: errors on the longest trajectories). The images of one
 # request are bounded to this many bytes as they will be sent (PNG, base64
 # adds a third), oldest observation images dropped first, seeds never; the
-# log says how many. With the compaction point at COMPACT_TOKENS this rarely
-# fires -- it is the wall behind the wall.
+# log says how many. It is what bounds a request's bytes, COMPACT_TOKENS its
+# tokens (2026-10-15). Each time it fires the conversation already sent changes,
+# so it is counted (prefix_edits).
 REQUEST_IMAGE_BYTES = 20_000_000
+# Where a crossing of either cap comes down to (bound_images): far enough
+# below it that the next crossing is many rounds away, so the conversation is
+# edited once per crossing, not on every request after the first.
+IMAGE_BYTES_LOW = 14_000_000
+IMAGE_COUNT_LOW = 500
 
 
 def _b64(path: Path, max_px: int | None = None) -> str:
@@ -359,46 +426,103 @@ def _sent_bytes(path: Path, max_px: int | None) -> int:
     return size * 4 // 3
 
 
-def bound_images(turns: list) -> tuple[list, int | None]:
+class SentImages:
+    """Each image's bytes as first sent in an episode, sent the same way on
+    every later request. An image is bounded to MANY_IMAGE_PX once, when it
+    enters the conversation, and never re-encoded: the conversation a request
+    carries is then the previous request's plus the new turns, byte for byte,
+    which is what keeps the replayed reasoning valid (Reply,
+    THINKING_BINDING_BETA) and the prompt cache warm. Until 2026-10-15 the bound
+    applied only from the request that passed MANY_IMAGES on, and that
+    request re-encoded every earlier image over the bound."""
+
+    def __init__(self) -> None:
+        self.sent: dict[str, str] = {}
+
+    def __call__(self, path, max_px: int | None = MANY_IMAGE_PX) -> str:
+        key = str(path)
+        if key not in self.sent:
+            self.sent[key] = _b64(path, max_px)
+        return self.sent[key]
+
+
+def prefix_edits() -> dict:
+    """What an episode did to a conversation it had already sent: each is an
+    earlier turn changed, so the reasoning replayed after it is dropped
+    (tokens.thinking_dropped) and the cache restarts. The record carries the
+    counts; both are last resorts."""
+    return {"images_left_out": 0, "retries_without_images": 0}
+
+
+def bound_images(turns: list, edits: dict | None = None,
+                 left_out: set | None = None) -> tuple[list, int]:
     """The turns as a request should carry them: every image stays. Returns
-    the turns and the per-image pixel limit to encode with (None under the
-    many-image threshold). Past HARD_IMAGE_CAP images, or past
-    REQUEST_IMAGE_BYTES of image payload, the oldest observation images are
-    left out, oldest first, seeds never."""
-    n = sum(len(t.get("images") or []) for t in turns)
-    max_px = MANY_IMAGE_PX if n > MANY_IMAGES else None
+    the turns and the per-image pixel limit to encode with: MANY_IMAGE_PX,
+    on every request, so an image is sent the same way from its first
+    request to its last (SentImages).
+
+    Past HARD_IMAGE_CAP images, or past REQUEST_IMAGE_BYTES of image payload,
+    the oldest observation images are left out, oldest first, seeds never --
+    an edit of the conversation already sent, logged and counted in `edits`.
+    Each crossing leaves out enough to come down to a low-water mark
+    (IMAGE_COUNT_LOW, IMAGE_BYTES_LOW), and `left_out` (the episode's, kept
+    by the provider) keeps those images out of every later request: the
+    requests after a crossing append to it again, with no edit until the
+    next crossing, rather than editing every request by just enough (2026-10-15;
+    OSWorld's Claude agent removes images in chunks for the same reason, its
+    min_removal_threshold, to keep the cache)."""
+    max_px = MANY_IMAGE_PX
+    # An image is named by its turn (the episode's own turn object, which
+    # lives as long as the conversation does) and its place in that turn.
+    left_out = set() if left_out is None else left_out
     user_idx = [i for i, t in enumerate(turns) if t.get("role") != "assistant"]
     out = [dict(t) for t in turns]
-    dropped = 0
-    over = n - HARD_IMAGE_CAP
-    for i in user_idx[1:]:                                   # never the seed turn
-        if over <= 0:
-            break
-        imgs = list(out[i].get("images") or []); labs = list(out[i].get("image_labels") or [])
-        k = min(over, len(imgs))
-        out[i]["images"], out[i]["image_labels"] = imgs[k:], labs[k:] if labs else labs
-        over -= k; dropped += k
-    if dropped:
-        max_px = MANY_IMAGE_PX
+    pos = {i: [k for k in range(len(turns[i].get("images") or []))
+               if (id(turns[i]), k) not in left_out] for i in user_idx[1:]}   # never the seed turn
+
+    def place(i: int) -> None:
+        imgs = list(turns[i].get("images") or []); labs = list(turns[i].get("image_labels") or [])
+        out[i]["images"] = [imgs[k] for k in pos[i]]
+        out[i]["image_labels"] = [labs[k] for k in pos[i]] if labs else labs
+    for i in pos:
+        if len(pos[i]) != len(turns[i].get("images") or []):
+            place(i)
+
+    def leave_out(fits) -> int:
+        """Oldest observation images out until fits() holds; how many."""
+        n_out = 0
+        for i in pos:
+            while pos[i] and not fits():
+                left_out.add((id(turns[i]), pos[i].pop(0)))
+                place(i)
+                n_out += 1
+        return n_out
+
+    sizes: dict[str, int] = {}
+
+    def sent(img) -> int:
+        if str(img) not in sizes:
+            sizes[str(img)] = _sent_bytes(Path(img), max_px)
+        return sizes[str(img)]
+    count = lambda: sum(len(t.get("images") or []) for t in out)
+    size = lambda: sum(sent(img) for t in out for img in (t.get("images") or []))
+    edited = False
+    n = count()
+    if n > HARD_IMAGE_CAP:
+        dropped = leave_out(lambda: count() <= IMAGE_COUNT_LOW)
+        edited = True
         print(f"      request had {n} images, over the API's {HARD_IMAGE_CAP}; the oldest "
-              f"{dropped} observation images are left out of this request", flush=True)
-    total = sum(_sent_bytes(Path(img), max_px) for t in out for img in (t.get("images") or []))
-    seed = sum(_sent_bytes(Path(img), max_px) for img in (out[user_idx[0]].get("images") or [])) if user_idx else 0
+              f"{dropped} observation images are left out from now on (down to {IMAGE_COUNT_LOW})", flush=True)
+    total = size()
     if total > REQUEST_IMAGE_BYTES:
-        dropped_b = 0
-        for i in user_idx[1:]:
-            if total <= REQUEST_IMAGE_BYTES:
-                break
-            imgs = list(out[i].get("images") or []); labs = list(out[i].get("image_labels") or [])
-            while imgs and total > REQUEST_IMAGE_BYTES:
-                total -= _sent_bytes(Path(imgs.pop(0)), max_px)
-                if labs:
-                    labs.pop(0)
-                dropped_b += 1
-            out[i]["images"], out[i]["image_labels"] = imgs, labs
+        seed = sum(sent(img) for img in (out[user_idx[0]].get("images") or [])) if user_idx else 0
+        dropped_b = leave_out(lambda: size() <= IMAGE_BYTES_LOW)
+        edited = True
         print(f"      request's images would exceed {REQUEST_IMAGE_BYTES // 1_000_000} MB "
               f"(seeds alone {seed // 1_000_000} MB); the oldest {dropped_b} observation "
-              f"images are left out of this request", flush=True)
+              f"images are left out from now on (down to {IMAGE_BYTES_LOW // 1_000_000} MB)", flush=True)
+    if edited and edits is not None:
+        edits["images_left_out"] += 1
     return out, max_px
 
 
@@ -534,7 +658,7 @@ def _has_fence(text: str) -> bool:
     return any(_blocks(text or ""))
 
 
-def drive(send, what: str):
+def drive(send, what: str, edits: dict | None = None):
     """Turn a provider's send(turns, drop_images) into episode's call_fn.
 
     Three rules carried over from the former batch runner (removed 2026-09-11;
@@ -551,14 +675,21 @@ def drive(send, what: str):
        names an image, drop the images and try once more. Measured: a 41-byte
        truncated PNG got resent five times, each time with the same bad image,
        and the case was lost. Losing one round of observation images beats
-       losing the case.
+       losing the case. It is an edit of the conversation already sent, so
+       it is counted in `edits` (prefix_edits).
     3. A stream that goes silent stays silent: the per-read timeout ends it
        and the request is made again on a fresh connection, STALL_RETRIES
        times; only then is the round discarded.
+
+    The returned call carries `edits` as call.edits, for the record.
     """
     def call(system: str, turns: list, plain: bool = False) -> str:
         """`plain`: the reply is prose (a summary, questions, answers --
-        episode's context summarization), so rule 1 does not apply."""
+        episode's context summarization), so rule 1 does not apply, and the
+        turns go as text: those calls ask under their own system prompt,
+        where the reasoning a turn carries (Reply) was never produced."""
+        if plain:
+            turns = [{**t, "text": str(t["text"])} if _carried(t) else t for t in turns]
         drop_images = False
         waits = 0                    # 429s waited out in this call; not attempts
         stalls = 0                   # silent streams re-requested in this call; not attempts
@@ -597,6 +728,8 @@ def drive(send, what: str):
                         print(f"      {status} names an image; dropping images "
                               f"and retrying once: {msg[:90]}", flush=True)
                         drop_images = True
+                        if edits is not None:
+                            edits["retries_without_images"] += 1
                         attempt += 1
                         continue
                     print(f"      deterministic {status}, not retrying: {msg[:100]}",
@@ -658,6 +791,7 @@ def drive(send, what: str):
         # empty string as a successful call and resets its dead-round counter,
         # so a persistent fault would be laundered into wasted rounds.
         raise RuntimeError(f"{what}: exhausted {ATTEMPTS} attempts")
+    call.edits = edits if edits is not None else prefix_edits()     # type: ignore[attr-defined]
     return call
 
 
@@ -691,6 +825,27 @@ def _anthropic_model_info(client, model: str) -> dict | None:
         out = None
     _MODEL_INFO[model] = out
     return out
+
+
+def _blocks_back(msg) -> list | None:
+    """The reply's content blocks as the next request sends them back: each
+    thinking block with its signature, redacted_thinking as it came, the
+    text. None when there is no reasoning to carry, a thinking block came
+    without its signature (it could not be read back), or a block is of a
+    kind this harness does not send (it declares no tools)."""
+    out = []
+    for b in msg.content:
+        if b.type == "thinking":
+            if not getattr(b, "signature", None):
+                return None
+            out.append({"type": "thinking", "thinking": b.thinking, "signature": b.signature})
+        elif b.type == "redacted_thinking":
+            out.append({"type": "redacted_thinking", "data": b.data})
+        elif b.type == "text":
+            out.append({"type": "text", "text": b.text})
+        else:
+            return None
+    return out if any(x["type"] != "text" for x in out) else None
 
 
 def anthropic_call(model: str, max_tokens: int, usage: list,
@@ -748,19 +903,38 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
     if task_budget and task_budget >= ceiling["n"]:
         print(f"      --task-budget {task_budget:,} is not below the reply ceiling "
               f"({ceiling['n']:,}); it leaves no room under it", flush=True)
+    # Each assistant turn goes back as the content blocks the API returned for
+    # it, thinking and signature included (Reply), under "drop_block"
+    # (THINKING_BINDING_BETA). With thinking off there is nothing to bind.
+    # A 400 naming the binding (an endpoint without the beta) drops it for
+    # the episode, said once. A 400 on a replayed block's signature (an
+    # enforced account where the binding could not be asked for) is the API's
+    # documented recovery: those turns go back as text from then on, said.
+    binding = {"on": effort != "none"}
+    stale: set[int] = set()              # id() of Replies whose blocks are not sent again
+    images = SentImages()
+    edits = prefix_edits()
+    left_out: set = set()                # observation images bound_images has left out for good
 
-    def send(system: str, turns: list, drop_images: bool) -> str:
-        turns, max_px = bound_images(turns)
-        budget = ceiling["n"] * EMPTY_RETRY_BOOST if (room["on"] and max_tokens) else ceiling["n"]
+    def build(turns: list, drop_images: bool, max_px: int) -> list:
         messages = []
         for t in turns:
+            carry = _carried(t) if t["role"] == "assistant" and id(t["text"]) not in stale else None
+            if carry:
+                messages.append({"role": "assistant", "content": carry})
+                continue
             content = [{"type": "text", "text": t["text"]}] if t.get("text") else []
             for img, lab in ([] if drop_images else labelled(t)):
                 content.append({"type": "text", "text": image_label(img, lab)})
                 content.append({"type": "image", "source": {
-                    "type": "base64", "media_type": "image/png", "data": _b64(img, max_px)}})
+                    "type": "base64", "media_type": "image/png", "data": images(img, max_px)}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
                              "content": content or [{"type": "text", "text": "(empty)"}]})
+        return messages
+
+    def send(system: str, turns: list, drop_images: bool) -> str:
+        turns, max_px = bound_images(turns, edits, left_out)
+        budget = ceiling["n"] * EMPTY_RETRY_BOOST if (room["on"] and max_tokens) else ceiling["n"]
         # Prompt caching is NOT automatic on this API: without a cache_control
         # field nothing is cached, and every round re-bought the whole
         # transcript and every seed image at full price (the usage
@@ -779,13 +953,21 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
             print(f"      retrying with max_tokens={budget:,} so the answer has room "
                   f"after the thinking", flush=True)
         while True:
-            req = dict(model=model, system=system, max_tokens=budget, messages=messages,
+            req = dict(model=model, system=system, max_tokens=budget,
+                       messages=build(turns, drop_images, max_px),
                        cache_control={"type": "ephemeral", "ttl": "1h"}, **knobs)
+            betas = []
+            if binding["on"]:
+                req["thinking"] = {**knobs["thinking"],
+                                   "block_binding": {"prefix_mismatch_behavior": "drop_block"}}
+                betas.append(THINKING_BINDING_BETA)
             if paced["n"]:
                 req["output_config"] = {**knobs.get("output_config", {}),
                                         "task_budget": {"type": "tokens", "total": paced["n"]}}
-                req["betas"] = [TASK_BUDGET_BETA]
-            endpoint = client.beta.messages.stream if paced["n"] else client.messages.stream
+                betas.append(TASK_BUDGET_BETA)
+            if betas:
+                req["betas"] = betas
+            endpoint = client.beta.messages.stream if betas else client.messages.stream
             try:
                 started = time.time()
                 with endpoint(**req) as st:
@@ -811,6 +993,17 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                     print(f"      {model} rejected the task budget ({str(e)[:100]}); "
                           f"sending none for the rest of this episode", flush=True)
                     continue
+                if binding["on"] and ("block_binding" in str(e) or THINKING_BINDING_BETA in str(e)):
+                    binding["on"] = False
+                    print(f"      {model} rejected the thinking binding controls ({str(e)[:100]}); "
+                          f"sending none for the rest of this episode", flush=True)
+                    continue
+                held = {id(t["text"]) for t in turns if t["role"] == "assistant" and _carried(t)} - stale
+                if held and "signature" in str(e):
+                    stale.update(held)
+                    print(f"      a replayed thinking block was refused ({str(e)[:120]}); the "
+                          f"{len(held)} earlier turns go back as text from now on", flush=True)
+                    continue
                 raise
         u = msg.usage
         # episode resends the seed images every round and they are read from
@@ -820,11 +1013,21 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
         cached = getattr(u, "cache_read_input_tokens", 0) or 0
         written = getattr(u, "cache_creation_input_tokens", 0) or 0
         secs = round(time.time() - started, 1)
-        usage.append({"input_tokens": u.input_tokens + cached + written,
-                      "cached_tokens": cached, "cache_write_tokens": written,
-                      "output_tokens": u.output_tokens, "seconds": secs})
+        rec = {"input_tokens": u.input_tokens + cached + written,
+               "cached_tokens": cached, "cache_write_tokens": written,
+               "output_tokens": u.output_tokens, "seconds": secs}
+        # What the API did to the replayed thinking on this request, as it
+        # says (the binding beta's input_transformations): a dropped block is
+        # reasoning the model did not get back. Empty on an intact history.
+        changed = [x.to_dict() if hasattr(x, "to_dict") else dict(x)
+                   for x in (getattr(msg, "input_transformations", None) or [])]
+        if changed:
+            rec["thinking_dropped"] = sum(1 for x in changed if x.get("type") == "thinking_dropped")
+            rec["input_transformations"] = changed
+        usage.append(rec)
         print(f"      usage: prompt {u.input_tokens + cached + written:,} (cached {cached:,}, "
-              f"cache write {written:,}), output {u.output_tokens:,}, {secs:.0f} s", flush=True)
+              f"cache write {written:,}), output {u.output_tokens:,}, {secs:.0f} s"
+              + (f", earlier thinking dropped {rec['thinking_dropped']}" if changed else ""), flush=True)
         if msg.stop_reason == "refusal":
             cat = getattr(getattr(msg, "stop_details", None), "category", None)
             print(f"      refusal (category={cat}); treating as an empty turn", flush=True)
@@ -855,8 +1058,9 @@ def anthropic_call(model: str, max_tokens: int, usage: list,
                   "back (this round is lost)", flush=True)
             return text
         room["on"] = False
-        return text
-    call = drive(send, "anthropic call")
+        return _reply(text, _blocks_back(msg) if msg.stop_reason == "end_turn" else None)
+    call = drive(send, "anthropic call", edits)
+    call.output_field = "usage.output_tokens (thinking included)"    # type: ignore[attr-defined]
     # The window the Models API reported, for build_call's context_tokens.
     call.context_hint = (info or {}).get("max_input_tokens")    # type: ignore[attr-defined]
     call.effort_sent = lambda: "none" if effort == "none" else level   # type: ignore[attr-defined]
@@ -894,6 +1098,20 @@ def _delta_reasoning(delta) -> str:
         if isinstance(t, str):
             out.append(t)
     return "".join(out)
+
+
+def _merge_details(acc: dict, frames) -> None:
+    """Fold one stream delta's reasoning_details into `acc`, by index: the
+    text a detail streams in pieces (text, summary, data) is joined, every
+    other field keeps its last value."""
+    for f in frames or []:
+        d = f if isinstance(f, dict) else (f.model_dump() if hasattr(f, "model_dump") else dict(f))
+        cur = acc.setdefault(d.get("index", 0), {})
+        for k, v in d.items():
+            if k in ("text", "summary", "data") and isinstance(v, str):
+                cur[k] = cur.get(k, "") + v
+            elif v is not None:
+                cur[k] = v
 
 
 def _reasoning_tokens(usage) -> int | None:
@@ -935,6 +1153,13 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
     harness of ours speaks. Its stream carries reasoning-summary deltas, so a
     thinking model is visibly alive and the per-read timeout means what it
     says; the summary text is never returned (it is not the answer).
+
+    Each assistant turn goes back as the response's own output items (Reply):
+    the reasoning item with its encrypted_content, then the message. The
+    request is stateless (store=False) and asks for the encrypted reasoning
+    (include), OpenAI's documented way to keep a reasoning model's reasoning
+    across turns without server-side state; before 2026-10-15 only the text went
+    back and every round's reasoning was lost.
     """
     import httpx
     import openai
@@ -946,6 +1171,9 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
     room = {"on": False}
     knob = {"effort": OPENAI_EFFORT[effort]}
     call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
+    images = SentImages()
+    edits = prefix_edits()
+    left_out: set = set()
 
     def _step_down(err: str) -> bool:
         if "effort" not in err or not knob["effort"]:
@@ -957,17 +1185,21 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
         return True
 
     def send(system: str, turns: list, drop_images: bool) -> str:
-        turns, max_px = bound_images(turns)
+        turns, max_px = bound_images(turns, edits, left_out)
         items: list = []
         for t in turns:
             if t["role"] == "assistant":
+                carry = _carried(t)
+                if carry:
+                    items.extend(carry)
+                    continue
                 items.append({"role": "assistant", "content": [{"type": "output_text", "text": t.get("text") or "(empty)"}]})
                 continue
             parts = [{"type": "input_text", "text": t["text"]}] if t.get("text") else []
             for img, lab in ([] if drop_images else labelled(t)):
                 parts.append({"type": "input_text", "text": image_label(img, lab)})
                 parts.append({"type": "input_image", "detail": "high",
-                              "image_url": "data:image/png;base64," + _b64(img, max_px)})
+                              "image_url": "data:image/png;base64," + images(img, max_px)})
             items.append({"role": "user", "content": parts or [{"type": "input_text", "text": "(empty)"}]})
         budget = (max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens) if max_tokens else OPENAI_MAX_OUTPUT
         if room["on"]:
@@ -978,7 +1210,8 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
                 reasoning["effort"] = knob["effort"]
             try:
                 stream = client.responses.stream(model=model, instructions=system, input=items,
-                                                 reasoning=reasoning, max_output_tokens=budget)
+                                                 reasoning=reasoning, max_output_tokens=budget,
+                                                 store=False, include=["reasoning.encrypted_content"])
                 break
             except openai.BadRequestError as e:
                 if not _step_down(str(e)):
@@ -1025,7 +1258,7 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
                   flush=True)
         if text:
             room["on"] = False
-            return text
+            return _reply(text, _items_back(final) if status == "completed" else None)
         why = f"content empty, status={status}, incomplete={why_incomplete}"
         if not room["on"] and max_tokens:
             room["on"] = True
@@ -1033,9 +1266,26 @@ def openai_responses_call(model: str, max_tokens: int, usage: list,
         room["on"] = False
         print(f"      {why}; handing the empty reply back (this round is lost)", flush=True)
         return ""
-    call = drive(send, "responses call")
+    call = drive(send, "responses call", edits)
+    call.output_field = "usage.output_tokens (reasoning included)"   # type: ignore[attr-defined]
     call.effort_sent = lambda: knob["effort"]                    # type: ignore[attr-defined]
     return call
+
+
+def _items_back(final) -> list | None:
+    """The response's output items as the next request sends them back, each
+    as the API returned it. None when there is no reasoning to carry, a
+    reasoning item came without its encrypted_content (stateless, it could
+    not be read back), or an item is of a kind this harness does not send."""
+    out = []
+    for item in (getattr(final, "output", None) or []):
+        kind = getattr(item, "type", None)
+        if kind not in ("reasoning", "message"):
+            return None
+        if kind == "reasoning" and not getattr(item, "encrypted_content", None):
+            return None
+        out.append(item.to_dict(mode="json"))
+    return out if any(x["type"] == "reasoning" for x in out) else None
 
 
 def openai_compat_call(model: str, max_tokens: int, usage: list,
@@ -1054,6 +1304,12 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
     reply is raised as EmptyContent with the numbers that explain it, and the
     one retry drive() then makes is given room -- a doubled budget and, on
     OpenRouter, a bound on the thinking.
+
+    On OpenRouter each assistant turn goes back with the reasoning_details
+    the gateway streamed for it (Reply), OpenRouter's documented way to keep
+    a model's reasoning across turns: merged by index, passed back as they
+    came. xAI and OpenCode have no such field on this endpoint; their turns
+    go back as text.
     """
     import httpx
     import openai
@@ -1076,6 +1332,10 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
     # against it, and OpenRouter has its `reasoning` block below.
     knob = {"effort": OPENAI_EFFORT[effort] if base_url is None else None}
     call_budget = CALL_BUDGET_S.get(effort, CALL_BUDGET_DEFAULT_S)
+    images = SentImages()
+    edits = prefix_edits()
+    left_out: set = set()
+    carries = _is_openrouter(base_url)
 
     def _step_down(err: str) -> bool:
         """A 400 that names reasoning_effort: lower the knob one step, or drop
@@ -1090,9 +1350,10 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         return True
 
     def send(system: str, turns: list, drop_images: bool) -> str:
-        turns, max_px = bound_images(turns)
+        turns, max_px = bound_images(turns, edits, left_out)
         messages: list = [{"role": "system", "content": system}]
         for t in turns:
+            details = _carried(t) if carries and t["role"] == "assistant" else None
             parts = [{"type": "text", "text": t["text"]}] if t.get("text") else []
             for img, lab in ([] if drop_images else labelled(t)):
                 parts.append({"type": "text", "text": image_label(img, lab)})
@@ -1100,10 +1361,11 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                 # pass; "auto" leaves it to the endpoint, and a drawing sheet
                 # read at the low tier is a blur.
                 parts.append({"type": "image_url", "image_url": {
-                    "url": "data:image/png;base64," + _b64(img, max_px),
+                    "url": "data:image/png;base64," + images(img, max_px),
                     "detail": "high"}})
             messages.append({"role": "assistant" if t["role"] == "assistant" else "user",
-                             "content": parts or [{"type": "text", "text": "(empty)"}]})
+                             "content": parts or [{"type": "text", "text": "(empty)"}]}
+                            | ({"reasoning_details": details} if details else {}))
         budget = (max_tokens * EMPTY_RETRY_BOOST if room["on"] else max_tokens) if max_tokens else None
         extra: dict = {}
         if budget:
@@ -1149,7 +1411,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                 # request. Anything else is drive()'s to classify.
                 if not _step_down(str(e)):
                     raise
-        chunks, thinking = [], []
+        chunks, thinking, details = [], [], {}
         seen_usage, rtokens, finish = None, None, None
         started = time.time()
         try:
@@ -1184,6 +1446,8 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                 think_delta = _delta_reasoning(delta)
                 if think_delta:
                     thinking.append(think_delta)
+                if carries:
+                    _merge_details(details, getattr(delta, "reasoning_details", None))
                 if delta.content:
                     chunks.append(delta.content)
         finally:
@@ -1212,7 +1476,7 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
                      else ""), flush=True)
         if text:
             room["on"] = False
-            return text
+            return _reply(text, [details[k] for k in sorted(details)] if finish == "stop" else None)
         why = (f"content empty, finish_reason={finish}, "
                f"reasoning_tokens={rtokens}")
         if not room["on"] and max_tokens:
@@ -1225,7 +1489,8 @@ def openai_compat_call(model: str, max_tokens: int, usage: list,
         print(f"      {why} with the doubled budget too; handing the empty "
               f"reply back (this round is lost)", flush=True)
         return ""
-    call = drive(send, "chat.completions call")
+    call = drive(send, "chat.completions call", edits)
+    call.output_field = "usage.completion_tokens"                     # type: ignore[attr-defined]
     if who:                                   # xAI / OpenCode have no knob: nothing to record
         call.effort_sent = lambda: knob["effort"] if base_url is None else OR_EFFORT[effort]   # type: ignore[attr-defined]
     return call
@@ -1365,6 +1630,9 @@ def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
     room = {"on": False}
     knob = {"effort": effort}
     signed: dict[str, list] = {}           # reply text -> the model's turn, with its thought_signature
+    images = SentImages()
+    edits = prefix_edits()
+    left_out: set = set()
 
     def _step_down(err: str) -> bool:
         if "thinking level" not in err.lower() or not knob["effort"]:
@@ -1380,7 +1648,7 @@ def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
         return True
 
     def send(system: str, turns: list, drop_images: bool) -> str:
-        turns, max_px = bound_images(turns)
+        turns, max_px = bound_images(turns, edits, left_out)
         contents = []
         for t in turns:
             if t["role"] == "assistant" and t.get("text") in signed:
@@ -1390,7 +1658,7 @@ def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
             for img, lab in ([] if drop_images else labelled(t)):
                 parts.append(types.Part.from_text(text=image_label(img, lab)))
                 parts.append(types.Part.from_bytes(
-                    data=base64.b64decode(_b64(img, max_px)), mime_type="image/png"))
+                    data=base64.b64decode(images(img, max_px)), mime_type="image/png"))
             if not parts:
                 parts = [types.Part.from_text(text="(empty)")]
             # Gemini names the assistant role "model", not "assistant".
@@ -1472,7 +1740,8 @@ def gemini_call(model: str, max_tokens: int, usage: list, auth: str | dict,
                 signed.clear()
             signed[reply] = [types.Part(text=reply, thought_signature=signature)]
         return reply
-    call = drive(send, "gemini call")
+    call = drive(send, "gemini call", edits)
+    call.output_field = "usage_metadata.candidates_token_count + thoughts_token_count"   # type: ignore[attr-defined]
     call.effort_sent = lambda: knob["effort"]                    # type: ignore[attr-defined]
     return call
 
@@ -1576,17 +1845,24 @@ def mock_call(kind: str, case: Path):
 # episode stays under that, a 100-round T2/T5 episode would not). The
 # Claude 5 family: 1M from the Models API. Both providers therefore
 # summarise at the same point.
-# Where the episode summarises, whatever the window: a request that carries
-# 180k tokens of transcript and observation images is close to the 32 MB
-# request-size limit both first-party APIs enforce, and a run that compacts
-# at the same point on every provider is comparable across them, which a
-# run that compacts at each provider's own window is not (Anthropic's review
-# of the public harness, 2026-09-21; OpenAI's own agents compact at about
-# the same size). --context-tokens overrides in either direction. Measured
-# on the gpt-6-astra sweep before this: the largest request of an episode
-# was 90k tokens at the median, 142k at p90, 188k at most, so on 30-round
-# episodes the point moves only the longest few.
-COMPACT_TOKENS = 180_000
+# Where the episode summarises, whatever the window: the same point on every
+# provider, so runs compact alike across them (Anthropic's review of the
+# public harness, 2026-09-21). 800k since 2026-10-15; it was 180k.
+#   - The binding constraint is the context window: 1M on the Claude 5
+#     family, 1.05M on gpt-6-astra. Less the 128k reply ceiling a call may
+#     still write, ~870k is the most a request can carry; 800k leaves margin.
+#   - The 32 MB request limit both APIs enforce is images' to fill, and they
+#     are bounded on their own (REQUEST_IMAGE_BYTES, 20 MB). Text at 800k
+#     tokens is ~3-4 MB, with signatures and JSON ~24 MB in all.
+#   - 180k (set 2026-09-21) kept image-heavy requests under 32 MB, which the
+#     byte bound now does directly. With the reasoning carried (Reply) it
+#     would summarise ~99% of Opus max episodes, around round 12, and each
+#     summary ends the carried thinking, while gpt-6-astra (about a seventh
+#     of the output) would almost never summarise: estimated from the Core
+#     run.py records and the reasoning-kept CC / Codex trajectories (2026-10-15).
+# --context-tokens overrides in either direction. Over 272k input tokens
+# gpt-6-astra bills the whole request at 2x input / 1.5x output.
+COMPACT_TOKENS = 800_000
 # Context windows by id prefix, longest prefix wins; the Models API's
 # max_input_tokens takes precedence when it can be asked. The Claude 5 family
 # (Opus, Sonnet, Haiku 5.5, Fable) has 1M; Haiku 4.5 and older models 200k.
@@ -2173,8 +2449,14 @@ def main() -> int:
                          "reasoning_effort none..max; openrouter "
                          "reasoning.effort none..high. Default: the "
                          "provider's top level (max, max, high)")
-    ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
-                    help=f"rounds per episode (default: {DEFAULT_ROUNDS})")
+    ap.add_argument("--rounds", type=int, default=None,
+                    help=f"rounds per episode (default: {DEFAULT_ROUNDS}; "
+                         f"{TOKEN_BUDGET_ROUNDS} with --token-budget)")
+    ap.add_argument("--token-budget", type=int, default=None,
+                    help="output tokens per episode, thinking included, as each provider's usage "
+                         "counts them; checked between calls, never inside one. The episode ends "
+                         "at the first of a submission, --rounds and this, and every observation "
+                         "shows what is left. Default: none. Not Anthropic's --task-budget")
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
                     help="cap on one reply (thinking included). Default: none "
                          "-- the model's own maximum")
@@ -2189,7 +2471,7 @@ def main() -> int:
                          "2's way): when the last prompt comes within 8000 "
                          "tokens of this. Default: the smaller of the model's "
                          "window (harness/run.py CONTEXT_TOKENS) and "
-                         "COMPACT_TOKENS (180000, the same point on every provider)")
+                         "COMPACT_TOKENS (800000, the same point on every provider)")
     ap.add_argument("--work", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None,
                     help="default results/<model>_<timestamp>.json")
@@ -2229,6 +2511,10 @@ def main() -> int:
                          "a skip or a finished episode are kept, errors are "
                          "re-run, the rest are run")
     a = ap.parse_args()
+    if a.rounds is None:
+        a.rounds = TOKEN_BUDGET_ROUNDS if a.token_budget else DEFAULT_ROUNDS
+    if a.token_budget is not None and a.token_budget <= 0:
+        raise SystemExit(f"--token-budget {a.token_budget}: give a positive number of output tokens")
 
     prefix, prov, model_id = split_model(a.model)
     defaulted = a.effort is None
@@ -2276,7 +2562,8 @@ def main() -> int:
                    " (no effort knob)" if a.effort is None else "")
     print(f"model {a.model}  provider {prefix.rstrip('/')}  "
           f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort or '-'}{effort_note}  "
-          f"rep {a.rep}  workers {a.workers}"
+          + (f"token-budget {a.token_budget:,}  " if a.token_budget else "")
+          + f"rep {a.rep}  workers {a.workers}"
           + (f"  task-budget {a.task_budget:,}" if a.task_budget else "")
           + (f"  max-execs {a.max_execs}" if a.max_execs else "")
           + (f"  shard {a.shard}" if a.shard else "")
@@ -2296,15 +2583,17 @@ def main() -> int:
         rows = {**others, **{str(c): records[str(c)] for c in cases if str(c) in records}}
         out_path.write_text(json.dumps(
             {"model": a.model, "provider": prefix.rstrip("/"), "rounds": a.rounds,
+             "token_budget": a.token_budget,
              "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep, "started": stamp,
              "cases": [rows[k] for k in sorted(rows, key=Path)]},
             indent=1, default=str) + "\n")
 
     def one(case: Path) -> dict:
         usage: list = []
+        call = None
         t0 = time.time()
         rec = {"case": str(case), "case_id": case.name, "model": a.model,
-               "provider": prefix.rstrip("/"), "rounds": a.rounds,
+               "provider": prefix.rstrip("/"), "rounds": a.rounds, "token_budget": a.token_budget,
                "effort": a.effort, "task_budget": a.task_budget, "rep": a.rep,
                "harness_commit": rev}
         gt = case / "gt/gt.step"
@@ -2320,7 +2609,7 @@ def main() -> int:
             import shutil
             for stale in (work, work.parent / (work.name + "_log")):
                 shutil.rmtree(stale, ignore_errors=True)
-            res = run_episode(case, work, call, max_rounds=a.rounds)
+            res = run_episode(case, work, call, max_rounds=a.rounds, token_budget=a.token_budget)
             # The level the provider was last sent, next to the one asked for:
             # a model that rejected a level was stepped down (or sent none).
             if hasattr(call, "effort_sent"):
@@ -2328,6 +2617,9 @@ def main() -> int:
             if hasattr(call, "auth"):
                 rec["auth"] = call.auth          # which route a gemini/ run took; never a secret
             rec["submitted"] = res["submitted"]
+            # What ended it: submit, rounds, token_budget, or blocked (the
+            # provider withheld the reply round after round).
+            rec["ended_by"] = res.get("ended_by")
             # run_episode only looks for .step artifacts, so an ECAD submission
             # (a graph dict exported as pred_graph.json) comes back with
             # step=None even when it succeeded. Finding the artifact is the
@@ -2364,7 +2656,19 @@ def main() -> int:
             # Replies that stopped at the output ceiling before an executable
             # block (the thinking used it all): each is a round the episode
             # lost to its nudge, and the count is the measure of it.
-            "truncated_replies": sum(1 for u in usage if u.get("truncated"))}
+            "truncated_replies": sum(1 for u in usage if u.get("truncated")),
+            # Earlier thinking the API dropped instead of giving back to the
+            # model (Reply, THINKING_BINDING_BETA): 0 on an intact history.
+            "thinking_dropped": sum(u.get("thinking_dropped", 0) for u in usage),
+            # The usage field `output` (and --token-budget) counts, per provider.
+            "output_field": getattr(call, "output_field", None)}
+        # What the API reported doing to the replayed thinking, per call, and
+        # the harness's own edits of the conversation it had sent (prefix_edits).
+        changed = [{"call": i, **x} for i, u in enumerate(usage) for x in u.get("input_transformations", [])]
+        if changed:
+            rec["input_transformations"] = changed
+        if getattr(call, "edits", None) is not None:
+            rec["prefix_edits"] = call.edits
         return rec
 
     done = 0
