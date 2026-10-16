@@ -15,7 +15,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from harness.run import HARD_IMAGE_CAP, MANY_IMAGES, MANY_IMAGE_PX, _b64, bound_images  # noqa: E402
+from harness.run import HARD_IMAGE_CAP, IMAGE_COUNT_LOW, MANY_IMAGES, MANY_IMAGE_PX, _b64, bound_images  # noqa: E402
 
 
 def _turns(n_seed: int, rounds: int, per_round: int):
@@ -28,12 +28,12 @@ def _turns(n_seed: int, rounds: int, per_round: int):
 
 def test_every_image_stays_and_the_many_image_rule_is_live():
     """Nothing leaves the request: the seeds and every observation image of
-    every round are there. Under 20 images they go at full size; from the
-    request that passes 20 on, every image goes at MANY_IMAGE_PX (the API's
-    rule) -- one cache rewrite, then a stable prefix."""
+    every round are there. Every image goes at MANY_IMAGE_PX (the API's
+    many-image rule) from its first request on, under 20 images too, so no
+    later request re-encodes one an earlier request sent (2026-10-15)."""
     turns = _turns(n_seed=6, rounds=4, per_round=3)                    # 6 + 12 = 18
     out, max_px = bound_images(turns)
-    assert out == turns and max_px is None
+    assert out == turns and max_px == MANY_IMAGE_PX
     turns = _turns(n_seed=6, rounds=12, per_round=3)                   # 6 + 36 = 42
     out, max_px = bound_images(turns)
     assert out == turns and max_px == MANY_IMAGE_PX
@@ -42,7 +42,8 @@ def test_every_image_stays_and_the_many_image_rule_is_live():
 
 def test_only_the_api_ceiling_leaves_images_out_oldest_first():
     """Past HARD_IMAGE_CAP the request would be a 400: the oldest observation
-    images are left out, the seeds never."""
+    images are left out, the seeds never, down to IMAGE_COUNT_LOW so the next
+    crossing is rounds away."""
     per = 7
     rounds = HARD_IMAGE_CAP // per + 2
     turns = _turns(n_seed=6, rounds=rounds, per_round=per)
@@ -51,7 +52,7 @@ def test_only_the_api_ceiling_leaves_images_out_oldest_first():
     out, max_px = bound_images(turns)
     assert max_px == MANY_IMAGE_PX
     assert out[0]["images"] == turns[0]["images"]
-    assert sum(len(t["images"]) for t in out) == HARD_IMAGE_CAP
+    assert sum(len(t["images"]) for t in out) == IMAGE_COUNT_LOW
     user_turns = [t for t in out if t["role"] == "user"][1:]
     assert user_turns[0]["images"] == []                               # the oldest round went first
     assert user_turns[-1]["images"] == turns[-1]["images"]             # the newest is whole
@@ -72,13 +73,14 @@ def test_the_request_byte_budget_leaves_the_oldest_observations_out(tmp_path, mo
     for r in range(6):
         turns.append({"role": "assistant", "text": "```python\n```", "images": []})
         turns.append({"role": "user", "text": f"Round {r}", "images": [str(big)] * 2})
-    monkeypatch.setattr(run, "REQUEST_IMAGE_BYTES", size * 5)         # room for the seeds and a round and a half
+    monkeypatch.setattr(run, "REQUEST_IMAGE_BYTES", size * 6)         # room for the seeds and two rounds
+    monkeypatch.setattr(run, "IMAGE_BYTES_LOW", size * 4)             # a crossing comes down to one round
     out, _ = bound_images(turns)
     assert out[0]["images"] == seeds
     kept = [t["images"] for t in out if t["role"] == "user"][1:]
     assert kept[-1] == [str(big)] * 2                                   # the newest round is whole
     assert kept[0] == []                                                # the oldest went first
-    assert sum(len(k) for k in kept) + 2 <= 5
+    assert sum(len(k) for k in kept) + 2 <= 4
 
 
 def test_b64_downscales_only_when_asked_and_only_when_larger(tmp_path):
