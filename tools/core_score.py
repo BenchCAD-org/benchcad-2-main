@@ -16,7 +16,9 @@ The rule, per (model, effort):
 - T6 counts only position-mode records (correspondence_mode position).
 - A run at other than 40 rounds and a 500,000 output-token budget (the setting
   since 2026-10-16; 30 rounds and no budget before) is a smoke run, not a
-  reportable score.
+  reportable score; so is one whose records come from more than one harness
+  version (harness_version, stamped by harness/run.py; "2.0" for records
+  from before the stamp).
 - Records covering fewer cases than the dataset holds (dataset.json n_cases,
   from --dataset-info) are a SUBSET: per-task lines, no headline.
 - The Public Set (dataset.json name benchcad-2.0-public; tools/run_core.sh
@@ -39,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ROUNDS = 40
 TOKEN_BUDGET = 500_000
+UNSTAMPED = "2.0"                       # records from before harness/run.py stamped harness_version
 PUBLIC_SET = "benchcad-2.0-public"      # dataset.json name of the open Public Set (run_core.sh --set public)
 PENDING_ERR = re.compile(r"memory|MemoryBudget|OOM|timeout|timed out|Timeout|evaluator_error|"
                          r"APIError|APIConnection|Connection|ServerError|InternalServerError|exhausted|"
@@ -141,6 +144,17 @@ def record_revs(files: list[Path]) -> dict[str, int]:
     return out
 
 
+def record_versions(files: list[Path]) -> dict[str, int]:
+    """{harness version: records} (UNSTAMPED for records from before the stamp)."""
+    out: dict[str, int] = {}
+    for f in files:
+        d = json.loads(Path(f).read_text())
+        for rec in d.get("cases", []):
+            k = rec.get("harness_version") or d.get("harness_version") or UNSTAMPED
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
 def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None = None) -> list[dict]:
     """One summary per (model, effort) found in `files`. `n_core`: the cases
     the dataset holds; fewer cases than that is a subset, with no headline."""
@@ -152,7 +166,9 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
         for rec in d.get("cases", []):
             model = rec.get("model") or d.get("model")
             effort = rec.get("effort") or d.get("effort")
-            g = groups.setdefault((model, effort), {"rounds": set(), "budgets": set(), "cases": {}, "files": set()})
+            g = groups.setdefault((model, effort), {"rounds": set(), "budgets": set(), "versions": set(),
+                                                    "cases": {}, "files": set()})
+            g["versions"].add(rec.get("harness_version") or d.get("harness_version") or UNSTAMPED)
             g["rounds"].add(rec.get("rounds") or d.get("rounds"))
             g["budgets"].add(rec.get("token_budget") or d.get("token_budget"))
             g["files"].add(str(f))
@@ -196,13 +212,16 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
                         "cases": sum(1 for k in keys if k[0] == t)} for t in tasks}
         rounds = sorted(r for r in g["rounds"] if r is not None)
         budgets = sorted(b for b in g["budgets"] if b)
+        versions = sorted(g["versions"])
         subset = n_core is not None and n < n_core
         complete = not pending and n > 0 and not subset
         out.append({
             "model": model, "effort": effort, "effort_sent": sorted(sent, key=str),
             "rounds": rounds[0] if len(rounds) == 1 else rounds,
             "token_budget": (budgets[0] if len(budgets) == 1 else budgets) if budgets else None,
-            "smoke": rounds != [ROUNDS] or budgets != [TOKEN_BUDGET] or None in g["budgets"],
+            "harness_version": versions[0] if len(versions) == 1 else versions,
+            "smoke": (rounds != [ROUNDS] or budgets != [TOKEN_BUDGET] or None in g["budgets"]
+                      or len(versions) > 1),
             "n_cases": n, "n_core": n_core, "subset": subset,
             "resolved": len(per_case), "pending": pending, "complete": complete,
             "core_mean": statistics.mean(per_case.values()) if complete else None,
@@ -218,6 +237,10 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
     return out
 
 
+def fmt_versions(v) -> str:
+    return " + ".join(v) if isinstance(v, list) else str(v)
+
+
 def fmt(x, nd=4):
     return "-" if x is None else f"{x:.{nd}f}"
 
@@ -229,8 +252,11 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
     for r in rows:
         lines.append(f"== {r['model']}  effort {r['effort']}"
                      + (f" (sent {', '.join(map(str, r['effort_sent']))})" if r["effort_sent"]
-                        and r["effort_sent"] != [r["effort"]] else "") + f"  rounds {r['rounds']}")
-        if r["smoke"]:
+                        and r["effort_sent"] != [r["effort"]] else "") + f"  rounds {r['rounds']}  harness {fmt_versions(r.get('harness_version', UNSTAMPED))}")
+        if r["smoke"] and isinstance(r.get("harness_version"), list):
+            lines.append(f"   SMOKE RUN, harness versions {fmt_versions(r['harness_version'])} mixed: not a "
+                         f"reportable score (run every case from one tagged release)")
+        elif r["smoke"]:
             lines.append(f"   SMOKE RUN, rounds={r['rounds']}, token budget {r.get('token_budget') or 'none'}"
                          f": not a reportable score (reported numbers use {ROUNDS} rounds and a "
                          f"{TOKEN_BUDGET:,} output-token budget)")
@@ -251,7 +277,9 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
             ref = next((x for x in reference.get("lines", [])
                         if x.get("model") == r["model"] and x.get("effort") == r["effort"]), None)
             if ref:
-                lines.append(f"   reference ({reference.get('version', '')}; {reference.get('rounds', 30)} rounds, "
+                lines.append(f"   reference ({reference.get('version', '')}; harness "
+                             f"{ref.get('harness_version') or reference.get('harness_version', UNSTAMPED)}, "
+                             f"{reference.get('rounds', 30)} rounds, "
                              f"{reference.get('harness', 'run before 2026-10-15')}): {fmt(ref.get('core_mean'))}"
                              + (f"  [{ref['noise_note']}]" if ref.get("noise_note") else ""))
         lines.append("   " + "  ".join(f"{t} {fmt(v['mean'], 3)} ({v['resolved']}/{v['cases']})"
@@ -281,7 +309,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     files = [f for f in a.results if f.exists()]
     revs = record_revs(files)
-    meta = {"harness_commits": revs, "checkout_commit": harness_commit()}
+    meta = {"harness_versions": record_versions(files), "harness_commits": revs,
+            "checkout_commit": harness_commit()}
     info = a.dataset_info or a.dataset
     if info and (Path(info) / "dataset.json").exists():
         ds = json.loads((Path(info) / "dataset.json").read_text())
@@ -295,7 +324,7 @@ def main(argv=None) -> int:
     known = [k for k in revs if k != "unknown"]
     ran = (", ".join(f"{k} ({n})" for k, n in sorted(revs.items(), key=lambda kv: -kv[1]))
            if len(revs) > 1 else known[0] if known else f"unknown (checkout {meta['checkout_commit']})")
-    print(f"harness {ran}  dataset "
+    print(f"harness {', '.join(sorted(meta['harness_versions']))} at {ran}  dataset "
           + (f"{meta['dataset']['name']} {meta['dataset']['version']}  scorer_digest "
              f"{str(meta['dataset']['scorer_digest'])[:12]}" if "dataset" in meta else "-"))
     public = (meta.get("dataset") or {}).get("name") == PUBLIC_SET

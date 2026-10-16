@@ -1,5 +1,6 @@
 {
  "version": "v2.0-core1",
+ "harness_version": "2.0",
  "case_set": "benchcad-2.0-core",
  "dataset_version": "1.0",
  "scorer_digest": "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa",
@@ -10,6 +11,7 @@
   {
    "model": "anthropic/claude-opus-5-5",
    "effort": "low",
+   "harness_version": "2.0",
    "core_mean": 0.0628,
    "n_cases": 100,
    "reps": 1,
@@ -27,6 +29,7 @@
   {
    "model": "anthropic/claude-opus-5-5",
    "effort": "medium",
+   "harness_version": "2.0",
    "core_mean": 0.1335,
    "n_cases": 100,
    "reps": 1,
@@ -44,6 +47,7 @@
   {
    "model": "anthropic/claude-opus-5-5",
    "effort": "high",
+   "harness_version": "2.0",
    "core_mean": 0.184,
    "n_cases": 100,
    "reps": 1,
@@ -61,6 +65,7 @@
   {
    "model": "anthropic/claude-opus-5-5",
    "effort": "xhigh",
+   "harness_version": "2.0",
    "core_mean": 0.3183,
    "n_cases": 100,
    "reps": 1,
@@ -78,6 +83,7 @@
   {
    "model": "anthropic/claude-opus-5-5",
    "effort": "max",
+   "harness_version": "2.0",
    "core_mean": 0.5662,
    "n_cases": 100,
    "reps": 1,
@@ -95,6 +101,7 @@
   {
    "model": "anthropic/claude-fable-5-1",
    "effort": "low",
+   "harness_version": "2.0",
    "core_mean": 0.0873,
    "n_cases": 100,
    "reps": 1,
@@ -112,6 +119,7 @@
   {
    "model": "anthropic/claude-fable-5-1",
    "effort": "medium",
+   "harness_version": "2.0",
    "core_mean": 0.107,
    "n_cases": 100,
    "reps": 1,
@@ -129,6 +137,7 @@
   {
    "model": "anthropic/claude-fable-5-1",
    "effort": "high",
+   "harness_version": "2.0",
    "core_mean": 0.1258,
    "n_cases": 100,
    "reps": 1,
@@ -146,6 +155,7 @@
   {
    "model": "anthropic/claude-fable-5-1",
    "effort": "xhigh",
+   "harness_version": "2.0",
    "core_mean": 0.2741,
    "n_cases": 100,
    "reps": 1,
@@ -163,6 +173,7 @@
   {
    "model": "anthropic/claude-fable-5-1",
    "effort": "max",
+   "harness_version": "2.0",
    "core_mean": 0.3027,
    "n_cases": 100,
    "reps": 1,
@@ -180,6 +191,7 @@
   {
    "model": "anthropic/claude-sonnet-5-5",
    "effort": "low",
+   "harness_version": "2.0",
    "core_mean": 0.0497,
    "n_cases": 100,
    "reps": 1,
@@ -197,6 +209,7 @@
   {
    "model": "anthropic/claude-sonnet-5-5",
    "effort": "medium",
+   "harness_version": "2.0",
    "core_mean": 0.0596,
    "n_cases": 100,
    "reps": 1,
@@ -214,6 +227,7 @@
   {
    "model": "anthropic/claude-sonnet-5-5",
    "effort": "high",
+   "harness_version": "2.0",
    "core_mean": 0.1355,
    "n_cases": 100,
    "reps": 1,
@@ -231,6 +245,7 @@
   {
    "model": "anthropic/claude-sonnet-5-5",
    "effort": "xhigh",
+   "harness_version": "2.0",
    "core_mean": 0.3142,
    "n_cases": 100,
    "reps": 1,
@@ -248,6 +263,7 @@
   {
    "model": "anthropic/claude-sonnet-5-5",
    "effort": "max",
+   "harness_version": "2.0",
    "core_mean": 0.4141,
    "n_cases": 100,
    "reps": 1,
@@ -265,6 +281,7 @@
   {
    "model": "anthropic/claude-haiku-5-5",
    "effort": "low",
+   "harness_version": "2.0",
    "core_mean": 0.0059,
    "n_cases": 100,
    "reps": 1,
@@ -282,6 +299,7 @@
   {
    "model": "anthropic/claude-haiku-5-5",
    "effort": "medium",
+   "harness_version": "2.0",
    "core_mean": 0.0255,
    "n_cases": 100,
    "reps": 1,
@@ -299,6 +317,7 @@
   {
    "model": "anthropic/claude-haiku-5-5",
    "effort": "high",
+   "harness_version": "2.0",
    "core_mean": 0.0815,
    "n_cases": 100,
    "reps": 1,
@@ -316,6 +335,7 @@
   {
    "model": "anthropic/claude-haiku-5-5",
    "effort": "xhigh",
+   "harness_version": "2.0",
    "core_mean": 0.1543,
    "n_cases": 100,
    "reps": 1,
@@ -333,6 +353,7 @@
   {
    "model": "anthropic/claude-haiku-5-5",
    "effort": "max",
+   "harness_version": "2.0",
    "core_mean": 0.1812,
    "n_cases": 100,
    "reps": 1,
@@ -350,6 +371,7 @@
   {
    "model": "openai/gpt-6-astra",
    "effort": "low",
+   "harness_version": "2.0",
    "core_mean": 0.135,
    "n_cases": 100,
    "reps": 3,
@@ -367,6 +389,7 @@
   {
    "model": "openai/gpt-6-astra",
    "effort": "medium",
+   "harness_version": "2.0",
    "core_mean": 0.3094,
    "n_cases": 100,
    "reps": 3,
@@ -384,6 +407,7 @@
   {
    "model": "openai/gpt-6-astra",
    "effort": "high",
+   "harness_version": "2.0",
    "core_mean": 0.4062,
    "n_cases": 100,
    "reps": 3,
@@ -401,6 +425,7 @@
   {
    "model": "openai/gpt-6-astra",
    "effort": "xhigh",
+   "harness_version": "2.0",
    "core_mean": 0.4492,
    "n_cases": 100,
    "reps": 3,
@@ -418,6 +443,7 @@
   {
    "model": "openai/gpt-6-astra",
    "effort": "max",
+   "harness_version": "2.0",
    "core_mean": 0.5943,
    "n_cases": 100,
    "reps": 3,
