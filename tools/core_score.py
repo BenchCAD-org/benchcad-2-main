@@ -14,7 +14,8 @@ The rule, per (model, effort):
 - A case's resolved reps are averaged first; the headline is the plain mean
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
-- A run at other than 30 rounds is a smoke run, not a reportable score.
+- A run at other than 40 rounds (the setting since 2026-10-16; 30 before), or
+  with a token budget, is a smoke run, not a reportable score.
 - Records covering fewer cases than the dataset holds (dataset.json n_cases,
   from --dataset-info) are a SUBSET: per-task lines, no headline.
 - The Public Set (dataset.json name benchcad-2.0-public; tools/run_core.sh
@@ -35,7 +36,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUNDS = 30
+ROUNDS = 40
 PUBLIC_SET = "benchcad-2.0-public"      # dataset.json name of the open Public Set (run_core.sh --set public)
 PENDING_ERR = re.compile(r"memory|MemoryBudget|OOM|timeout|timed out|Timeout|evaluator_error|"
                          r"APIError|APIConnection|Connection|ServerError|InternalServerError|exhausted|"
@@ -248,7 +249,8 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
             ref = next((x for x in reference.get("lines", [])
                         if x.get("model") == r["model"] and x.get("effort") == r["effort"]), None)
             if ref:
-                lines.append(f"   reference ({reference.get('version', '')}): {fmt(ref.get('core_mean'))}"
+                lines.append(f"   reference ({reference.get('version', '')}; {reference.get('rounds', 30)} rounds, "
+                             f"{reference.get('harness', 'run before 2026-10-15')}): {fmt(ref.get('core_mean'))}"
                              + (f"  [{ref['noise_note']}]" if ref.get("noise_note") else ""))
         lines.append("   " + "  ".join(f"{t} {fmt(v['mean'], 3)} ({v['resolved']}/{v['cases']})"
                                        for t, v in r["per_task"].items()))

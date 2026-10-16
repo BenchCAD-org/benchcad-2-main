@@ -6,7 +6,7 @@
 #   --model     anthropic/claude-haiku-5-5, openai/gpt-6-astra, gemini/<id>, ... (required)
 #   --effort    comma-separated levels, one full run each (default: the provider's ladder --
 #               gemini low,medium,high; anthropic and openai low,medium,high,xhigh,max)
-#   --rounds N  rounds per episode (default 30, the published setting; anything else is a smoke run)
+#   --rounds N  rounds per episode (default 40, the published setting since 2026-10-16; anything else is a smoke run)
 #   --cases D   run a subset: a task or case directory inside the downloaded Core tree
 #   --workers N episodes in flight per effort (default: two per GB of available memory left
 #               after run.py and the scorers, at most 2 x CPUs and 32; the value chosen is printed)
@@ -28,7 +28,7 @@ DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
 
-MODEL="" EFFORTS="" ROUNDS=30 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
+MODEL="" EFFORTS="" ROUNDS=40 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -244,7 +244,7 @@ step "scorer timeout $BENCHCAD_SCORE_TIMEOUT_S s per case (BENCHCAD_SCORE_TIMEOU
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/$SET/$TAG"
 mkdir -p "$OUT"
-[ "$ROUNDS" = 30 ] || step "SMOKE RUN: rounds=$ROUNDS, not a reportable score (reported numbers use 30)"
+[ "$ROUNDS" = 40 ] || step "SMOKE RUN: rounds=$ROUNDS, not a reportable score (reported numbers use 40)"
 
 # 6. one run per effort, resumable
 FILES=()

@@ -105,10 +105,12 @@ GEMINI_EFFORT = {lvl: lvl.upper() for lvl in PROVIDER_EFFORTS["gemini/"]}
 # What a Gemini 400 naming the thinking level lowers it to: one step, then off.
 GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
 # The rounds an episode gets when --rounds is not given; the eval.toml the
-# examples ship quotes it (tools/make_dev_samples.py). 30, since 2026-09-17:
-# on the trial runs the model submitted on its own well inside that, and
-# the rounds past it bought re-crops, not answers.
-DEFAULT_ROUNDS = 30
+# examples ship quotes it (tools/make_dev_samples.py). 40 since 2026-10-16
+# (30 from 2026-09-17): with the model's reasoning passed back (Reply), it no
+# longer re-derives it every round, and the rounds became the binding limit --
+# episodes still changing their answer past round 30 (2026-10-16). The published
+# reference lines (results/core_reference.json) are 30 rounds, run before.
+DEFAULT_ROUNDS = 40
 # --token-budget N ends an episode once its calls have used N output tokens,
 # thinking included (envs.common.episode.output_tokens), checked between
 # calls; the rounds are then a guard, TOKEN_BUDGET_ROUNDS unless --rounds
