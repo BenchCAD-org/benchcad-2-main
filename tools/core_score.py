@@ -14,8 +14,9 @@ The rule, per (model, effort):
 - A case's resolved reps are averaged first; the headline is the plain mean
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
-- A run at other than 40 rounds (the setting since 2026-10-16; 30 before), or
-  with a token budget, is a smoke run, not a reportable score.
+- A run at other than 40 rounds and a 500,000 output-token budget (the setting
+  since 2026-10-16; 30 rounds and no budget before) is a smoke run, not a
+  reportable score.
 - Records covering fewer cases than the dataset holds (dataset.json n_cases,
   from --dataset-info) are a SUBSET: per-task lines, no headline.
 - The Public Set (dataset.json name benchcad-2.0-public; tools/run_core.sh
@@ -37,6 +38,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUNDS = 40
+TOKEN_BUDGET = 500_000
 PUBLIC_SET = "benchcad-2.0-public"      # dataset.json name of the open Public Set (run_core.sh --set public)
 PENDING_ERR = re.compile(r"memory|MemoryBudget|OOM|timeout|timed out|Timeout|evaluator_error|"
                          r"APIError|APIConnection|Connection|ServerError|InternalServerError|exhausted|"
@@ -200,7 +202,7 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
             "model": model, "effort": effort, "effort_sent": sorted(sent, key=str),
             "rounds": rounds[0] if len(rounds) == 1 else rounds,
             "token_budget": (budgets[0] if len(budgets) == 1 else budgets) if budgets else None,
-            "smoke": rounds != [ROUNDS] or bool(budgets),
+            "smoke": rounds != [ROUNDS] or budgets != [TOKEN_BUDGET] or None in g["budgets"],
             "n_cases": n, "n_core": n_core, "subset": subset,
             "resolved": len(per_case), "pending": pending, "complete": complete,
             "core_mean": statistics.mean(per_case.values()) if complete else None,
@@ -229,9 +231,9 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
                      + (f" (sent {', '.join(map(str, r['effort_sent']))})" if r["effort_sent"]
                         and r["effort_sent"] != [r["effort"]] else "") + f"  rounds {r['rounds']}")
         if r["smoke"]:
-            lines.append(f"   SMOKE RUN, rounds={r['rounds']}"
-                         + (f", token budget {r['token_budget']}" if r.get("token_budget") else "")
-                         + f": not a reportable score (reported numbers use {ROUNDS} rounds, no token budget)")
+            lines.append(f"   SMOKE RUN, rounds={r['rounds']}, token budget {r.get('token_budget') or 'none'}"
+                         f": not a reportable score (reported numbers use {ROUNDS} rounds and a "
+                         f"{TOKEN_BUDGET:,} output-token budget)")
         if public:
             lines.append("   PUBLIC SET: for anyone to look at, not a reportable score (report Core)")
         of = f" ({r['n_cases']}/{r['n_core']} {cases} cases)" if r.get("subset") else ""

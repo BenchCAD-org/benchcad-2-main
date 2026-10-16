@@ -106,28 +106,47 @@ def test_without_a_budget_only_the_rounds_count(tmp_path):
     assert call.seen[1]["last"].startswith("Round 1/2 -- exit 0")
 
 
-def test_the_runner_takes_the_flag_and_records_it(tmp_path):
-    """--token-budget alone: 200 rounds; the banner, the file and every
-    record say both; a budget is not a reportable Core setting yet
-    (core_score marks it a smoke run)."""
-    r = subprocess.run([sys.executable, str(ROOT / "harness/run.py"), "--model", "mock/dumb",
-                        "--token-budget", "500000", "--cases", str(CASE), "--unsafe-local",
-                        "--out", str(tmp_path / "o.json"), "--work", str(tmp_path / "w")],
-                       cwd=ROOT, capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr[-800:]
-    assert "rounds 200 " in r.stdout and "token-budget 500,000 " in r.stdout
-    out = json.loads((tmp_path / "o.json").read_text())
-    rec = out["cases"][0]
-    assert out["token_budget"] == rec["token_budget"] == 500_000 and rec["rounds"] == 200
-    assert rec["ended_by"] == "submit"
+def test_the_defaults_are_40_rounds_and_500k_and_are_the_reportable_setting(tmp_path):
+    """Since 2026-10-16 a run with no limit flags has 40 rounds and a 500,000
+    output-token budget: the banner, the file and every record say both, and
+    core_score reports it (no SMOKE). --token-budget 0 runs with no budget,
+    which is a different setting (SMOKE); a negative budget is refused."""
+    import harness.run as R
     sys.path.insert(0, str(ROOT / "tools"))
     import core_score as C
-    row = C.summarize([tmp_path / "o.json"])[0]
-    assert row["smoke"] and "token budget 500000" in C.report([row])
-    r = subprocess.run([sys.executable, str(ROOT / "harness/run.py"), "--model", "mock/dumb",
-                        "--token-budget", "0", "--cases", str(CASE), "--out", str(tmp_path / "p.json")],
-                       cwd=ROOT, capture_output=True, text=True)
-    assert r.returncode == 1 and "positive number" in r.stderr
+
+    def run(*extra, out):
+        return subprocess.run([sys.executable, str(ROOT / "harness/run.py"), "--model", "mock/dumb",
+                               "--cases", str(CASE), "--unsafe-local", "--out", str(tmp_path / out),
+                               "--work", str(tmp_path / ("w" + out)), *extra],
+                              cwd=ROOT, capture_output=True, text=True)
+    r = run(out="d.json")
+    assert r.returncode == 0, r.stderr[-800:]
+    assert "rounds 40 " in r.stdout and "token-budget 500,000 " in r.stdout
+    out = json.loads((tmp_path / "d.json").read_text()); rec = out["cases"][0]
+    assert out["token_budget"] == rec["token_budget"] == R.DEFAULT_TOKEN_BUDGET == 500_000
+    assert out["rounds"] == rec["rounds"] == R.DEFAULT_ROUNDS == 40 and rec["ended_by"] == "submit"
+    row = C.summarize([tmp_path / "d.json"])[0]
+    assert not row["smoke"] and "SMOKE" not in C.report([row])
+    r = run("--token-budget", "0", out="n.json")
+    assert r.returncode == 0, r.stderr[-800:]
+    assert json.loads((tmp_path / "n.json").read_text())["cases"][0]["token_budget"] is None
+    row = C.summarize([tmp_path / "n.json"])[0]
+    assert row["smoke"] and "token budget none" in C.report([row])
+    r = run("--token-budget", "-1", out="x.json")
+    assert r.returncode == 1 and "0 for none" in r.stderr
+
+
+def test_an_episode_at_the_defaults_stops_at_500k_output(tmp_path):
+    """The defaults, mocked usage of 150k output per call: the budget is spent
+    after the 4th call (600k), checked between calls, so no 5th call is made;
+    the rounds (40) are far from it."""
+    import harness.run as R
+    call = model([PY], [150_000])
+    out = E.run_episode(CASE, tmp_path / "w", call, max_rounds=R.DEFAULT_ROUNDS, exec_timeout=60,
+                        token_budget=R.DEFAULT_TOKEN_BUDGET)
+    assert len(call.seen) == 4 and out["ended_by"] == "token_budget" and out["output_tokens"] == 600_000
+    assert call.seen[3]["last"].startswith("Round 3/40 \u00b7 output tokens 450,000 / 500,000 -- exit 0")
 
 
 def test_each_provider_names_the_field_it_counts(monkeypatch):
@@ -140,4 +159,4 @@ def test_each_provider_names_the_field_it_counts(monkeypatch):
     assert R.anthropic_call("claude-opus-5-5", None, [], "max").output_field == "usage.output_tokens (thinking included)"
     assert R.openai_responses_call("gpt-6-astra", None, [], "k", "max").output_field == "usage.output_tokens (reasoning included)"
     assert R.openai_compat_call("m", None, [], "k", "https://openrouter.ai/api/v1", "high").output_field == "usage.completion_tokens"
-    assert R.DEFAULT_ROUNDS == 40 and R.TOKEN_BUDGET_ROUNDS == 200
+    assert R.DEFAULT_ROUNDS == 40 and R.DEFAULT_TOKEN_BUDGET == 500_000

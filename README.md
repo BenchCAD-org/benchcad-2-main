@@ -45,7 +45,8 @@ dataset, runs all 100 cases and scores them. Run it again to resume. The summary
 |---|---|
 | `--model` | `anthropic/<id>`, `openai/<id>`, `gemini/<id>`, `xai/<id>`, `openrouter/<id>` |
 | `--effort` | comma-separated levels, one run each (default: the provider's full ladder) |
-| `--rounds` | default `40` (30 before 2026-10-16), the published setting; anything else is a smoke run |
+| `--rounds` | default `40`, the published setting; anything else is a smoke run |
+| `--token-budget` | output tokens per case, thinking included; default `500000`, the published setting (`0` = none); anything else is a smoke run |
 | `--cases` | a task or case directory, for a subset |
 | `--set public` | run the Public set instead of Core |
 | `--dry-run` | check keys, dataset access and scorers; no API calls |
@@ -62,8 +63,9 @@ not for reporting. Nine samples also ship in `examples/`, no download needed.
 
 ## Rounds
 
-Each observation starts `Round N/40`: 40 rounds (30 before 2026-10-16). A case whose rounds run out
-without a `submit` has no answer. A call that fails for infrastructure reasons (network, server error,
+40 rounds and 500k output tokens per case (thinking included; before 2026-10-16: 30 rounds, no token
+budget); the case ends at whichever comes first, checked between calls. Each observation starts
+`Round N/40 · output tokens spent / 500,000`. A case that ends without a `submit` has no answer. A call that fails for infrastructure reasons (network, server error,
 stalled stream) is retried and does not count as a round. (Changed 2026-10-12.)
 
 Each round the model gets its earlier reasoning back, as its provider returned it:
@@ -74,7 +76,7 @@ only the text went back.)
 ## Reproducing the published lines
 
 `results/core_reference.json` holds the published lines: 30 rounds, all 100 Core cases,
-run before the 2026-10-15 change above -- a different setting from today's 40 rounds.
+run before the 2026-10-15 change above -- a different setting from today's 40 rounds and 500k tokens.
 Claude lines are one rep; `openai/gpt-6-astra` is the mean of 3 reps (T6: 1 rep), with
 the spread in `noise_note`. `run_core` prints the published line beside yours.
 
