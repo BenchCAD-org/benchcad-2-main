@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "release": "2.0",
+  "status": "stable",
+  "code": {
+    "repo": "BenchCAD-org/benchcad-2-main",
+    "tag": "v2.0-core1",
+    "commit": "5d36424fafe41959d086728b5a1ae410de468e42"
+  },
+  "harness_version": "2.0",
+  "datasets": {
+    "core": {
+      "repo": "BenchCAD/benchcad-2.0-core",
+      "revision": "v2.0",
+      "commit": "d15983427592056fffbe9cb103f6975e384679a7",
+      "dataset_version": "1.0"
+    },
+    "public": null
+  },
+  "scorer_digest": "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa",
+  "budgets": {
+    "rounds": 30,
+    "output_tokens": null,
+    "reasoning_carried": false,
+    "compaction_tokens": 180000
+  },
+  "reference_lines": "results/core_reference.json",
+  "not_comparable_with": [
+    "2.1-beta"
+  ]
+}
