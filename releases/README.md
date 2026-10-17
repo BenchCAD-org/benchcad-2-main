@@ -13,6 +13,10 @@ ran on:
 | 2.1-beta | pre-release, recommended | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1-beta) | Core `v2.1-beta` (`d159834275`), Public `v2.1-beta` (`4b5500320a`) | [BenchCAD 2.1-beta](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) |
 | 2.0 | stable; reproduces the published lines | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.0-core1) | Core `v2.0` (`d159834275`); Public not part of 2.0 | [BenchCAD 2.0](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) |
 
+From the next release on, `tools/run_core.sh` at a release's tag downloads that release's
+dataset revision (`--revision`), never `main`. The `v2.0-core1` and `v2.1-beta` checkouts
+predate this and download `main`, which still holds exactly the data their revisions name.
+
 The Core data is the same commit in both releases. The harness settings differ:
 
 | | 2.0 | 2.1-beta |

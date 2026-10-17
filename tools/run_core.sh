@@ -29,6 +29,10 @@ cd "$(dirname "$0")/.."
 DATASET_REPO=BenchCAD/benchcad-2.0-core
 DATASET_NAME=benchcad-2.0-core
 DATASET_VERSION=1.0
+# The Hugging Face tag of this release's data, Core's and the Public Set's alike: a
+# release downloads its own revision, never main, so a later upload cannot change
+# what a tagged checkout scores (releases/). Named after the harness version.
+DATASET_REVISION=v2.1-beta
 
 MODEL="" EFFORTS="" ROUNDS=40 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
@@ -161,7 +165,7 @@ hf_access() {   # 0 when this account can read the gated repo (one small file, n
     [ -n "$tok" ] || return 2
     # A gated repo's file listing answers anyone; its files answer 403 to an account without access.
     [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
-        "https://huggingface.co/datasets/$DATASET_REPO/resolve/main/dataset.json")" = 200 ]
+        "https://huggingface.co/datasets/$DATASET_REPO/resolve/$DATASET_REVISION/dataset.json")" = 200 ]
 }
 HAVE_DATA=1
 if ! verify >/dev/null 2>&1; then
@@ -176,10 +180,10 @@ if ! verify >/dev/null 2>&1; then
                die "this Hugging Face account cannot read $DATASET_REPO: request access at https://benchcad.com/access.html" ;;
         esac
     else
-    step "downloading $DATASET_REPO to $DATA"
+    step "downloading $DATASET_REPO (revision $DATASET_REVISION) to $DATA"
     mkdir -p "$DATA"
     HF_HUB_DISABLE_PROGRESS_BARS=1 uvx --quiet --from huggingface_hub hf download "$DATASET_REPO" --repo-type dataset \
-        --local-dir "$DATA" > "$DATA.download.log" 2>&1 \
+        --revision "$DATASET_REVISION" --local-dir "$DATA" > "$DATA.download.log" 2>&1 \
         || { tail -5 "$DATA.download.log" >&2
              [ "$SET" = public ] && die "download failed: accept the terms at $PUBLIC_TERMS with the account HF_TOKEN belongs to, check the network, and run again (the download resumes)"
              die "download failed: $DATASET_REPO is gated -- request access on its Hugging Face page, then set HF_TOKEN (or run: uvx --from huggingface_hub hf auth login)"; }

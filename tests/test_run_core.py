@@ -328,7 +328,7 @@ def test_the_public_set_needs_its_terms_accepted_and_says_where(tmp_path):
     ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
     assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-public: OK" in ok.stdout, ok.stderr
     # the listing answers anyone, so the check asks for a file: that is what the terms gate
-    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/main/dataset.json" \
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/v2.1-beta/dataset.json" \
         in (tmp_path / "curl.log").read_text()
     core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "none"), "--dry-run", env_extra=env)
     assert core.returncode != 0 and "no Hugging Face token: set HF_TOKEN (an account with access to " \
@@ -348,7 +348,7 @@ def test_core_access_is_checked_on_a_file_not_on_the_listing_anyone_can_read(tmp
     assert "access to BenchCAD/benchcad-2.0-core: OK" not in without.stdout
     ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
     assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-core: OK" in ok.stdout, ok.stderr
-    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core/resolve/main/dataset.json" \
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core/resolve/v2.1-beta/dataset.json" \
         in (tmp_path / "curl.log").read_text()
 
 
@@ -357,7 +357,7 @@ def test_a_failed_public_download_points_at_the_terms_not_at_core_access(tmp_pat
     bin_.mkdir()
     (bin_ / "uvx").write_text("#!/bin/sh\necho 'Server error 504 Gateway Timeout'\nexit 1\n")    # a Hugging Face hiccup
     (bin_ / "uvx").chmod(0o755)
-    env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": ""}
+    env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": "", "HOME": str(tmp_path)}   # HOME: no ~/.local/bin uvx
     pub = run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "pub"), env_extra=env)
     assert pub.returncode != 0 and "download failed: accept the terms at https://huggingface.co/datasets/" \
         "BenchCAD/benchcad-2.0-public with the account HF_TOKEN belongs to" in pub.stderr, pub.stderr
@@ -382,3 +382,26 @@ def test_a_public_set_line_says_it_is_not_the_reported_score(tmp_path):
     assert "PUBLIC MEAN 0.5000" in lines["benchcad-2.0-public"] and "CORE MEAN" not in lines["benchcad-2.0-public"]
     assert "PUBLIC SET: for anyone to look at, not a reportable score (report Core)" in lines["benchcad-2.0-public"]
     assert "CORE MEAN 0.5000" in lines["benchcad-2.0-core"] and "PUBLIC" not in lines["benchcad-2.0-core"]
+
+
+def test_the_download_is_the_releases_own_revision_never_main(tmp_path):
+    """Core and the Public Set download the Hugging Face tag of this release's data
+    (v<harness version>, the revision releases/ names), so a later upload to main
+    cannot change what a tagged checkout scores."""
+    import harness.run as R
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "uvx").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/uvx.log\nexit 1\n')
+    (bin_ / "uvx").chmod(0o755)
+    # HOME too: run_core puts ~/.local/bin (where uv installs uvx) ahead of PATH.
+    env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": "", "HOME": str(tmp_path)}
+    run_core("--model", "mock/oracle", "--data", str(tmp_path / "core"), env_extra=env)
+    run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "pub"), env_extra=env)
+    calls = [l for l in (tmp_path / "uvx.log").read_text().splitlines() if " download " in l]
+    rev = f"v{R.HARNESS_VERSION}"
+    assert len(calls) == 2 and all(f"--revision {rev} " in c for c in calls), calls
+    assert "BenchCAD/benchcad-2.0-core " in calls[0] and "BenchCAD/benchcad-2.0-public " in calls[1]
+    release = ROOT / f"releases/benchcad-{R.HARNESS_VERSION}.json"
+    if release.exists():
+        pinned = json.loads(release.read_text())["datasets"]
+        assert {k: v["revision"] for k, v in pinned.items() if v} == {"core": rev, "public": rev}
