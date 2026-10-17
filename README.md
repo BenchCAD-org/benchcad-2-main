@@ -58,8 +58,11 @@ How each provider's effort level is sent, auth options and the other flags:
 
 | Version | Tag | Use |
 |---|---|---|
-| **2.1-beta** | `v2.1-beta` | Recommended. Reasoning carried across rounds; 40 rounds and 500k output tokens per case, both provisional. Core data unchanged. |
-| 2.0 | `v2.0-core1` | Only to reproduce the published reference lines (30 rounds, thinking not carried). |
+| **2.1-beta** | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) | Recommended. Reasoning carried across rounds; 40 rounds and 500k output tokens per case, both provisional. Core data unchanged. |
+| 2.0 | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) | Only to reproduce the published reference lines (30 rounds, thinking not carried). |
+
+What each version pins (code commit, dataset revisions, scorer digest, limits):
+[`releases/`](releases/README.md).
 
 Don't mix versions or run from `main` for a reported score; check out a tag
 (`git checkout v2.1-beta`). Every record and `core_summary.json` carry `harness_version`;
