@@ -6,7 +6,8 @@
 #   --model     anthropic/claude-haiku-5-5, openai/gpt-6-astra, gemini/<id>, ... (required)
 #   --effort    comma-separated levels, one full run each (default: the provider's ladder --
 #               gemini low,medium,high; anthropic and openai low,medium,high,xhigh,max)
-#   --rounds N  rounds per episode (default 40, the published setting since 2026-10-16; anything else is a smoke run)
+#   --rounds N  cap the rounds per episode (default none, the published setting since 2026-10-18 -- the
+#               token budget ends an episode; 0 = none; a cap is a smoke run)
 #   --token-budget N  output tokens per episode, thinking included (default 500000, the published setting
 #               since 2026-10-16; 0 = none; anything else is a smoke run)
 #   --cases D   run a subset: a task or case directory inside the downloaded Core tree
@@ -32,9 +33,9 @@ DATASET_VERSION=1.0
 # The Hugging Face tag of this release's data, Core's and the Public Set's alike: a
 # release downloads its own revision, never main, so a later upload cannot change
 # what a tagged checkout scores (releases/). Named after the harness version.
-DATASET_REVISION=v2.1-beta
+DATASET_REVISION=v2.1-beta.2
 
-MODEL="" EFFORTS="" ROUNDS=40 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
+MODEL="" EFFORTS="" ROUNDS=0 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -49,7 +50,7 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY=1; shift ;;
         --) shift; EXTRA=("$@"); break ;;
         --set) SET=$2; shift 2 ;;
-        -h|--help) sed -n 2,22p "$0"; exit 0 ;;
+        -h|--help) sed -n 2,23p "$0"; exit 0 ;;
         *) die "unknown argument $1 (see --help)" ;;
     esac
 done
@@ -251,7 +252,7 @@ step "scorer timeout $BENCHCAD_SCORE_TIMEOUT_S s per case (BENCHCAD_SCORE_TIMEOU
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/$SET/$TAG"
 mkdir -p "$OUT"
-{ [ "$ROUNDS" = 40 ] && [ "$TOKEN_BUDGET" = 500000 ]; } || step "SMOKE RUN: rounds=$ROUNDS, token budget=$TOKEN_BUDGET, not a reportable score (reported numbers use 40 rounds and 500000 output tokens)"
+{ [ "$ROUNDS" = 0 ] && [ "$TOKEN_BUDGET" = 500000 ]; } || step "SMOKE RUN: rounds=$ROUNDS, token budget=$TOKEN_BUDGET, not a reportable score (reported numbers use 500000 output tokens and no round limit)"
 
 # 6. one run per effort, resumable
 FILES=()

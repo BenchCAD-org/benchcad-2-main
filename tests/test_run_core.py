@@ -54,7 +54,7 @@ def test_dry_run_checks_everything_and_prints_the_published_settings(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert "dataset verified" in r.stdout and "all checks passed" in r.stdout
     cmd = next(l for l in r.stdout.splitlines() if "would run:" in l)
-    for want in ("--model mock/oracle", "--rounds 40", "--token-budget 500000", "--rep 0", "--resume", f"--cases {data}"):
+    for want in ("--model mock/oracle", "--rounds 0", "--token-budget 500000", "--rep 0", "--resume", f"--cases {data}"):
         assert want in cmd, cmd
     assert "SMOKE" not in r.stdout
 
@@ -90,7 +90,7 @@ def test_it_refuses_before_any_spend(tmp_path):
 
 def _rec(case, score=None, **kw):
     return {"case": f"/d/{case}", "case_id": case.split("/")[-1], "model": "m/x", "effort": "high",
-            "rounds": 40, "token_budget": 500000, "score": score, "tokens": {"input": 1000, "cached": 0, "output": 100}, "seconds": 10, **kw}
+            "rounds": None, "token_budget": 500000, "score": score, "tokens": {"input": 1000, "cached": 0, "output": 100}, "seconds": 10, **kw}
 
 
 def test_core_rules(tmp_path):
@@ -104,13 +104,13 @@ def test_core_rules(tmp_path):
                                      "correspondence_mode": "position"}),                          # 0
     ]
     f = tmp_path / "r.json"
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": recs}))
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000, "cases": recs}))
     [row] = C.summarize([f])
     assert row["complete"] and row["n_cases"] == 4
     assert row["core_mean"] == pytest.approx((0.6 + 0 + 0.9 + 0) / 4)                # not a mean of task means
     pend = recs + [_rec("task3/cases/case001", None, error="MemoryBudgetExceeded: scorer over 4G"),
                    _rec("task6/cases/case003", {"score": 0.4, "status": "ok", "correspondence_mode": "legacy"})]
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": pend}))
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000, "cases": pend}))
     [row] = C.summarize([f])
     assert not row["complete"] and row["core_mean"] is None
     assert {p["case"] for p in row["pending"]} == {"case001", "case003"} and len(row["pending"]) == 2
@@ -136,7 +136,7 @@ def test_the_frozen_command_line_and_the_bare_form(tmp_path):
         runs = [l for l in r.stdout.splitlines() if "would run:" in l]
         assert [next(w for w in ("low", "medium", "high") if f"--effort {w} " in l) for l in runs] == \
             ["low", "medium", "high"]
-        assert all("--model gemini/some-model-id" in l and "--rounds 40" in l and "--rep 0" in l for l in runs)
+        assert all("--model gemini/some-model-id" in l and "--rounds 0" in l and "--rep 0" in l for l in runs)
     anth = run_core("--model", "anthropic/claude-haiku-5-5", "--data", str(data), "--dry-run",
                     env_extra={"ANTHROPIC_API_KEY": "x"})
     assert anth.returncode == 0 and sum("would run:" in l for l in anth.stdout.splitlines()) == 5
@@ -150,7 +150,7 @@ def test_the_provider_sdks_are_installed_and_the_summary_names_the_dataset(tmp_p
     assert "uv sync --frozen --quiet --group harness" in SCRIPT.read_text()
     data = fake_core(tmp_path / "core")
     f = tmp_path / "r.json"
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000,
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000,
                              "cases": [_rec("task3/cases/case001", {"score": 1.0})]}))
     C.main([str(f), "--dataset", str(data / "task3/cases/case001"), "--dataset-info", str(data)])
     assert "dataset benchcad-2.0-core 1.0  scorer_digest" in capsys.readouterr().out
@@ -197,7 +197,7 @@ exec {sys.executable} "$@"
 
 def test_a_record_waiting_for_its_score_is_pending(tmp_path):
     f = tmp_path / "r.json"
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000,
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000,
                              "cases": [_rec("task3/cases/case001", None, step="/a.step", pending_score=True)]}))
     [row] = C.summarize([f])
     assert not row["complete"] and row["pending"][0]["why"].startswith("episode finished, not scored")
@@ -210,11 +210,11 @@ def test_a_subset_prints_no_headline_and_the_union_does(tmp_path, capsys):
     data = fake_core(tmp_path / "core")                                   # n_cases 3
     f = tmp_path / "r.json"
     recs = [_rec(f"task3/cases/case00{i}", {"score": 0.5}) for i in (1, 2)]
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": recs}))
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000, "cases": recs}))
     assert C.main([str(f), "--dataset", str(data / "task3/cases/case001"), "--dataset-info", str(data)]) == 3
     out = capsys.readouterr().out
     assert "SUBSET 2/3" in out and "CORE MEAN" not in out and "T3 0.500 (2/2)" in out
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000,
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000,
                              "cases": recs + [_rec("task3/cases/case003", {"score": 0.5})]}))
     assert C.main([str(f), "--dataset", str(data / "task3/cases/case003"), "--dataset-info", str(data)]) == 0
     assert "CORE MEAN 0.5000   over 3 cases" in capsys.readouterr().out
@@ -229,7 +229,7 @@ def test_a_price_belongs_to_one_model_id():
     assert C.usd("anthropic/claude-haiku-5-5", tok, table) == pytest.approx(0.1)
     assert C.usd("anthropic/claude-haiku-5-5-20261001", tok, table) == pytest.approx(0.1)
     assert C.usd("anthropic/claude-haiku-5-5-fast", tok, table) is None
-    f = {"model": "gemini/gemini-3.8-flash", "effort": "low", "rounds": 40, "token_budget": 500000, "n_cases": 1, "n_core": None,
+    f = {"model": "gemini/gemini-3.8-flash", "effort": "low", "rounds": None, "token_budget": 500000, "n_cases": 1, "n_core": None,
          "subset": False, "complete": True, "core_mean": 0.1, "pending": [], "effort_sent": [], "smoke": False,
          "per_task": {}, "usd_per_case": None, "price": "unknown", "input_tokens_per_case": 1000,
          "output_tokens_per_case": 100, "median_seconds_per_case": 10}
@@ -243,14 +243,14 @@ def test_the_table_names_the_harness_the_records_ran_on(tmp_path, capsys):
     recs = [_rec("task3/cases/case001", {"score": 1.0}, harness_commit="1cb51ab00000"),
             _rec("task3/cases/case002", {"score": 1.0}, harness_commit="1cb51ab00000"),
             _rec("task3/cases/case003", {"score": 1.0}, harness_commit="db98eef00000")]
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": recs}))
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000, "cases": recs}))
     C.main([str(f), "--json", str(tmp_path / "s.json")])
     assert "harness 2.0 at 1cb51ab00000 (2), db98eef00000 (1)  dataset" in capsys.readouterr().out
     assert json.loads((tmp_path / "s.json").read_text())["harness_commits"] == {"1cb51ab00000": 2, "db98eef00000": 1}
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000, "cases": recs[:1]}))
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000, "cases": recs[:1]}))
     C.main([str(f)])
     assert "harness 2.0 at 1cb51ab00000  dataset" in capsys.readouterr().out
-    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 40, "token_budget": 500000,
+    f.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": None, "token_budget": 500000,
                              "cases": [_rec("task3/cases/case001", {"score": 1.0})]}))
     C.main([str(f)])
     assert "harness 2.0 at unknown (checkout " in capsys.readouterr().out
@@ -272,7 +272,7 @@ def test_the_published_reference_ships_and_prints_beside_a_line(tmp_path, capsys
     assert len(ref["lines"]) == 25 and all(l["n_cases"] == 100 for l in ref["lines"])
     assert "--compare results/core_reference.json" in SCRIPT.read_text()
     f = tmp_path / "r.json"
-    f.write_text(json.dumps({"model": "anthropic/claude-haiku-5-5", "effort": "high", "rounds": 40, "token_budget": 500000,
+    f.write_text(json.dumps({"model": "anthropic/claude-haiku-5-5", "effort": "high", "rounds": None, "token_budget": 500000,
                              "cases": [dict(_rec("task3/cases/case001", {"score": 0.1}),
                                             model="anthropic/claude-haiku-5-5")]}))
     C.main([str(f), "--compare", str(ref_path)])
@@ -308,7 +308,7 @@ def test_the_public_set_runs_beside_core_with_its_own_results(tmp_path):
     runs = [l for l in r.stdout.splitlines() if "would run:" in l]
     assert len(runs) == 3 and all("--out results/public/gemini_some-model-id/" in l and
                                   "--work work/public/gemini_some-model-id/" in l and f"--cases {data} " in l
-                                  and "--rounds 40" in l for l in runs)
+                                  and "--rounds 0" in l for l in runs)
     core = run_core("--model", "gemini/some-model-id", "--set", "public", "--data",
                     str(fake_core(tmp_path / "core")), "--dry-run", env_extra={"GEMINI_API_KEY": "x"})
     assert core.returncode != 0 and "expects benchcad-2.0-public 1.0, the download is benchcad-2.0-core" in core.stderr
@@ -328,7 +328,7 @@ def test_the_public_set_needs_its_terms_accepted_and_says_where(tmp_path):
     ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
     assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-public: OK" in ok.stdout, ok.stderr
     # the listing answers anyone, so the check asks for a file: that is what the terms gate
-    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/v2.1-beta/dataset.json" \
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/v2.1-beta.2/dataset.json" \
         in (tmp_path / "curl.log").read_text()
     core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "none"), "--dry-run", env_extra=env)
     assert core.returncode != 0 and "no Hugging Face token: set HF_TOKEN (an account with access to " \
@@ -348,7 +348,7 @@ def test_core_access_is_checked_on_a_file_not_on_the_listing_anyone_can_read(tmp
     assert "access to BenchCAD/benchcad-2.0-core: OK" not in without.stdout
     ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
     assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-core: OK" in ok.stdout, ok.stderr
-    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core/resolve/v2.1-beta/dataset.json" \
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core/resolve/v2.1-beta.2/dataset.json" \
         in (tmp_path / "curl.log").read_text()
 
 
@@ -368,9 +368,9 @@ def test_a_failed_public_download_points_at_the_terms_not_at_core_access(tmp_pat
 
 def test_a_public_set_line_says_it_is_not_the_reported_score(tmp_path):
     rec = {"case": "/d/task3/cases/case001", "case_id": "case001", "model": "anthropic/claude-haiku-5-5",
-           "effort": "high", "rounds": 40, "token_budget": 500000, "score": {"score": 0.5, "status": "ok"}}
+           "effort": "high", "rounds": None, "token_budget": 500000, "score": {"score": 0.5, "status": "ok"}}
     f = tmp_path / "high.json"
-    f.write_text(json.dumps({"model": rec["model"], "effort": "high", "rounds": 40, "token_budget": 500000, "cases": [rec]}))
+    f.write_text(json.dumps({"model": rec["model"], "effort": "high", "rounds": None, "token_budget": 500000, "cases": [rec]}))
     lines = {}
     for name in ("benchcad-2.0-public", "benchcad-2.0-core"):
         d = tmp_path / name

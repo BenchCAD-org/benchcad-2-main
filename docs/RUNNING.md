@@ -59,18 +59,19 @@ uv run python tools/summarize.py results/astra.json results/opus5.json
 `--cases` takes any directory and finds every case under it, so `examples` is
 all nine samples, `examples/task3` one task, `examples/task3/cases/case1` one
 case, and a path into your own case tree works the same way. The defaults are
-the benchmark's contract: **40 rounds and 500k output tokens per case** (thinking included; before
-2026-10-16: 30 rounds, no token budget; `--rounds` / `--token-budget` change them) at the
+the benchmark's contract: **500k output tokens per case and no round limit** (thinking included;
+40 rounds and 500k from 2026-10-16, 30 rounds and no token budget before; `--token-budget` changes
+the budget, `--rounds N` caps the rounds) at the
 provider's top effort (`--effort` changes it), no cap on a reply (the model's
 own maximum output; `--max-tokens` sets one), every image the episode produced
 kept in the conversation, the observation text limited the way Terminus 2
 limits it (10,000 bytes, first and last halves), and context summarised the way
 Terminus 2 summarises it when the model's window fills. An episode ends when
-the model submits, or with no answer when its rounds run out -- nothing is
+the model submits, or with no answer when its budget runs out -- nothing is
 asked on its behalf. The token budget ends the episode once its calls have
 used that many output tokens, thinking included, input not counted (checked
 between calls, never inside one; every observation shows what is left);
-`--token-budget 0` runs with none. The run writes one JSON with a record per case (headline
+`--token-budget 0` runs with none, and then needs `--rounds N`. The run writes one JSON with a record per case (headline
 `score`, the diagnostic columns, tokens, seconds), and `work/<run>/` keeps
 every case's working directory and transcript; `summarize.py` prints the
 per-case table, the mean per task and the mean of the task means, with the
@@ -139,7 +140,8 @@ only errors, so a run interrupted anywhere continues with the same command.
 Budget for the full contract: a part case is tens of thousands of input
 tokens per round (cached after round one); an assembly case starts at 12–20
 images per round. Reckon on a few dollars per part case and around ten per
-assembly case at 40 rounds.
+assembly case at 40 rounds (2.1-beta); with no round limit a case can run on until
+its 500k output tokens are spent, so reckon on more.
 
 ## Check your setup before you spend anything
 

@@ -17,8 +17,8 @@ from harness import run as R                                      # noqa: E402
 CASE = ROOT / "tests/fixtures/t3/case1"
 
 
-def test_the_version_is_2_1_beta():
-    assert R.HARNESS_VERSION == "2.1-beta"
+def test_the_version_is_2_1_beta_2():
+    assert R.HARNESS_VERSION == "2.1-beta.2"
 
 
 def test_the_runner_stamps_the_file_and_every_record_and_the_summary_carries_it(tmp_path):
@@ -28,20 +28,20 @@ def test_the_runner_stamps_the_file_and_every_record_and_the_summary_carries_it(
                        cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-800:]
     out = json.loads((tmp_path / "o.json").read_text())
-    assert out["harness_version"] == "2.1-beta"
-    assert [c["harness_version"] for c in out["cases"]] == ["2.1-beta"]
+    assert out["harness_version"] == "2.1-beta.2"
+    assert [c["harness_version"] for c in out["cases"]] == ["2.1-beta.2"]
     row = C.summarize([tmp_path / "o.json"])[0]
-    assert row["harness_version"] == "2.1-beta" and not row["smoke"]
-    assert "harness 2.1-beta" in C.report([row])
+    assert row["harness_version"] == "2.1-beta.2" and not row["smoke"]
+    assert "harness 2.1-beta.2" in C.report([row])
     C.main([str(tmp_path / "o.json"), "--json", str(tmp_path / "core_summary.json")])
     summary = json.loads((tmp_path / "core_summary.json").read_text())
-    assert summary["harness_versions"] == {"2.1-beta": 1}
-    assert summary["efforts"][0]["harness_version"] == "2.1-beta"
+    assert summary["harness_versions"] == {"2.1-beta.2": 1}
+    assert summary["efforts"][0]["harness_version"] == "2.1-beta.2"
 
 
 def rec(case, version=None):
     r = {"case": f"t3/{case}", "case_id": case, "model": "anthropic/m", "effort": "max",
-         "rounds": 40, "token_budget": 500_000, "score": {"score": 0.5}}
+         "rounds": None, "token_budget": 500_000, "score": {"score": 0.5}}
     if version:
         r["harness_version"] = version
     return r
@@ -49,11 +49,11 @@ def rec(case, version=None):
 
 def test_mixed_versions_are_a_smoke_run_and_unstamped_records_are_2_0(tmp_path):
     f = tmp_path / "r.json"
-    f.write_text(json.dumps({"cases": [rec("a", "2.1-beta"), rec("b")]}))
+    f.write_text(json.dumps({"cases": [rec("a", "2.1-beta.2"), rec("b")]}))
     row = C.summarize([f])[0]
-    assert row["harness_version"] == ["2.0", "2.1-beta"] and row["smoke"]
-    assert "harness versions 2.0 + 2.1-beta mixed" in C.report([row])
-    assert C.record_versions([f]) == {"2.1-beta": 1, "2.0": 1}
+    assert row["harness_version"] == ["2.0", "2.1-beta.2"] and row["smoke"]
+    assert "harness versions 2.0 + 2.1-beta.2 mixed" in C.report([row])
+    assert C.record_versions([f]) == {"2.1-beta.2": 1, "2.0": 1}
 
 
 def test_the_reference_lines_are_2_0_and_the_comparison_says_so(tmp_path):
@@ -62,7 +62,7 @@ def test_the_reference_lines_are_2_0_and_the_comparison_says_so(tmp_path):
     assert {line["harness_version"] for line in ref["lines"]} == {"2.0"}
     line = ref["lines"][0]
     f = tmp_path / "r.json"
-    f.write_text(json.dumps({"cases": [dict(rec("a", "2.1-beta"), model=line["model"],
+    f.write_text(json.dumps({"cases": [dict(rec("a", "2.1-beta.2"), model=line["model"],
                                             effort=line["effort"])]}))
     text = C.report(C.summarize([f]), reference=ref)
-    assert "harness 2.1-beta" in text and "; harness 2.0, 30 rounds," in text
+    assert "harness 2.1-beta.2" in text and "; harness 2.0, 30 rounds," in text
