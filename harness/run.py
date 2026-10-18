@@ -104,25 +104,25 @@ OR_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openrouter/"]}
 GEMINI_EFFORT = {lvl: lvl.upper() for lvl in PROVIDER_EFFORTS["gemini/"]}
 # What a Gemini 400 naming the thinking level lowers it to: one step, then off.
 GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
-# The rounds an episode gets when --rounds is not given; the eval.toml the
-# examples ship quotes it (tools/make_dev_samples.py). 40 since 2026-10-16
-# (30 from 2026-09-17): with the model's reasoning passed back (Reply), it no
-# longer re-derives it every round, and the rounds became the binding limit --
-# episodes still changing their answer past round 30 (2026-10-16). The published
-# reference lines (results/core_reference.json) are 30 rounds, run before.
-DEFAULT_ROUNDS = 40
+# The rounds an episode gets when --rounds is not given: none since
+# 2026-10-18 (2.1-beta.2) -- the output-token budget is the episode's one
+# limit, so a model is not cut off for working in many small rounds. 40 in
+# 2.1-beta (2026-10-16), 30 before (2.0; the published reference lines,
+# results/core_reference.json). --rounds N caps them, for a smoke run.
+DEFAULT_ROUNDS = None
 # The output tokens an episode gets when --token-budget is not given: its
 # calls' output, thinking included (envs.common.episode.output_tokens),
-# checked between calls; the episode ends at the first of a submission,
-# DEFAULT_ROUNDS and this. 500k since 2026-10-16 (none before), with 40
-# rounds (2026-10-16). --token-budget 0 runs with no budget.
+# checked between calls; the episode ends at the first of a submission and
+# this (and --rounds, when given). 500k since 2026-10-16 (none before).
+# --token-budget 0 runs with no budget, which needs --rounds.
 DEFAULT_TOKEN_BUDGET = 500_000
 # The harness release this checkout is, stamped in every record and in the
 # run's file; core_score carries it into the summary. A score is reported
-# from a tagged release (README, Versions): 2.1-beta since 2026-10-16
-# (reasoning carried, 40 rounds, 500k tokens); 2.0 before, unstamped, the
-# setting of results/core_reference.json.
-HARNESS_VERSION = "2.1-beta"
+# from a tagged release (README, Versions): 2.1-beta.2 since 2026-10-18
+# (reasoning carried, 500k output tokens, no round limit); 2.1-beta from
+# 2026-10-16 (40 rounds and 500k); 2.0 before, unstamped, the setting of
+# results/core_reference.json.
+HARNESS_VERSION = "2.1-beta.2"
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
 # the model's ceiling is sent -- what the Models API reports as max_tokens
@@ -2456,11 +2456,12 @@ def main() -> int:
                          "reasoning.effort none..high. Default: the "
                          "provider's top level (max, max, high)")
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
-                    help=f"rounds per episode (default: {DEFAULT_ROUNDS})")
+                    help="cap the rounds per episode, for a smoke run (default: none -- the "
+                         "token budget ends the episode; 0 = none)")
     ap.add_argument("--token-budget", type=int, default=DEFAULT_TOKEN_BUDGET,
                     help="output tokens per episode, thinking included, as each provider's usage "
                          "counts them; checked between calls, never inside one. The episode ends "
-                         "at the first of a submission, --rounds and this, and every observation "
+                         "at the first of a submission, this and --rounds, and every observation "
                          f"shows what is left. Default: {DEFAULT_TOKEN_BUDGET:,}; 0 = none. "
                          "Not Anthropic's --task-budget")
     ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
@@ -2520,6 +2521,11 @@ def main() -> int:
     if a.token_budget < 0:
         raise SystemExit(f"--token-budget {a.token_budget}: give a number of output tokens, or 0 for none")
     a.token_budget = a.token_budget or None
+    if a.rounds is not None and a.rounds < 0:
+        raise SystemExit(f"--rounds {a.rounds}: give a number of rounds, or 0 for none")
+    a.rounds = a.rounds or None
+    if a.rounds is None and a.token_budget is None:
+        raise SystemExit("an episode needs a limit: --token-budget N, or --rounds N with --token-budget 0")
 
     prefix, prov, model_id = split_model(a.model)
     defaulted = a.effort is None
@@ -2566,7 +2572,7 @@ def main() -> int:
     effort_note = (f" ({prefix.rstrip('/')}'s top level)" if defaulted and a.effort else
                    " (no effort knob)" if a.effort is None else "")
     print(f"model {a.model}  provider {prefix.rstrip('/')}  "
-          f"cases {len(cases)}  rounds {a.rounds}  effort {a.effort or '-'}{effort_note}  "
+          f"cases {len(cases)}  rounds {a.rounds or 'no limit'}  effort {a.effort or '-'}{effort_note}  "
           + (f"token-budget {a.token_budget:,}  " if a.token_budget else "")
           + f"rep {a.rep}  workers {a.workers}"
           + (f"  task-budget {a.task_budget:,}" if a.task_budget else "")

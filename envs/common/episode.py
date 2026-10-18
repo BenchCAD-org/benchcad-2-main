@@ -34,6 +34,10 @@ MAX_DEAD_ROUNDS = 3
 # the model's rounds, so without a total a flapping endpoint never ends a case.
 # Each one is already harness.run.drive's retries (~2.5 min) giving up.
 MAX_INFRA_FAILURES = 10
+# How many reactive summaries (a context-length error, then a summary and
+# the call again) one episode with no round limit absorbs; with one, the
+# rounds bound them. 40, the bound the 40-round default gave (2026-10-16).
+MAX_SUMMARIES = 40
 # The cadquery version in the sandbox image. Telling the model reduces API
 # hallucination (measured: it called cadquery.selectors.and_, which exists in
 # neither 2.3.0 nor 2.8.0).
@@ -255,19 +259,23 @@ def _artifact(box: Sandbox):
     return None
 
 
-def limits_text(max_rounds: int, token_budget: int | None) -> str:
+def limits_text(max_rounds: int | None, token_budget: int | None) -> str:
     """The episode's limits as the system prompt states them. Without a token
-    budget, the sentence every run before 2026-10-15 had."""
+    budget, the sentence every run before 2026-10-15 had; without a round
+    limit (the default since 2026-10-18), the budget alone."""
     if not token_budget:
         return f"{max_rounds} rounds"
+    if max_rounds is None:
+        return (f"at most {token_budget:,} output tokens, your thinking included -- the episode "
+                f"ends when they are spent")
     return (f"at most {max_rounds} rounds and {token_budget:,} output tokens, your thinking "
             f"included -- the episode ends at whichever runs out first")
 
 
-def round_status(rnd: int, max_rounds: int, spent: int = 0, token_budget: int | None = None) -> str:
-    """Where the episode stands after round `rnd`: the rounds, and with a
-    token budget the output tokens spent of it."""
-    head = f"Round {rnd}/{max_rounds}"
+def round_status(rnd: int, max_rounds: int | None, spent: int = 0, token_budget: int | None = None) -> str:
+    """Where the episode stands after round `rnd`: the rounds (of the limit,
+    when there is one), and with a token budget the output tokens spent of it."""
+    head = f"Round {rnd}" if max_rounds is None else f"Round {rnd}/{max_rounds}"
     return head + (f" \u00b7 output tokens {spent:,} / {token_budget:,}" if token_budget else "")
 
 
@@ -546,13 +554,13 @@ def _models_round(e: Exception) -> bool:
 
 
 def run_episode(case_dir: Path, work_dir: Path, call_fn,
-                max_rounds: int = MAX_ROUNDS, exec_timeout: int = 600,
+                max_rounds: int | None = MAX_ROUNDS, exec_timeout: int = 600,
                 token_budget: int | None = None) -> dict:
     """Run one case.
 
-    The episode ends at the first of: a ```submit, `max_rounds` rounds, and
-    -- when `token_budget` is given -- that many output tokens (thinking
-    included, output_tokens) spent. The budget is checked between calls,
+    The episode ends at the first of: a ```submit, `max_rounds` rounds (None:
+    no limit), and -- when `token_budget` is given -- that many output tokens
+    (thinking included, output_tokens) spent; one of the two limits is needed. The budget is checked between calls,
     never inside one: a call made while budget remained runs to its end and
     its round is played, and no call is made once it is spent. Every
     observation says what is left (round_status).
@@ -590,9 +598,11 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
     blocked = 0                  # consecutive rounds the provider withheld on policy
     infra = 0                    # infrastructure failures this episode
     summaries = 0
+    if max_rounds is None and not token_budget:
+        raise ValueError("an episode needs a limit: max_rounds or token_budget")
     rnd = 1                      # the model's round about to be played
     ended_by = "rounds"
-    while rnd <= max_rounds:
+    while max_rounds is None or rnd <= max_rounds:
         if token_budget and output_tokens(call_fn) >= token_budget:
             ended_by = "token_budget"
             rounds.append({"round": rnd, "action": "token_budget_spent",
@@ -621,7 +631,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
             try:
                 raw = call_fn(system, turns)
             except Exception as e:                       # noqa: BLE001
-                if not _CONTEXT_ERROR.search(str(e)) or summaries >= max_rounds:
+                if not _CONTEXT_ERROR.search(str(e)) or summaries >= (max_rounds or MAX_SUMMARIES):
                     raise
                 print(f"      context length error ({str(e)[:80]}); summarising", flush=True)
                 summaries += 1
@@ -666,8 +676,8 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
                 # request carries the fact -- an interface fact, not advice.
                 turns.append({"role": "user", "images": [],
                               "text": f"Round {rnd}: your reply did not finish within the time "
-                                      f"budget for one call and was discarded. Round {rnd + 1} of "
-                                      f"{max_rounds}."
+                                      f"budget for one call and was discarded. Round {rnd + 1}"
+                                      + (f" of {max_rounds}." if max_rounds else ".")
                                       + (f" Output tokens {output_tokens(call_fn):,} / {token_budget:,}."
                                          if token_budget else "")})
             rnd += 1

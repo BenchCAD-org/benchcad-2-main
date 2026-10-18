@@ -45,7 +45,7 @@ dataset, runs all 100 cases and scores them. Run it again to resume. The summary
 |---|---|
 | `--model` | `anthropic/<id>`, `openai/<id>`, `gemini/<id>`, `xai/<id>`, `openrouter/<id>` |
 | `--effort` | comma-separated levels, one run each (default: the provider's full ladder) |
-| `--rounds` | default `40`, the published setting; anything else is a smoke run |
+| `--rounds` | default none, the published setting: the token budget ends a case; `--rounds N` caps the rounds, a smoke run |
 | `--token-budget` | output tokens per case, thinking included; default `500000`, the published setting (`0` = none); anything else is a smoke run |
 | `--cases` | a task or case directory, for a subset |
 | `--set public` | run the Public set instead of Core |
@@ -58,15 +58,16 @@ How each provider's effort level is sent, auth options and the other flags:
 
 | Version | Tag | Use |
 |---|---|---|
-| **2.1-beta** | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) | Recommended. Reasoning carried across rounds; 40 rounds and 500k output tokens per case, both provisional. Core data unchanged. |
+| **2.1-beta.2** | [`v2.1-beta.2`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta.2) | Recommended. Reasoning carried across rounds; 500k output tokens per case and no round limit, provisional. Core data unchanged. |
+| 2.1-beta | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) | Superseded: reasoning carried; 40 rounds and 500k output tokens per case. |
 | 2.0 | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) | Only to reproduce the published reference lines (30 rounds, thinking not carried). |
 
 What each version pins (code commit, dataset revisions, scorer digest, limits):
 [`releases/`](releases/README.md).
 
 Don't mix versions or run from `main` for a reported score; check out a tag
-(`git checkout v2.1-beta`). Every record and `core_summary.json` carry `harness_version`;
-scores from 2.0 and 2.1-beta are not comparable.
+(`git checkout v2.1-beta.2`). Every record and `core_summary.json` carry `harness_version`;
+scores from different versions are not comparable.
 
 ## Public set
 
@@ -77,9 +78,10 @@ not for reporting. Nine samples also ship in `examples/`, no download needed.
 
 ## Rounds
 
-40 rounds and 500k output tokens per case (thinking included; before 2026-10-16: 30 rounds, no token
-budget); the case ends at whichever comes first, checked between calls. Each observation starts
-`Round N/40 · output tokens spent / 500,000`. A case that ends without a `submit` has no answer. A call that fails for infrastructure reasons (network, server error,
+500k output tokens per case, thinking included, and no round limit: the case ends at a `submit`
+or once the budget is spent, checked between calls. (Since 2026-10-18, 2.1-beta.2; 2.1-beta: 40
+rounds and 500k, the first to run out; 2.0, before 2026-10-16: 30 rounds, no token budget.) Each
+observation starts `Round N · output tokens spent / 500,000`. A case that ends without a `submit` has no answer. A call that fails for infrastructure reasons (network, server error,
 stalled stream) is retried and does not count as a round. (Changed 2026-10-12.)
 
 Each round the model gets its earlier reasoning back, as its provider returned it:
@@ -90,7 +92,7 @@ only the text went back.)
 ## Reproducing the published lines
 
 `results/core_reference.json` holds the published lines: harness 2.0, 30 rounds, all 100 Core cases,
-run before the 2026-10-15 change above -- a different setting from today's 40 rounds and 500k tokens.
+run before the 2026-10-15 change above -- a different setting from today's 500k tokens with no round limit.
 Claude lines are one rep; `openai/gpt-6-astra` is the mean of 3 reps (T6: 1 rep), with
 the spread in `noise_note`. `run_core` prints the published line beside yours. To rerun
 them in their own setting, check out `v2.0-core1` first:

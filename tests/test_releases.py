@@ -26,7 +26,9 @@ def test_every_release_has_the_fields_and_names_itself():
     for name, r in rs.items():
         assert set(r) == FIELDS, name
         assert name == f"benchcad-{r['release']}.json" and r["harness_version"] == r["release"]
-        assert set(r["code"]) == {"repo", "tag", "commit"} and len(r["code"]["commit"]) == 40
+        assert set(r["code"]) == {"repo", "tag", "commit"}
+        # A release's JSON is written before its tag: a draft, with no commit yet.
+        assert len(r["code"]["commit"] or "") == 40 or (r["status"] == "draft" and r["code"]["commit"] is None)
         assert set(r["budgets"]) == {"rounds", "output_tokens", "reasoning_carried", "compaction_tokens"}
         for ds in filter(None, r["datasets"].values()):
             assert set(ds) == {"repo", "revision", "commit", "dataset_version"} and len(ds["commit"]) == 40

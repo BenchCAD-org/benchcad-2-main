@@ -14,9 +14,10 @@ The rule, per (model, effort):
 - A case's resolved reps are averaged first; the headline is the plain mean
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
-- A run at other than 40 rounds and a 500,000 output-token budget (the setting
-  since 2026-10-16; 30 rounds and no budget before) is a smoke run, not a
-  reportable score; so is one whose records come from more than one harness
+- A run at other than a 500,000 output-token budget with no round limit (the
+  setting since 2026-10-18, 2.1-beta.2; 40 rounds and 500,000 from
+  2026-10-16, 2.1-beta; 30 rounds and no budget before, 2.0) is a smoke run,
+  not a reportable score; so is one whose records come from more than one harness
   version (harness_version, stamped by harness/run.py; "2.0" for records
   from before the stamp).
 - Records covering fewer cases than the dataset holds (dataset.json n_cases,
@@ -39,7 +40,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUNDS = 40
+ROUNDS = None                           # no round limit (2.1-beta.2): the token budget ends an episode
 TOKEN_BUDGET = 500_000
 UNSTAMPED = "2.0"                       # records from before harness/run.py stamped harness_version
 PUBLIC_SET = "benchcad-2.0-public"      # dataset.json name of the open Public Set (run_core.sh --set public)
@@ -210,7 +211,7 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
                                  if any(k[0] == t for k in per_case) else None),
                         "resolved": sum(1 for k in per_case if k[0] == t),
                         "cases": sum(1 for k in keys if k[0] == t)} for t in tasks}
-        rounds = sorted(r for r in g["rounds"] if r is not None)
+        rounds = sorted(g["rounds"], key=lambda r: (r is not None, r or 0))   # None: no round limit
         budgets = sorted(b for b in g["budgets"] if b)
         versions = sorted(g["versions"])
         subset = n_core is not None and n < n_core
@@ -220,7 +221,7 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
             "rounds": rounds[0] if len(rounds) == 1 else rounds,
             "token_budget": (budgets[0] if len(budgets) == 1 else budgets) if budgets else None,
             "harness_version": versions[0] if len(versions) == 1 else versions,
-            "smoke": (rounds != [ROUNDS] or budgets != [TOKEN_BUDGET] or None in g["budgets"]
+            "smoke": (g["rounds"] != {ROUNDS} or budgets != [TOKEN_BUDGET] or None in g["budgets"]
                       or len(versions) > 1),
             "n_cases": n, "n_core": n_core, "subset": subset,
             "resolved": len(per_case), "pending": pending, "complete": complete,
@@ -235,6 +236,10 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
             "files": sorted(g["files"]),
         })
     return out
+
+
+def fmt_rounds(r) -> str:
+    return "no limit" if r is None else ", ".join(map(fmt_rounds, r)) if isinstance(r, list) else str(r)
 
 
 def fmt_versions(v) -> str:
@@ -252,14 +257,15 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
     for r in rows:
         lines.append(f"== {r['model']}  effort {r['effort']}"
                      + (f" (sent {', '.join(map(str, r['effort_sent']))})" if r["effort_sent"]
-                        and r["effort_sent"] != [r["effort"]] else "") + f"  rounds {r['rounds']}  harness {fmt_versions(r.get('harness_version', UNSTAMPED))}")
+                        and r["effort_sent"] != [r["effort"]] else "") + f"  rounds {fmt_rounds(r['rounds'])}  harness {fmt_versions(r.get('harness_version', UNSTAMPED))}")
         if r["smoke"] and isinstance(r.get("harness_version"), list):
             lines.append(f"   SMOKE RUN, harness versions {fmt_versions(r['harness_version'])} mixed: not a "
                          f"reportable score (run every case from one tagged release)")
         elif r["smoke"]:
-            lines.append(f"   SMOKE RUN, rounds={r['rounds']}, token budget {r.get('token_budget') or 'none'}"
-                         f": not a reportable score (reported numbers use {ROUNDS} rounds and a "
-                         f"{TOKEN_BUDGET:,} output-token budget)")
+            lines.append(f"   SMOKE RUN, rounds={fmt_rounds(r['rounds'])}, token budget "
+                         f"{r.get('token_budget') or 'none'}: not a reportable score (reported numbers use "
+                         f"a {TOKEN_BUDGET:,} output-token budget and "
+                         + ("no round limit)" if ROUNDS is None else f"{ROUNDS} rounds)"))
         if public:
             lines.append("   PUBLIC SET: for anyone to look at, not a reportable score (report Core)")
         of = f" ({r['n_cases']}/{r['n_core']} {cases} cases)" if r.get("subset") else ""
