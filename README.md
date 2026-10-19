@@ -58,7 +58,7 @@ How each provider's effort level is sent, auth options and the other flags:
 
 | Version | Tag | Use |
 |---|---|---|
-| **2.1-beta.2** | [`v2.1-beta.2`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta.2) | Recommended. Reasoning carried across rounds; 60 rounds and 500k output tokens per case, both stated to the model, provisional. Core data unchanged. |
+| **2.1** | [`v2.1`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1) | Recommended. Reasoning carried across rounds; 60 rounds and 500k output tokens per case, both stated to the model, provisional. Task-6 scorer rule B; case files unchanged. |
 | 2.1-beta | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) | Superseded: reasoning carried; 40 rounds and 500k output tokens per case. |
 | 2.0 | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) | Only to reproduce the published reference lines (30 rounds, thinking not carried). |
 
@@ -66,7 +66,7 @@ What each version pins (code commit, dataset revisions, scorer digest, limits):
 [`releases/`](releases/README.md).
 
 Don't mix versions or run from `main` for a reported score; check out a tag
-(`git checkout v2.1-beta.2`). Every record and `core_summary.json` carry `harness_version`;
+(`git checkout v2.1`). Every record and `core_summary.json` carry `harness_version`;
 scores from different versions are not comparable.
 
 ## Public set
@@ -80,7 +80,7 @@ not for reporting. Nine samples also ship in `examples/`, no download needed.
 
 60 rounds and 500k output tokens per case, thinking included: the case ends at a `submit` or at
 whichever limit runs out first, checked between calls. The prompt states both limits, and that a
-case that ends without a `submit` scores 0. (Since 2026-10-18, 2.1-beta.2; 2.1-beta: 40 rounds and
+case that ends without a `submit` scores 0. (Since 2026-10-18, 2.1; 2.1-beta: 40 rounds and
 500k; 2.0, before 2026-10-16: 30 rounds, no token budget.) Each observation starts
 `Round N/60 · output tokens spent / 500,000`. A reply the harness throws away and asks again for
 (no executable block, a broken stream) does not count against the budget. A case that ends without a `submit` has no answer. A call that fails for infrastructure reasons (network, server error,

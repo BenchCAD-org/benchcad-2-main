@@ -2,7 +2,7 @@
 
 Once the model's reasoning goes back to it (tests/test_reasoning_carry.py)
 it no longer re-derives it every round, and the rounds bind. Since
-2026-10-18 (2.1-beta.2) the default is 60 rounds and 500,000 output tokens,
+2026-10-18 (2.1) the default is 60 rounds and 500,000 output tokens,
 and the prompt states both and that no submission scores 0; 2.1-beta
 (2026-10-16) had 40 rounds and 500,000.
 

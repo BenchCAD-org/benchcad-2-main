@@ -105,7 +105,7 @@ GEMINI_EFFORT = {lvl: lvl.upper() for lvl in PROVIDER_EFFORTS["gemini/"]}
 # What a Gemini 400 naming the thinking level lowers it to: one step, then off.
 GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
 # The rounds an episode gets when --rounds is not given: 60 since 2026-10-18
-# (2.1-beta.2), with the 500k output-token budget below -- the episode ends
+# (2.1), with the 500k output-token budget below -- the episode ends
 # at whichever runs out first, and the prompt states both. Measured on the
 # 2.1-beta settings (40 rounds): about one episode in nine used all 40, and
 # 60 rounds raised Opus 5.5 max from 0.44 to 0.51 with no episode reaching
@@ -122,11 +122,11 @@ DEFAULT_ROUNDS = 60
 DEFAULT_TOKEN_BUDGET = 500_000
 # The harness release this checkout is, stamped in every record and in the
 # run's file; core_score carries it into the summary. A score is reported
-# from a tagged release (README, Versions): 2.1-beta.2 since 2026-10-18
+# from a tagged release (README, Versions): 2.1 since 2026-10-18
 # (reasoning carried, 60 rounds and 500k output tokens, both stated to the
 # model); 2.1-beta from 2026-10-16 (40 rounds and 500k); 2.0 before,
 # unstamped, the setting of results/core_reference.json.
-HARNESS_VERSION = "2.1-beta.2"
+HARNESS_VERSION = "2.1"
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
 # the model's ceiling is sent -- what the Models API reports as max_tokens

@@ -33,7 +33,7 @@ DATASET_VERSION=1.0
 # The Hugging Face tag of this release's data, Core's and the Public Set's alike: a
 # release downloads its own revision, never main, so a later upload cannot change
 # what a tagged checkout scores (releases/). Named after the harness version.
-DATASET_REVISION=v2.1-beta.2
+DATASET_REVISION=v2.1
 
 MODEL="" EFFORTS="" ROUNDS=60 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"

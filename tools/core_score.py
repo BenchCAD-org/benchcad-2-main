@@ -15,7 +15,7 @@ The rule, per (model, effort):
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
 - A run at other than 60 rounds and a 500,000 output-token budget (the
-  setting since 2026-10-18, 2.1-beta.2; 40 rounds and 500,000 from
+  setting since 2026-10-18, 2.1; 40 rounds and 500,000 from
   2026-10-16, 2.1-beta; 30 rounds and no budget before, 2.0) is a smoke run,
   not a reportable score; so is one whose records come from more than one harness
   version (harness_version, stamped by harness/run.py; "2.0" for records

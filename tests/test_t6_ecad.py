@@ -524,4 +524,40 @@ def test_the_scorer_digest_covers_every_vendored_module():
     from envs.common.ecad_graph import spatial_reference as sr
     root = Path(sr.__file__).parent
     assert sorted(p.name for p in root.glob("*.py")) == sorted(sr.SCORER_FILES)
-    assert sr.scorer_digest() == "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa"
+    assert sr.scorer_digest() == "df63b759db6606b6e962882c6b9558f8b8becbb755e883d1aa765d5e95cbca77"
+
+
+def test_a_copy_on_one_parts_footprint_cannot_pair_with_a_neighbour_of_another_type(tmp_path):
+    """Rule B (ecad #112, 36cfc79; Alex's review 2026-10-18). On the dev board,
+    C1 is moved to 0.01 from R1, inside C1's own gate (no other capacitor near
+    it). An answer that never places C1 but adds a capacitor-typed copy on R1's
+    footprint used to pair that copy with C1 -- a match for a part nobody read.
+    The copy's nearest part is R1, so it now pairs with nothing; the honest
+    answer still matches every part."""
+    import copy
+    from envs.common.ecad_graph.position import PositionConfig, match_position
+    from envs.common.ecad_graph.schema import load_graph
+    from envs.verifiers.ecad import position_reference
+    ref = position_reference(_position_case(tmp_path))
+    r1 = next(c for c in ref["components"] if c["id"] == "R1")
+    next(c for c in ref["components"] if c["id"] == "C1")["center"] = [r1["center"][0] + 0.01, r1["center"][1]]
+    gt = load_graph(ref)
+    _, d = match_position(load_graph(ref), gt)
+    assert not d["unmatched_gt_components"] and not d["unmatched_pred_components"]
+    hedge = copy.deepcopy(ref)
+    c1 = next(c for c in hedge["components"] if c["id"] == "C1")
+    gone = set(c1["terminals"])
+    hedge["components"].remove(c1)
+    hedge["terminals"] = [t for t in hedge["terminals"] if t["id"] not in gone]
+    hedge["incidences"] = [i for i in hedge["incidences"] if i[0] not in gone]
+    decoy = {**copy.deepcopy(r1), "id": "R1x", "type": "capacitor", "terminals": [t + "x" for t in r1["terminals"]]}
+    hedge["components"].append(decoy)
+    hedge["terminals"] += [{**t, "id": t["id"] + "x", "parent_component": "R1x"}
+                           for t in ref["terminals"] if t["parent_component"] == "R1"]
+    hedge["incidences"] += [[a + "x", n] for a, n in ref["incidences"] if a in set(r1["terminals"])]
+    _, d = match_position(load_graph(hedge), gt)
+    assert d["unmatched_gt_components"] == ["C1"] and d["unmatched_pred_components"] == ["R1x"]
+    assert d["component_nearest_margin"] == PositionConfig().component_nearest_margin == 0.005
+    # The rule is the only thing in the way: with no margin check the decoy took C1.
+    _, d = match_position(load_graph(hedge), gt, PositionConfig(component_nearest_margin=1.0))
+    assert d["component_map"].get("R1x") == "C1"

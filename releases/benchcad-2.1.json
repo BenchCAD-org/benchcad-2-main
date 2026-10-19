@@ -1,28 +1,28 @@
 {
   "schema_version": 1,
-  "release": "2.1-beta.2",
+  "release": "2.1",
   "status": "draft",
   "code": {
     "repo": "BenchCAD-org/benchcad-2-main",
-    "tag": "v2.1-beta.2",
+    "tag": "v2.1",
     "commit": null
   },
-  "harness_version": "2.1-beta.2",
+  "harness_version": "2.1",
   "datasets": {
     "core": {
       "repo": "BenchCAD/benchcad-2.0-core",
-      "revision": "v2.1-beta.2",
-      "commit": "d15983427592056fffbe9cb103f6975e384679a7",
+      "revision": "v2.1",
+      "commit": "b7a2ec787df54101524ffb2dc2eff0a0cbcde20f",
       "dataset_version": "1.0"
     },
     "public": {
       "repo": "BenchCAD/benchcad-2.0-public",
-      "revision": "v2.1-beta.2",
-      "commit": "4b5500320aa72febc5195c521c1fef74f1b30b5c",
+      "revision": "v2.1",
+      "commit": "1e4cfa4fe7b9dd2e018a43754cd27ab3e778c37a",
       "dataset_version": "1.0"
     }
   },
-  "scorer_digest": "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa",
+  "scorer_digest": "df63b759db6606b6e962882c6b9558f8b8becbb755e883d1aa765d5e95cbca77",
   "budgets": {
     "rounds": 60,
     "output_tokens": 500000,
