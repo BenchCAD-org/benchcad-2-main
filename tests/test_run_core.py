@@ -264,11 +264,13 @@ def test_run_core_gives_a_score_four_hours(tmp_path):
 
 def test_the_published_reference_ships_and_prints_beside_a_line(tmp_path, capsys):
     """results/core_reference.json: the published Core lines, for core_score --compare
-    (run_core passes it). Bound to this dataset and this T6 scorer."""
+    (run_core passes it). Bound to this dataset and to the T6 scorer of the release they
+    ran on (2.0, releases/benchcad-2.0.json) -- not this checkout's since 2.1 (rule B)."""
     ref_path = ROOT / "results/core_reference.json"
     ref = json.loads(ref_path.read_text())
     assert (ref["case_set"], ref["dataset_version"]) == ("benchcad-2.0-core", "1.0")
-    assert ref["scorer_digest"] == scorer_digest()
+    assert ref["scorer_digest"] == json.loads((ROOT / "releases/benchcad-2.0.json").read_text())["scorer_digest"]
+    assert ref["scorer_digest"] != scorer_digest()
     assert len(ref["lines"]) == 25 and all(l["n_cases"] == 100 for l in ref["lines"])
     assert "--compare results/core_reference.json" in SCRIPT.read_text()
     f = tmp_path / "r.json"
@@ -328,7 +330,7 @@ def test_the_public_set_needs_its_terms_accepted_and_says_where(tmp_path):
     ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
     assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-public: OK" in ok.stdout, ok.stderr
     # the listing answers anyone, so the check asks for a file: that is what the terms gate
-    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/v2.1-beta.2/dataset.json" \
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public/resolve/v2.1/dataset.json" \
         in (tmp_path / "curl.log").read_text()
     core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "none"), "--dry-run", env_extra=env)
     assert core.returncode != 0 and "no Hugging Face token: set HF_TOKEN (an account with access to " \
@@ -348,7 +350,7 @@ def test_core_access_is_checked_on_a_file_not_on_the_listing_anyone_can_read(tmp
     assert "access to BenchCAD/benchcad-2.0-core: OK" not in without.stdout
     ok = run_core(*args, env_extra={**env, "HF_TOKEN": "accepted"})
     assert ok.returncode == 0 and "Hugging Face access to BenchCAD/benchcad-2.0-core: OK" in ok.stdout, ok.stderr
-    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core/resolve/v2.1-beta.2/dataset.json" \
+    assert "https://huggingface.co/datasets/BenchCAD/benchcad-2.0-core/resolve/v2.1/dataset.json" \
         in (tmp_path / "curl.log").read_text()
 
 

@@ -27,6 +27,6 @@
   "reference_lines": "results/core_reference.json",
   "not_comparable_with": [
     "2.1-beta",
-    "2.1-beta.2"
+    "2.1"
   ]
 }

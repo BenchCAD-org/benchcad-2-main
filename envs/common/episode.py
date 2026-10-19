@@ -263,7 +263,7 @@ def _artifact(box: Sandbox):
 def limits_text(max_rounds: int | None, token_budget: int | None) -> str:
     """The episode's limits as the system prompt states them. Without a token
     budget, the sentence every run before 2026-10-15 had; without a round
-    limit (the default since 2026-10-18), the budget alone."""
+    limit (--rounds 0, a smoke setting), the budget alone."""
     if not token_budget:
         return f"{max_rounds} rounds"
     if max_rounds is None:
