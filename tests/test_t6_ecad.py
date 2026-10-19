@@ -524,14 +524,14 @@ def test_the_scorer_digest_covers_every_vendored_module():
     from envs.common.ecad_graph import spatial_reference as sr
     root = Path(sr.__file__).parent
     assert sorted(p.name for p in root.glob("*.py")) == sorted(sr.SCORER_FILES)
-    assert sr.scorer_digest() == "df63b759db6606b6e962882c6b9558f8b8becbb755e883d1aa765d5e95cbca77"
+    assert sr.scorer_digest() == "c4799cc240612b038362efc5f649fc05e4bf1ce33babec46f1237092a9a7137d"
 
 
 def test_a_copy_on_one_parts_footprint_cannot_pair_with_a_neighbour_of_another_type(tmp_path):
     """Rule B (ecad #112, 36cfc79; Alex's review 2026-10-18). On the dev board,
     C1 is moved to 0.01 from R1, inside C1's own gate (no other capacitor near
     it). An answer that never places C1 but adds a capacitor-typed copy on R1's
-    footprint used to pair that copy with C1 -- a match for a part nobody read.
+    footprint (0.001 off it) used to pair that copy with C1 -- a match for a part nobody read.
     The copy's nearest part is R1, so it now pairs with nothing; the honest
     answer still matches every part."""
     import copy
@@ -550,7 +550,9 @@ def test_a_copy_on_one_parts_footprint_cannot_pair_with_a_neighbour_of_another_t
     hedge["components"].remove(c1)
     hedge["terminals"] = [t for t in hedge["terminals"] if t["id"] not in gone]
     hedge["incidences"] = [i for i in hedge["incidences"] if i[0] not in gone]
-    decoy = {**copy.deepcopy(r1), "id": "R1x", "type": "capacitor", "terminals": [t + "x" for t in r1["terminals"]]}
+    # 0.001 off R1, toward C1: past component_duplicate_distance (ecad #113), so this is rule B alone
+    decoy = {**copy.deepcopy(r1), "id": "R1x", "type": "capacitor", "terminals": [t + "x" for t in r1["terminals"]],
+             "center": [r1["center"][0] + 0.001, r1["center"][1]]}
     hedge["components"].append(decoy)
     hedge["terminals"] += [{**t, "id": t["id"] + "x", "parent_component": "R1x"}
                            for t in ref["terminals"] if t["parent_component"] == "R1"]
@@ -561,3 +563,44 @@ def test_a_copy_on_one_parts_footprint_cannot_pair_with_a_neighbour_of_another_t
     # The rule is the only thing in the way: with no margin check the decoy took C1.
     _, d = match_position(load_graph(hedge), gt, PositionConfig(component_nearest_margin=1.0))
     assert d["component_map"].get("R1x") == "C1"
+
+
+def test_two_components_answered_at_one_place_are_both_wrong(tmp_path):
+    """ecad #113 (01e98d0; haozhe: 同一个位置出现两个元件就直接按错算). A second
+    component on R1's spot, whatever its type, leaves both unmatched, so R1
+    counts as missed too; rule B alone made the copy useless, this makes it
+    cost. Two answers 0.001 apart -- more than component_duplicate_distance
+    (0.0005), below any GT pair in the bank but one (0.000716) -- are not
+    duplicates."""
+    import copy
+    from envs.common.ecad_graph.position import PositionConfig, match_position
+    from envs.common.ecad_graph.schema import load_graph
+    from envs.verifiers.ecad import position_reference, score
+    case = _position_case(tmp_path)
+    ref = position_reference(case)
+    gt = load_graph(ref)
+    _, d = match_position(load_graph(ref), gt)
+    assert d["duplicate_components"] == [] and not d["unmatched_gt_components"]
+    assert d["component_duplicate_distance"] == PositionConfig().component_duplicate_distance == 0.0005
+    r1 = next(c for c in ref["components"] if c["id"] == "R1")
+
+    def with_copy(offset, typ):
+        g = copy.deepcopy(ref)
+        g["components"].append({**copy.deepcopy(r1), "id": "R1x", "type": typ,
+                                "center": [r1["center"][0] + offset, r1["center"][1]],
+                                "terminals": [t + "x" for t in r1["terminals"]]})
+        g["terminals"] += [{**t, "id": t["id"] + "x", "parent_component": "R1x"}
+                           for t in ref["terminals"] if t["parent_component"] == "R1"]
+        g["incidences"] += [[a + "x", n] for a, n in ref["incidences"] if a in set(r1["terminals"])]
+        return g
+    for typ in ("resistor", "capacitor"):
+        _, d = match_position(load_graph(with_copy(0.0, typ)), gt)
+        assert d["duplicate_components"] == ["R1", "R1x"] and d["unmatched_gt_components"] == ["R1"]
+    _, d = match_position(load_graph(with_copy(0.001, "capacitor")), gt)
+    assert d["duplicate_components"] == [] and d["unmatched_pred_components"] == ["R1x"]
+    hedged = score(case, _write(tmp_path, with_copy(0.0, "capacitor"), "h.json"))["score"]
+    omitted = copy.deepcopy(ref)
+    omitted["components"] = [c for c in omitted["components"] if c["id"] != "R1"]
+    omitted["terminals"] = [t for t in omitted["terminals"] if t["parent_component"] != "R1"]
+    omitted["incidences"] = [i for i in omitted["incidences"] if i[0] not in set(r1["terminals"])]
+    assert hedged < score(case, _write(tmp_path, omitted, "o.json"))["score"]

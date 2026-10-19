@@ -13,7 +13,7 @@ its `status` is `draft` and its `commit` is `null`; `main` fills both in afterwa
 
 | Version | Status | Code tag | Datasets (Hugging Face revision) | Release |
 |---|---|---|---|---|
-| 2.1 | stable, recommended | [`v2.1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1) | Core `v2.1` (`b7a2ec787d`), Public `v2.1` (`1e4cfa4fe7`) | [BenchCAD 2.1](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1) |
+| 2.1 | stable, recommended | [`v2.1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1) | Core `v2.1` (`4b6fe17f63`), Public `v2.1` (`1ef73a9bb7`) | [BenchCAD 2.1](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1) |
 | 2.1-beta | pre-release, superseded | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1-beta) | Core `v2.1-beta` (`d159834275`), Public `v2.1-beta` (`4b5500320a`) | [BenchCAD 2.1-beta](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) |
 | 2.0 | stable; reproduces the published lines | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.0-core1) | Core `v2.0` (`d159834275`); Public not part of 2.0 | [BenchCAD 2.0](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) |
 
@@ -34,7 +34,7 @@ The case files are the same in every release. 2.1 rebinds the task-6 boards to t
 | a discarded, re-asked reply counts against the budget | — | yes | no |
 | reasoning carried across rounds | no (text only) | yes | yes |
 | context summarised at | 180k tokens | 800k tokens | 800k tokens |
-| T6 scorer digest | `f4dd1410…` | `f4dd1410…` | `df63b759…` (rule B: a prediction pairs only with a part no other part is more than 0.005 nearer to) |
+| T6 scorer digest | `f4dd1410…` | `f4dd1410…` | `c4799cc2…` (rule B: a prediction pairs only with a part no other part is more than 0.005 nearer to; two or more components answered within 0.0005 of each other are all unmatched) |
 
 Scores from different releases are not comparable. `reference_lines` names the
 published lines run on a release: `results/core_reference.json` on `main`, all from 2.0.
