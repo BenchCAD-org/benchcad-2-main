@@ -24,7 +24,7 @@
   },
   "scorer_digest": "f4dd141038e763497de4cb31a714b4de0cc5a96cac01cab20df5733f9992e3fa",
   "budgets": {
-    "rounds": null,
+    "rounds": 60,
     "output_tokens": 500000,
     "reasoning_carried": true,
     "compaction_tokens": 800000

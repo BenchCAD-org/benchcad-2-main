@@ -25,9 +25,11 @@ The Core data is the same commit in every release so far. The harness settings d
 
 | | 2.0 | 2.1-beta | 2.1-beta.2 |
 |---|---|---|---|
-| rounds | 30 | 40 | no limit |
+| rounds | 30 | 40 | 60 |
 | output tokens per case | no budget | 500,000, thinking included | 500,000, thinking included |
-| the case ends at | a submit, or the rounds | a submit, the rounds or the budget | a submit, or the budget |
+| the case ends at | a submit, or the rounds | a submit, the rounds or the budget | a submit, the rounds or the budget |
+| the prompt says no submit scores 0 | no | no | yes |
+| a discarded, re-asked reply counts against the budget | — | yes | no |
 | reasoning carried across rounds | no (text only) | yes | yes |
 | context summarised at | 180k tokens | 800k tokens | 800k tokens |
 

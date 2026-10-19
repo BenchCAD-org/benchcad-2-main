@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from envs.common.episode import run_episode            # noqa: E402
+from envs.common.episode import discard_since, run_episode   # noqa: E402
 from envs.common.score_case import fmt, score_case     # noqa: E402
 from harness.artifact_hash import artifact_sha256, check as check_artifact   # noqa: E402
 
@@ -104,24 +104,28 @@ OR_EFFORT = {lvl: lvl for lvl in PROVIDER_EFFORTS["openrouter/"]}
 GEMINI_EFFORT = {lvl: lvl.upper() for lvl in PROVIDER_EFFORTS["gemini/"]}
 # What a Gemini 400 naming the thinking level lowers it to: one step, then off.
 GEMINI_STEP_DOWN = {"high": "medium", "medium": "low"}
-# The rounds an episode gets when --rounds is not given: none since
-# 2026-10-18 (2.1-beta.2) -- the output-token budget is the episode's one
-# limit, so a model is not cut off for working in many small rounds. 40 in
-# 2.1-beta (2026-10-16), 30 before (2.0; the published reference lines,
-# results/core_reference.json). --rounds N caps them, for a smoke run.
-DEFAULT_ROUNDS = None
+# The rounds an episode gets when --rounds is not given: 60 since 2026-10-18
+# (2.1-beta.2), with the 500k output-token budget below -- the episode ends
+# at whichever runs out first, and the prompt states both. Measured on the
+# 2.1-beta settings (40 rounds): about one episode in nine used all 40, and
+# 60 rounds raised Opus 5.5 max from 0.44 to 0.51 with no episode reaching
+# 500k. 40 in 2.1-beta (2026-10-16), 30 before (2.0; the published reference
+# lines, results/core_reference.json). --rounds N sets another cap (a smoke
+# run); --rounds 0 runs with none, which needs a token budget.
+DEFAULT_ROUNDS = 60
 # The output tokens an episode gets when --token-budget is not given: its
 # calls' output, thinking included (envs.common.episode.output_tokens),
-# checked between calls; the episode ends at the first of a submission and
-# this (and --rounds, when given). 500k since 2026-10-16 (none before).
-# --token-budget 0 runs with no budget, which needs --rounds.
+# checked between calls; the episode ends at the first of a submission,
+# DEFAULT_ROUNDS and this. 500k since 2026-10-16 (none before). A reply the
+# harness discarded and asked again for is not counted (drive). --token-budget
+# 0 runs with no budget.
 DEFAULT_TOKEN_BUDGET = 500_000
 # The harness release this checkout is, stamped in every record and in the
 # run's file; core_score carries it into the summary. A score is reported
 # from a tagged release (README, Versions): 2.1-beta.2 since 2026-10-18
-# (reasoning carried, 500k output tokens, no round limit); 2.1-beta from
-# 2026-10-16 (40 rounds and 500k); 2.0 before, unstamped, the setting of
-# results/core_reference.json.
+# (reasoning carried, 60 rounds and 500k output tokens, both stated to the
+# model); 2.1-beta from 2026-10-16 (40 rounds and 500k); 2.0 before,
+# unstamped, the setting of results/core_reference.json.
 HARNESS_VERSION = "2.1-beta.2"
 # No cap on a reply by default: the model gets its own maximum output
 # (OpenAI / Gemini: the parameter is left out; Anthropic requires one, so
@@ -687,6 +691,12 @@ def drive(send, what: str, edits: dict | None = None):
        and the request is made again on a fresh connection, STALL_RETRIES
        times; only then is the round discarded.
 
+    A reply thrown away here and asked again for -- no executable block, a
+    stream that went silent or broke -- is never a round the model saw, so
+    its usage is marked `discarded` and the token budget does not count it
+    (envs.common.episode.output_tokens; the record's tokens still show it).
+    Until 2026-10-18 it was counted.
+
     The returned call carries `edits` as call.edits, for the record.
     """
     def call(system: str, turns: list, plain: bool = False) -> str:
@@ -701,6 +711,7 @@ def drive(send, what: str, edits: dict | None = None):
         stalls = 0                   # silent streams re-requested in this call; not attempts
         attempt = 0
         while attempt < ATTEMPTS:
+            n_usage = len(getattr(call, "usage", None) or [])
             try:
                 text = send(system, turns, drop_images)
             except Exception as e:                               # noqa: BLE001
@@ -770,6 +781,7 @@ def drive(send, what: str, edits: dict | None = None):
                         raise
                     print(f"      stream silent; making the request again [{stalls}/{STALL_RETRIES}]",
                           flush=True)
+                    discard_since(call, n_usage, "stream went silent; asked again")
                     continue                                   # not an attempt either
                 if attempt == ATTEMPTS - 1:
                     if hasattr(e, "hand_back"):              # ReplyGlitch: this round is lost, not the episode
@@ -779,6 +791,7 @@ def drive(send, what: str, edits: dict | None = None):
                     raise
                 print(f"      {what} failed ({type(e).__name__}: {msg[:110 if status != 429 else 400]}), "
                       f"retry {attempt + 1}/{ATTEMPTS - 1}", flush=True)
+                discard_since(call, n_usage, f"{type(e).__name__}; asked again")
                 time.sleep(BACKOFF_S * 2 ** attempt)
                 attempt += 1
                 continue
@@ -790,6 +803,7 @@ def drive(send, what: str, edits: dict | None = None):
                 return text
             print(f"      reply has no executable block (len {len(text or '')}, "
                   f"tail {(text or '')[-60:]!r}), retry {attempt + 1}", flush=True)
+            discard_since(call, n_usage, "no executable block; asked again")
             time.sleep(BACKOFF_S)
             attempt += 1
         # Unreachable: every branch above either returns or raises on the last
@@ -2456,8 +2470,8 @@ def main() -> int:
                          "reasoning.effort none..high. Default: the "
                          "provider's top level (max, max, high)")
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS,
-                    help="cap the rounds per episode, for a smoke run (default: none -- the "
-                         "token budget ends the episode; 0 = none)")
+                    help=f"rounds per episode (default: {DEFAULT_ROUNDS}; anything else is a smoke "
+                         "run; 0 = none, which needs a token budget)")
     ap.add_argument("--token-budget", type=int, default=DEFAULT_TOKEN_BUDGET,
                     help="output tokens per episode, thinking included, as each provider's usage "
                          "counts them; checked between calls, never inside one. The episode ends "
@@ -2665,6 +2679,10 @@ def main() -> int:
             "cached": sum(u.get("cached_tokens", 0) for u in usage),
             "output": sum(u.get("output_tokens", 0) for u in usage),
             "calls": len(usage),
+            # Replies the harness threw away and asked again for (drive): in
+            # `output` (they were spent) but not in the token budget.
+            "output_discarded": sum(u.get("output_tokens", 0) for u in usage if u.get("discarded")),
+            "calls_discarded": sum(1 for u in usage if u.get("discarded")),
             # Replies that stopped at the output ceiling before an executable
             # block (the thinking used it all): each is a round the episode
             # lost to its nudge, and the count is the measure of it.

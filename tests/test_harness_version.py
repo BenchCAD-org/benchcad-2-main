@@ -41,7 +41,7 @@ def test_the_runner_stamps_the_file_and_every_record_and_the_summary_carries_it(
 
 def rec(case, version=None):
     r = {"case": f"t3/{case}", "case_id": case, "model": "anthropic/m", "effort": "max",
-         "rounds": None, "token_budget": 500_000, "score": {"score": 0.5}}
+         "rounds": 60, "token_budget": 500_000, "score": {"score": 0.5}}
     if version:
         r["harness_version"] = version
     return r
