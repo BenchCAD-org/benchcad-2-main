@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "release": "2.1",
-  "status": "draft",
+  "status": "stable",
   "code": {
     "repo": "BenchCAD-org/benchcad-2-main",
     "tag": "v2.1",
-    "commit": null
+    "commit": "70b7aaeb3a031851d058252e4ebe4ed30ca41f77"
   },
   "harness_version": "2.1",
   "datasets": {
