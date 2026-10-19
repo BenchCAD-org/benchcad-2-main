@@ -13,7 +13,7 @@ its `status` is `draft` and its `commit` is `null`; `main` fills both in afterwa
 
 | Version | Status | Code tag | Datasets (Hugging Face revision) | Release |
 |---|---|---|---|---|
-| 2.1 | draft (tag pending), recommended | `v2.1` | Core `v2.1` (`b7a2ec787d`), Public `v2.1` (`1e4cfa4fe7`) | pending |
+| 2.1 | stable, recommended | [`v2.1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1) | Core `v2.1` (`b7a2ec787d`), Public `v2.1` (`1e4cfa4fe7`) | [BenchCAD 2.1](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1) |
 | 2.1-beta | pre-release, superseded | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1-beta) | Core `v2.1-beta` (`d159834275`), Public `v2.1-beta` (`4b5500320a`) | [BenchCAD 2.1-beta](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) |
 | 2.0 | stable; reproduces the published lines | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.0-core1) | Core `v2.0` (`d159834275`); Public not part of 2.0 | [BenchCAD 2.0](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) |
 
