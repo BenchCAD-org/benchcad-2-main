@@ -6,8 +6,8 @@
 #   --model     anthropic/claude-haiku-5-5, openai/gpt-6-astra, gemini/<id>, ... (required)
 #   --effort    comma-separated levels, one full run each (default: the provider's ladder --
 #               gemini low,medium,high; anthropic and openai low,medium,high,xhigh,max)
-#   --rounds N  cap the rounds per episode (default none, the published setting since 2026-10-18 -- the
-#               token budget ends an episode; 0 = none; a cap is a smoke run)
+#   --rounds N  rounds per episode (default 60, the published setting since 2026-10-18; anything else is a
+#               smoke run)
 #   --token-budget N  output tokens per episode, thinking included (default 500000, the published setting
 #               since 2026-10-16; 0 = none; anything else is a smoke run)
 #   --cases D   run a subset: a task or case directory inside the downloaded Core tree
@@ -35,7 +35,7 @@ DATASET_VERSION=1.0
 # what a tagged checkout scores (releases/). Named after the harness version.
 DATASET_REVISION=v2.1-beta.2
 
-MODEL="" EFFORTS="" ROUNDS=0 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
+MODEL="" EFFORTS="" ROUNDS=60 TOKEN_BUDGET=500000 CASES="" WORKERS="" DRY=0 EXTRA=() SET=core DATA_GIVEN=0
 DATA="${BENCHCAD_DATA:-$HOME/.cache/benchcad/$DATASET_NAME}"
 die() { echo "run_core: $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
@@ -252,7 +252,7 @@ step "scorer timeout $BENCHCAD_SCORE_TIMEOUT_S s per case (BENCHCAD_SCORE_TIMEOU
 TAG=$(echo "$MODEL" | tr '/:' '__')
 OUT="results/$SET/$TAG"
 mkdir -p "$OUT"
-{ [ "$ROUNDS" = 0 ] && [ "$TOKEN_BUDGET" = 500000 ]; } || step "SMOKE RUN: rounds=$ROUNDS, token budget=$TOKEN_BUDGET, not a reportable score (reported numbers use 500000 output tokens and no round limit)"
+{ [ "$ROUNDS" = 60 ] && [ "$TOKEN_BUDGET" = 500000 ]; } || step "SMOKE RUN: rounds=$ROUNDS, token budget=$TOKEN_BUDGET, not a reportable score (reported numbers use 60 rounds and 500000 output tokens)"
 
 # 6. one run per effort, resumable
 FILES=()

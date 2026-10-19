@@ -14,7 +14,7 @@ The rule, per (model, effort):
 - A case's resolved reps are averaged first; the headline is the plain mean
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
-- A run at other than a 500,000 output-token budget with no round limit (the
+- A run at other than 60 rounds and a 500,000 output-token budget (the
   setting since 2026-10-18, 2.1-beta.2; 40 rounds and 500,000 from
   2026-10-16, 2.1-beta; 30 rounds and no budget before, 2.0) is a smoke run,
   not a reportable score; so is one whose records come from more than one harness
@@ -40,7 +40,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUNDS = None                           # no round limit (2.1-beta.2): the token budget ends an episode
+ROUNDS = 60
 TOKEN_BUDGET = 500_000
 UNSTAMPED = "2.0"                       # records from before harness/run.py stamped harness_version
 PUBLIC_SET = "benchcad-2.0-public"      # dataset.json name of the open Public Set (run_core.sh --set public)

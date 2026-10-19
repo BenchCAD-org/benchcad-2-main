@@ -86,7 +86,8 @@ Each reply is exactly one fenced block and nothing outside it:
              at the top level of the directory, each with its file name; a
              PNG written anywhere else is not shown. 600 s, 2 GB, 1 CPU.
 ```submit    your final answer: {submit_what}
-             Ends the episode; this is what is scored.
+             Ends the episode; this is what is scored. An episode that
+             ends without a ```submit has no answer and scores 0.
 """
 
 
@@ -282,8 +283,19 @@ def round_status(rnd: int, max_rounds: int | None, spent: int = 0, token_budget:
 def output_tokens(call_fn) -> int:
     """The output tokens the episode's calls have used, thinking included, as
     each provider's usage reports them (harness.run: call.output_field names
-    the field): every call of the episode, a retried or summarising one too."""
-    return sum(int(u.get("output_tokens", 0) or 0) for u in (getattr(call_fn, "usage", None) or []))
+    the field): every call the episode played, a summarising one too. A call
+    whose reply the harness threw away and asked again for -- a reply with no
+    block (harness.run.drive), a stream that broke, an infrastructure failure
+    -- is marked `discarded` and not counted: the model never saw it as a
+    round, so it cannot spend the model's budget (2026-10-18)."""
+    return sum(int(u.get("output_tokens", 0) or 0) for u in (getattr(call_fn, "usage", None) or [])
+               if not u.get("discarded"))
+
+
+def discard_since(call_fn, n: int, why: str) -> None:
+    """Mark the usage entries after the first `n` as discarded (output_tokens)."""
+    for u in (getattr(call_fn, "usage", None) or [])[n:]:
+        u.setdefault("discarded", why)
 
 
 def _observation(rnd, res, max_rounds, spent=0, token_budget=None):
@@ -627,6 +639,7 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
         # failures, or MAX_INFRA_FAILURES in the episode, it is a real fault
         # and the exception is allowed out (the case is an error, re-run by
         # --resume, never a score).
+        n_usage = len(getattr(call_fn, "usage", None) or [])
         try:
             try:
                 raw = call_fn(system, turns)
@@ -643,6 +656,8 @@ def run_episode(case_dir: Path, work_dir: Path, call_fn,
             blocked = blocked + 1 if type(e).__name__ == "ReplyBlocked" else 0
             mine = _models_round(e)
             infra += not mine
+            if not mine:                     # asked again for the same round: not the model's spend
+                discard_since(call_fn, n_usage, f"infrastructure failure ({type(e).__name__}); asked again")
             rounds.append({"round": rnd, "action": "call_failed",
                            "error": f"{type(e).__name__}: {e}"} | ({} if mine else {"infra": True}))
             if blocked >= MAX_DEAD_ROUNDS:

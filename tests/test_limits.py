@@ -1,15 +1,16 @@
-"""The episode's limits: an output-token budget, and rounds when capped.
+"""The episode's limits: rounds and an output-token budget.
 
 Once the model's reasoning goes back to it (tests/test_reasoning_carry.py)
-it no longer re-derives it every round, and a round cap binds models that
-work in many small rounds. Since 2026-10-18 (2.1-beta.2) the default is
-500,000 output tokens and no round limit; 2.1-beta (2026-10-16) had 40
-rounds and 500,000; --rounds N still caps the rounds, for a smoke run.
+it no longer re-derives it every round, and the rounds bind. Since
+2026-10-18 (2.1-beta.2) the default is 60 rounds and 500,000 output tokens,
+and the prompt states both and that no submission scores 0; 2.1-beta
+(2026-10-16) had 40 rounds and 500,000.
 
-The episode ends at the first of a submission, the budget and (when given)
-the rounds. The budget counts every call's output tokens (thinking
-included), is checked between calls and never inside one, and every
-observation says what is left.
+The episode ends at the first of a submission, the rounds and the budget.
+The budget counts the output tokens (thinking included) of every call the
+episode played -- not a reply the harness threw away and asked again for --
+is checked between calls and never inside one, and every observation says
+what is left.
 """
 from __future__ import annotations
 
@@ -115,12 +116,11 @@ def test_without_a_budget_only_the_rounds_count(tmp_path):
     assert call.seen[1]["last"].startswith("Round 1/2 -- exit 0")
 
 
-def test_the_defaults_are_500k_and_no_round_limit_and_are_the_reportable_setting(tmp_path):
-    """Since 2026-10-18 a run with no limit flags has a 500,000 output-token
-    budget and no round limit: the banner, the file and every record say so,
-    and core_score reports it (no SMOKE). A round cap is a different setting
-    (SMOKE); so is no budget, which needs a round cap; no limit at all, or a
-    negative one, is refused."""
+def test_the_defaults_are_60_rounds_and_500k_and_are_the_reportable_setting(tmp_path):
+    """Since 2026-10-18 a run with no limit flags has 60 rounds and a 500,000
+    output-token budget: the banner, the file and every record say both, and
+    core_score reports it (no SMOKE). Other rounds, or no budget, are a
+    different setting (SMOKE); no limit at all, or a negative one, is refused."""
     import harness.run as R
     sys.path.insert(0, str(ROOT / "tools"))
     import core_score as C
@@ -132,47 +132,114 @@ def test_the_defaults_are_500k_and_no_round_limit_and_are_the_reportable_setting
                               cwd=ROOT, capture_output=True, text=True)
     r = run(out="d.json")
     assert r.returncode == 0, r.stderr[-800:]
-    assert "rounds no limit " in r.stdout and "token-budget 500,000 " in r.stdout
+    assert "rounds 60 " in r.stdout and "token-budget 500,000 " in r.stdout
     out = json.loads((tmp_path / "d.json").read_text()); rec = out["cases"][0]
     assert out["token_budget"] == rec["token_budget"] == R.DEFAULT_TOKEN_BUDGET == 500_000
-    assert out["rounds"] is rec["rounds"] is R.DEFAULT_ROUNDS is None and rec["ended_by"] == "submit"
+    assert out["rounds"] == rec["rounds"] == R.DEFAULT_ROUNDS == 60 and rec["ended_by"] == "submit"
+    assert rec["tokens"]["output_discarded"] == rec["tokens"]["calls_discarded"] == 0
     row = C.summarize([tmp_path / "d.json"])[0]
-    assert not row["smoke"] and "SMOKE" not in C.report([row]) and "rounds no limit" in C.report([row])
+    assert not row["smoke"] and "SMOKE" not in C.report([row]) and "rounds 60 " in C.report([row])
     r = run("--rounds", "40", out="c.json")
     assert r.returncode == 0, r.stderr[-800:]
     row = C.summarize([tmp_path / "c.json"])[0]
     assert row["rounds"] == 40 and row["smoke"] and "SMOKE RUN, rounds=40" in C.report([row])
-    r = run("--token-budget", "0", "--rounds", "5", out="n.json")
+    r = run("--token-budget", "0", out="n.json")
     assert r.returncode == 0, r.stderr[-800:]
     assert json.loads((tmp_path / "n.json").read_text())["cases"][0]["token_budget"] is None
     row = C.summarize([tmp_path / "n.json"])[0]
     assert row["smoke"] and "token budget none" in C.report([row])
-    r = run("--token-budget", "0", out="z.json")
+    r = run("--token-budget", "0", "--rounds", "0", out="z.json")
     assert r.returncode == 1 and "needs a limit" in r.stderr
     r = run("--token-budget", "-1", out="x.json")
     assert r.returncode == 1 and "0 for none" in r.stderr
 
 
-def test_an_episode_at_the_defaults_has_no_round_cap_and_ends_on_the_budget(tmp_path):
-    """The defaults, mocked usage of 10k output per call: past the 40 rounds
-    2.1-beta allowed, the episode plays on until the budget is spent -- after
-    the 50th call (500k), checked between calls, so no 51st call is made --
-    and the record says the budget ended it. Each observation counts the
-    rounds with no "/max"."""
+def test_the_prompt_states_both_limits_and_that_no_submission_scores_0(tmp_path):
+    """Alex's review (2026-10-18): 61 of the 229 episodes that used all 40
+    rounds scored 0 for not submitting, and the prompt never said so."""
     import harness.run as R
-    call = model([PY], [10_000])
+    call = model([SUBMIT], [1_000])
+    E.run_episode(CASE, tmp_path / "w", call, max_rounds=R.DEFAULT_ROUNDS, exec_timeout=60,
+                  token_budget=R.DEFAULT_TOKEN_BUDGET)
+    system = call.seen[0]["system"]
+    assert system.startswith("You are solving a CAD task in a working directory, over at most 60 rounds "
+                             "and 500,000 output tokens, your thinking included -- the episode ends at "
+                             "whichever runs out first.\n")
+    assert "An episode that\n             ends without a ```submit has no answer and scores 0." in system
+
+
+def test_an_episode_at_the_defaults_plays_60_rounds(tmp_path):
+    """The defaults, mocked usage of 5k output per call: past the 40 rounds
+    2.1-beta allowed, the episode plays to round 60 (300k, inside the budget)
+    and the rounds end it; every observation counts both limits."""
+    import harness.run as R
+    call = model([PY], [5_000])
     out = E.run_episode(CASE, tmp_path / "w", call, max_rounds=R.DEFAULT_ROUNDS, exec_timeout=60,
                         token_budget=R.DEFAULT_TOKEN_BUDGET)
+    assert len(call.seen) == 60 and out["ended_by"] == "rounds" and out["output_tokens"] == 300_000
+    assert call.seen[45]["last"].startswith("Round 45/60 \u00b7 output tokens 225,000 / 500,000 -- exit 0")
+    assert json.loads((tmp_path / "w_log/episode.json").read_text())["ended_by"] == "rounds"
+
+
+def test_an_episode_at_the_defaults_stops_at_500k_output(tmp_path):
+    """150k output per call: the budget is spent after the 4th call (600k),
+    checked between calls, so no 5th call is made; the 60 rounds are far off."""
+    import harness.run as R
+    call = model([PY], [150_000])
+    out = E.run_episode(CASE, tmp_path / "w", call, max_rounds=R.DEFAULT_ROUNDS, exec_timeout=60,
+                        token_budget=R.DEFAULT_TOKEN_BUDGET)
+    assert len(call.seen) == 4 and out["ended_by"] == "token_budget" and out["output_tokens"] == 600_000
+    assert call.seen[3]["last"].startswith("Round 3/60 \u00b7 output tokens 450,000 / 500,000 -- exit 0")
+
+
+def test_with_no_round_limit_the_budget_alone_ends_it(tmp_path):
+    """--rounds 0 (a smoke setting): no round cap; 10k per call, so the budget
+    ends it after the 50th call, past the 40 and short of the 60 rounds."""
+    call = model([PY], [10_000])
+    out = E.run_episode(CASE, tmp_path / "w", call, max_rounds=None, exec_timeout=60, token_budget=500_000)
     assert len(call.seen) == 50 and out["ended_by"] == "token_budget" and out["output_tokens"] == 500_000
-    assert [r["action"] for r in out["rounds"]] == ["exec"] * 50 + ["token_budget_spent", "no_submission"]
     assert call.seen[45]["last"].startswith("Round 45 \u00b7 output tokens 450,000 / 500,000 -- exit 0")
-    assert "at most 500,000 output tokens, your thinking included" in call.seen[0]["system"]
-    assert json.loads((tmp_path / "w_log/episode.json").read_text())["ended_by"] == "token_budget"
 
 
 def test_an_episode_with_no_limit_at_all_is_refused(tmp_path):
     with pytest.raises(ValueError, match="needs a limit"):
         E.run_episode(CASE, tmp_path / "w", model([PY], [1]), max_rounds=None, exec_timeout=60)
+
+
+def test_a_reply_the_harness_asks_again_for_is_not_counted(monkeypatch):
+    """Alex's review (2026-10-18): a reply with no executable block is thrown
+    away and asked again for (drive, rule 1) -- the model never sees it as a
+    round -- and it used to count against the budget. Its usage is now marked
+    discarded: still in the record's tokens, not in the budget."""
+    import harness.run as R
+    monkeypatch.setattr(R, "BACKOFF_S", 0)
+    usage, replies = [], iter(["I will now think about the part.", PY])
+
+    def send(system, turns, drop_images):
+        usage.append({"input_tokens": 10, "output_tokens": 100_000})
+        return next(replies)
+    call = R.drive(send, "test")
+    call.usage = usage
+    assert call("S", [{"role": "user", "text": "Begin.", "images": []}]) == PY
+    assert E.output_tokens(call) == 100_000
+    assert usage[0]["discarded"] == "no executable block; asked again" and "discarded" not in usage[1]
+
+
+def test_an_infrastructure_failure_asked_again_is_not_counted(tmp_path):
+    """A call that fails for the network's sake is asked again for the same
+    round; output it reported before failing is not the model's spend."""
+    seen, usage = [], []
+
+    def call(system, turns, plain=False):
+        seen.append(1)
+        usage.append({"input_tokens": 10, "output_tokens": 200_000})
+        if len(seen) == 1:
+            raise ConnectionError("stream reset by peer")
+        return SUBMIT
+    call.usage, call.context_tokens = usage, 1_000_000
+    out = E.run_episode(CASE, tmp_path / "w", call, max_rounds=60, exec_timeout=60, token_budget=500_000)
+    assert out["submitted"] and out["output_tokens"] == 200_000
+    assert usage[0]["discarded"].startswith("infrastructure failure (ConnectionError)")
 
 
 def test_each_provider_names_the_field_it_counts(monkeypatch):
@@ -185,4 +252,4 @@ def test_each_provider_names_the_field_it_counts(monkeypatch):
     assert R.anthropic_call("claude-opus-5-5", None, [], "max").output_field == "usage.output_tokens (thinking included)"
     assert R.openai_responses_call("gpt-6-astra", None, [], "k", "max").output_field == "usage.output_tokens (reasoning included)"
     assert R.openai_compat_call("m", None, [], "k", "https://openrouter.ai/api/v1", "high").output_field == "usage.completion_tokens"
-    assert R.DEFAULT_ROUNDS is None and R.DEFAULT_TOKEN_BUDGET == 500_000
+    assert R.DEFAULT_ROUNDS == 60 and R.DEFAULT_TOKEN_BUDGET == 500_000
