@@ -1,9 +1,20 @@
 {
  "_note": "$ per 1M tokens, list prices; input = uncached input (billed at the cache-write rate where the harness writes every prefix), cached = cache reads. An estimate: calls cut off by a timeout bill but record no usage. Only the exact model id (or a dated snapshot, <id>-YYYYMMDD) is priced; any other id is reported as price unknown.",
+ "_long_context": "A model with a long_context entry is priced per request (each API call on its own): a request whose prompt (all its input tokens, cache reads and writes included) is over over_input_tokens pays the long_context rates for the whole request, the same columns as the base rates (input = the column named in _note). Records that carry tokens.per_call (harness 2.1 since 2026-11-04) are priced call by call; older records hold only per-case sums and are priced as an estimate (each call at the case's mean prompt size), labelled \"estimated: per-call sizes not recorded\". Models without a long_context entry have one price at every prompt length up to their context window.",
+ "_sources": {
+  "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing (Model pricing; Long context pricing), read 2026-11-04: Claude Haiku 5.5 is priced by prompt length, over 100,000 tokens (cache reads and writes included) every rate is 5x; Claude Opus 5.5, Sonnet 5.5 and Fable 5.1 keep standard pricing across their 1M context window.",
+  "openai": "https://developers.openai.com/api/docs/pricing (Standard), read 2026-11-04: gpt-6-astra short context <= 272K input tokens, long context > 272K: input 10 -> 20, 30m cache write 12.50 -> 25, cached input 1 -> 2, output 50 -> 75 per 1M tokens."
+ },
  "openai/gpt-6-astra": {
   "input": 12.5,
   "cached": 1.0,
-  "output": 50.0
+  "output": 50.0,
+  "long_context": {
+   "over_input_tokens": 272000,
+   "input": 25.0,
+   "cached": 2.0,
+   "output": 75.0
+  }
  },
  "anthropic/claude-opus-5-5": {
   "input": 5.0,
@@ -23,6 +34,12 @@
  "anthropic/claude-haiku-5-5": {
   "input": 0.1,
   "cached": 0.01,
-  "output": 0.5
+  "output": 0.5,
+  "long_context": {
+   "over_input_tokens": 100000,
+   "input": 0.5,
+   "cached": 0.05,
+   "output": 2.5
+  }
  }
 }

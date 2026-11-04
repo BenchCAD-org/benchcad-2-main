@@ -2691,7 +2691,14 @@ def main() -> int:
             # model (Reply, THINKING_BINDING_BETA): 0 on an intact history.
             "thinking_dropped": sum(u.get("thinking_dropped", 0) for u in usage),
             # The usage field `output` (and --token-budget) counts, per provider.
-            "output_field": getattr(call, "output_field", None)}
+            "output_field": getattr(call, "output_field", None),
+            # Each call's sizes (2026-11-04, tooling only: nothing reads it during
+            # the run): providers price some models per request by prompt length
+            # (tools/prices.json, long_context), and a discarded call's input is
+            # kept out of the token means (tools/core_score.py).
+            "per_call": [{"input": u.get("input_tokens", 0), "cached": u.get("cached_tokens", 0),
+                          "output": u.get("output_tokens", 0), **({"discarded": True} if u.get("discarded") else {})}
+                         for u in usage]}
         # What the API reported doing to the replayed thinking, per call, and
         # the harness's own edits of the conversation it had sent (prefix_edits).
         changed = [{"call": i, **x} for i, u in enumerate(usage) for x in u.get("input_transformations", [])]
