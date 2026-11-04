@@ -27,8 +27,11 @@ The rule, per (model, effort):
   look at, not a reportable score.
 
 Also per effort: mean $ per case (tools/prices.json, list prices of that exact
-model id, an estimate; "price unknown" for any other id), mean input / output
-tokens per case, median wall-clock per case.
+model id, an estimate; "price unknown" for any other id; a model priced by
+prompt length is priced per request from tokens.per_call, and records without it
+are a labelled estimate), mean input / output tokens per case without the
+replies the harness discarded and asked again for (reported apart as
+discarded_*), median wall-clock per case.
 """
 from __future__ import annotations
 
@@ -107,13 +110,39 @@ def price_of(model: str | None, table: dict) -> dict | None:
     return table.get(m.group(1)) if m else None
 
 
-def usd(model: str, tok: dict, table: dict) -> float | None:
+ESTIMATED = "estimated: per-call sizes not recorded"
+
+
+def _call_usd(p: dict, inp: float, cached: float, out: float) -> float:
+    """One request at its tier: a prompt over long_context.over_input_tokens (all
+    its input, cache reads and writes included) pays the long-context rates for
+    the whole request (tools/prices.json, _long_context)."""
+    lc = p.get("long_context")
+    r = lc if lc and inp > lc["over_input_tokens"] else p
+    return (max(0.0, inp - cached) * r["input"] + cached * r["cached"] + out * r["output"]) / 1e6
+
+
+def usd_of(model: str, tok: dict, table: dict) -> tuple[float | None, str | None]:
+    """(the case's list-price $, None) when its calls' sizes are recorded
+    (tokens.per_call) or the model has one price at every prompt length;
+    (an estimate, ESTIMATED) for a tiered model whose record holds only per-case
+    sums: each call at the case's mean prompt size. (None, None): no price."""
     p = price_of(model, table)
     if not p or not tok:
-        return None
-    cached = tok.get("cached", 0) or 0
-    return ((max(0, (tok.get("input", 0) or 0) - cached) * p["input"] + cached * p["cached"]
-             + (tok.get("output", 0) or 0) * p["output"]) / 1e6)
+        return None, None
+    calls = tok.get("per_call")
+    if calls:
+        return sum(_call_usd(p, c.get("input", 0) or 0, c.get("cached", 0) or 0, c.get("output", 0) or 0)
+                   for c in calls), None
+    inp, cached, out = (tok.get(k, 0) or 0 for k in ("input", "cached", "output"))
+    n = tok.get("calls") or 0
+    if not p.get("long_context") or not n:
+        return _call_usd({k: v for k, v in p.items() if k != "long_context"}, inp, cached, out), None
+    return n * _call_usd(p, inp / n, cached / n, out / n), ESTIMATED
+
+
+def usd(model: str, tok: dict, table: dict) -> float | None:
+    return usd_of(model, tok, table)[0]
 
 
 def expected_cases(dataset: Path | None) -> dict[str, set[str]] | None:
@@ -181,6 +210,7 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
         if want is not None:
             keys |= {(t, c) for t, cs in want.items() for c in cs}
         per_case, pending, costs, tin, tout, secs, sent = {}, [], [], [], [], [], set()
+        din, dout, dcalls, estimated = [], [], [], 0
         for key in sorted(keys):
             recs = g["cases"].get(key, [])
             vals = []
@@ -194,11 +224,19 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
                 else:
                     why = why_r
                 tok = r.get("tokens") or {}
-                c = usd(model, tok, table)
+                c, est = usd_of(model, tok, table)     # billed: discarded replies cost money too
                 if c is not None:
-                    costs.append(c)
-                tin.append(tok.get("input", 0) or 0)
-                tout.append(tok.get("output", 0) or 0)
+                    costs.append(c); estimated += bool(est)
+                # Replies the harness discarded and asked again for are not in the
+                # token means (since 2.1 they do not count toward the budget either);
+                # they are reported apart, as discarded_*. Input of a discarded call
+                # is known only where tokens.per_call is recorded.
+                pc = tok.get("per_call") or []
+                d_in = sum(c_.get("input", 0) or 0 for c_ in pc if c_.get("discarded"))
+                d_out = tok.get("output_discarded", 0) or 0
+                tin.append((tok.get("input", 0) or 0) - d_in)
+                tout.append((tok.get("output", 0) or 0) - d_out)
+                din.append(d_in); dout.append(d_out); dcalls.append(tok.get("calls_discarded", 0) or 0)
                 if r.get("seconds"):
                     secs.append(float(r["seconds"]))
             if vals:
@@ -230,8 +268,13 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
             "per_task": per_task,
             "usd_per_case": (sum(costs) / n) if costs and n else None,
             "price": "list" if price_of(model, table) else "unknown",
+            # records priced as an estimate (a tiered model, no per-call sizes)
+            "usd_estimated": f"{estimated} of {len(costs)} records {ESTIMATED}" if estimated else None,
             "input_tokens_per_case": (sum(tin) / n) if n else None,
             "output_tokens_per_case": (sum(tout) / n) if n else None,
+            "discarded_input_tokens_per_case": (sum(din) / n) if n else None,
+            "discarded_output_tokens_per_case": (sum(dout) / n) if n else None,
+            "discarded_calls_per_case": (sum(dcalls) / n) if n else None,
             "median_seconds_per_case": statistics.median(secs) if secs else None,
             "files": sorted(g["files"]),
         })
@@ -292,8 +335,15 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
                                        for t, v in r["per_task"].items()))
         cost = (f"${fmt(r['usd_per_case'], 2)}" if r.get("price", "list") == "list"
                 else f"price unknown for {r['model']}")
+        if r.get("usd_estimated"):
+            cost += f" ({r['usd_estimated']})"
         lines.append(f"   per case: {cost}  in {fmt(r['input_tokens_per_case'], 0)} tok  "
                      f"out {fmt(r['output_tokens_per_case'], 0)} tok  median {fmt(r['median_seconds_per_case'], 0)} s")
+        if r.get("discarded_calls_per_case"):
+            lines.append(f"   discarded and asked again, per case: {fmt(r['discarded_calls_per_case'], 2)} calls, "
+                         f"out {fmt(r['discarded_output_tokens_per_case'], 0)} tok"
+                         + (f", in {fmt(r['discarded_input_tokens_per_case'], 0)} tok" if r.get("discarded_input_tokens_per_case") else "")
+                         + " (billed, not in the means above)")
         for p in r["pending"][:20]:
             lines.append(f"   pending {p['task']} {p['case']}: {p['why']}")
         if len(r["pending"]) > 20:

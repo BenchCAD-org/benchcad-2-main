@@ -69,6 +69,14 @@ Don't mix versions or run from `main` for a reported score; check out a tag
 (`git checkout v2.1`). Every record and `core_summary.json` carry `harness_version`;
 scores from different versions are not comparable.
 
+**Tooling-only change on `main` (2026-11-04), no version bump: cost and token accounting.**
+`tools/prices.json` now holds the providers' long-context tiers (Claude Haiku 5.5 over 100,000 prompt
+tokens, `gpt-6-astra` over 272K; sources cited in the file), and `tools/core_score.py` prices each
+request at its own tier. Records now carry each call's sizes (`tokens.per_call`); older records are
+priced as an estimate and labelled so. The token means leave out replies the harness discarded and
+asked again for, reported apart as `discarded_*`. Prompts, limits, scoring and the scorer digest are
+unchanged; scores and `results/core_reference.json` are untouched.
+
 ## Public set
 
 [`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public):
