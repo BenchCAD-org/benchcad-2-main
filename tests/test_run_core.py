@@ -438,8 +438,13 @@ def test_the_download_is_the_releases_own_revision_never_main(tmp_path):
     (bin_ / "uvx").chmod(0o755)
     # HOME too: run_core puts ~/.local/bin (where uv installs uvx) ahead of PATH.
     env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HF_TOKEN": "", "HOME": str(tmp_path)}
-    run_core("--model", "mock/oracle", "--data", str(tmp_path / "core"), env_extra=env)
-    run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "pub"), env_extra=env)
+    core = run_core("--model", "mock/oracle", "--data", str(tmp_path / "core"), env_extra=env)
+    pub = run_core("--model", "mock/oracle", "--set", "public", "--data", str(tmp_path / "pub"), env_extra=env)
+    # On a machine whose PATH has no uv, run_core used to install one here -- into this
+    # test's own HOME, whose uvx then came first and swallowed the download command this
+    # test reads. BENCHCAD_SKIP_SETUP (which run_core() sets) now installs nothing.
+    for r in (core, pub):
+        assert "installing uv" not in r.stdout, "a test must install nothing: " + r.stdout
     calls = [l for l in (tmp_path / "uvx.log").read_text().splitlines() if " download " in l]
     rev = f"v{R.HARNESS_VERSION}"
     assert len(calls) == 2 and all(f"--revision {rev} " in c for c in calls), calls
