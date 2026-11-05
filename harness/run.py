@@ -2646,14 +2646,21 @@ def main() -> int:
             # What ended it: submit, rounds, token_budget, or blocked (the
             # provider withheld the reply round after round).
             rec["ended_by"] = res.get("ended_by")
-            # run_episode only looks for .step artifacts, so an ECAD submission
-            # (a graph dict exported as pred_graph.json) comes back with
-            # step=None even when it succeeded. Finding the artifact is the
-            # runner's job, so look for it here rather than widen episode's
-            # contract.
+            # The answer is what the episode submitted, and nothing else.
+            # envs/common/episode.py _artifact covers every shape a submitted
+            # program can leave -- the submission directory, final.step, and
+            # the graph an ECAD answer exports as pred_graph.json -- so `step`
+            # is already the ECAD answer when there is one.
+            # Until 2026-11-05 a pred_graph.json found in the working directory
+            # was taken as the answer whenever `step` was None -- a leftover
+            # from when episode looked for .step alone. It scored two episodes
+            # the prompt gives nothing: one that exported the graph in a round
+            # and then never submitted ("An episode that
+            # ends without a ```submit has no answer and scores 0"), and one
+            # whose submitted program wrote the file and then failed. Measured
+            # over 3,755 T6 records of our own: 5 were scored that way, the
+            # largest 0.5008.
             artifact = res["step"]
-            if not artifact and (work / "pred_graph.json").exists():
-                artifact = str(work / "pred_graph.json")
             rec["step"] = artifact
             # Which answer, not only where it is: `step` names a place,
             # and a lane that shared it once replaced the answer before three

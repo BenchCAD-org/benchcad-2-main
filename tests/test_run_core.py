@@ -122,6 +122,47 @@ def test_core_rules(tmp_path):
     assert row["smoke"] and "SMOKE RUN, rounds=3" in C.report([row])
 
 
+def _file(p: Path, recs: list, **head) -> Path:
+    p.write_text(json.dumps({"model": "m/x", "effort": "high", "rounds": 60,
+                             "token_budget": 500000, **head, "cases": recs}))
+    return p
+
+
+def test_every_rep_must_resolve_before_a_headline(tmp_path):
+    """A rep whose record did not resolve used to be dropped when another rep
+    of the case had: the case kept its place in the headline and the line was a
+    mean over 3 reps of one case and 2 of another, with nothing saying so. An
+    unresolved rep now makes the case pending, named by rep."""
+    recs = [_rec("task1/cases/case001", {"score": 0.9}, rep=0),
+            _rec("task1/cases/case001", {"score": 0.3}, rep=1),
+            _rec("task1/cases/case001", None, rep=2, error="APIConnectionError: upstream closed"),
+            *(_rec("task1/cases/case002", {"score": 0.5}, rep=r) for r in (0, 1, 2))]
+    f = _file(tmp_path / "r.json", recs)
+    [row] = C.summarize([f])
+    assert not row["complete"] and row["core_mean"] is None, "the resolved reps are not the case"
+    [p] = row["pending"]
+    assert (p["case"], p["reps"], p["n_reps"]) == ("case001", ["2"], 3)
+    text = C.report([row], provisional=True)
+    assert "pending T1 case001 (rep 2 of 3): APIConnectionError" in text
+    assert row["provisional_mean"] == pytest.approx(0.5)      # case002, the one case that resolved
+
+    # The same rep run again, into a second results file, resolves it.
+    g = _file(tmp_path / "r2.json", [_rec("task1/cases/case001", {"score": 0.6}, rep=2)])
+    [row] = C.summarize([f, g])
+    assert row["complete"] and row["core_mean"] == pytest.approx(((0.9 + 0.3 + 0.6) / 3 + 0.5) / 2)
+
+    # Records from before the harness stamped `rep` (harness 2.0): one results
+    # file is one rep, so a pending record and a scored one in two files are
+    # two reps, and the case is pending. Score the newer file alone to resolve it.
+    old = [dict(r) for r in recs if r["case_id"] == "case001"]
+    for r in old:
+        del r["rep"]
+    a = _file(tmp_path / "a.json", [r for r in old if r["score"] is None])
+    b = _file(tmp_path / "b.json", [r for r in old if r["score"]])
+    assert [p["case"] for p in C.summarize([a, b])[0]["pending"]] == ["case001"]
+    assert C.summarize([b])[0]["complete"]
+
+
 def test_the_frozen_command_line_and_the_bare_form(tmp_path):
     """The line in the release email and on the access page must keep working
     unchanged: tools/run_core.sh --model gemini/<model-id> --effort low,medium,high;

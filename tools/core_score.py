@@ -11,6 +11,13 @@ The rule, per (model, effort):
   board with no position-mode record, a case with no record. Any pending case
   makes the run INCOMPLETE and no headline is printed (--provisional prints a
   labelled mean over the resolved cases).
+- Every rep must resolve. A case with a rep that did not is pending, and is
+  never averaged over the reps that did -- until 2026-11-05 the unresolved rep
+  was dropped silently and the case kept its headline, so a run could report a
+  mean over 2 reps of one case and 3 of another. A rep is the record's `rep`,
+  or the results file for a record that does not name one (one file is one run
+  of one rep); two records of the same rep -- a lane re-run into a second
+  results file -- are that one rep, and it resolves if either of them did.
 - A case's resolved reps are averaged first; the headline is the plain mean
   over the cases (100 for Core). Per-task means are diagnostics.
 - T6 counts only position-mode records (correspondence_mode position).
@@ -203,7 +210,13 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
             g["budgets"].add(rec.get("token_budget") or d.get("token_budget"))
             g["files"].add(str(f))
             key = (task_of(rec.get("case", "")), rec.get("case_id") or Path(rec.get("case", "")).name)
-            g["cases"].setdefault(key, []).append(rec)
+            # Which rep this record is, so an unresolved one is not covered by
+            # another rep of the case. Records from before the harness stamped
+            # `rep` are grouped by their results file, which is one run of one
+            # rep (harness/run.py writes one record per case per file).
+            rep = rec.get("rep", d.get("rep"))
+            g["cases"].setdefault(key, {}).setdefault(
+                rep if rep is not None else f"file {Path(f).name}", []).append(rec)
     out = []
     for (model, effort), g in sorted(groups.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]))):
         keys = set(g["cases"])
@@ -212,37 +225,46 @@ def summarize(files: list[Path], dataset: Path | None = None, n_core: int | None
         per_case, pending, costs, tin, tout, secs, sent = {}, [], [], [], [], [], set()
         din, dout, dcalls, estimated = [], [], [], 0
         for key in sorted(keys):
-            recs = g["cases"].get(key, [])
-            vals = []
-            why = "no record"
-            for r in recs:
-                if "effort_sent" in r:
-                    sent.add(r["effort_sent"])
-                state, v, why_r = resolve(r)
-                if state != "pending":
-                    vals.append(v)
+            reps = g["cases"].get(key, {})
+            vals, unresolved = [], []
+            for label, recs in sorted(reps.items(), key=lambda kv: str(kv[0])):
+                got, why_rep = [], ""
+                for r in recs:
+                    if "effort_sent" in r:
+                        sent.add(r["effort_sent"])
+                    state, v, why_r = resolve(r)
+                    if state != "pending":
+                        got.append(v)
+                    else:
+                        why_rep = why_r
+                    tok = r.get("tokens") or {}
+                    c, est = usd_of(model, tok, table)     # billed: discarded replies cost money too
+                    if c is not None:
+                        costs.append(c); estimated += bool(est)
+                    # Replies the harness discarded and asked again for are not in the
+                    # token means (since 2.1 they do not count toward the budget either);
+                    # they are reported apart, as discarded_*. Input of a discarded call
+                    # is known only where tokens.per_call is recorded.
+                    pc = tok.get("per_call") or []
+                    d_in = sum(c_.get("input", 0) or 0 for c_ in pc if c_.get("discarded"))
+                    d_out = tok.get("output_discarded", 0) or 0
+                    tin.append((tok.get("input", 0) or 0) - d_in)
+                    tout.append((tok.get("output", 0) or 0) - d_out)
+                    din.append(d_in); dout.append(d_out); dcalls.append(tok.get("calls_discarded", 0) or 0)
+                    if r.get("seconds"):
+                        secs.append(float(r["seconds"]))
+                if got:
+                    vals += got                     # the rep resolved (either record of it did)
                 else:
-                    why = why_r
-                tok = r.get("tokens") or {}
-                c, est = usd_of(model, tok, table)     # billed: discarded replies cost money too
-                if c is not None:
-                    costs.append(c); estimated += bool(est)
-                # Replies the harness discarded and asked again for are not in the
-                # token means (since 2.1 they do not count toward the budget either);
-                # they are reported apart, as discarded_*. Input of a discarded call
-                # is known only where tokens.per_call is recorded.
-                pc = tok.get("per_call") or []
-                d_in = sum(c_.get("input", 0) or 0 for c_ in pc if c_.get("discarded"))
-                d_out = tok.get("output_discarded", 0) or 0
-                tin.append((tok.get("input", 0) or 0) - d_in)
-                tout.append((tok.get("output", 0) or 0) - d_out)
-                din.append(d_in); dout.append(d_out); dcalls.append(tok.get("calls_discarded", 0) or 0)
-                if r.get("seconds"):
-                    secs.append(float(r["seconds"]))
-            if vals:
+                    unresolved.append((label, why_rep))
+            # A rep that did not resolve makes the case pending: it is never
+            # covered by the reps that did (see the rule at the top).
+            if vals and not unresolved:
                 per_case[key] = statistics.mean(vals)
             else:
-                pending.append({"task": key[0], "case": key[1], "why": why})
+                pending.append({"task": key[0], "case": key[1],
+                                "why": unresolved[0][1] if unresolved else "no record",
+                                "reps": [str(label) for label, _ in unresolved], "n_reps": len(reps)})
         n = len(keys)
         tasks = sorted({k[0] for k in keys})
         per_task = {t: {"mean": (statistics.mean([v for k, v in per_case.items() if k[0] == t])
@@ -345,7 +367,11 @@ def report(rows: list[dict], provisional: bool = False, reference: dict | None =
                          + (f", in {fmt(r['discarded_input_tokens_per_case'], 0)} tok" if r.get("discarded_input_tokens_per_case") else "")
                          + " (billed, not in the means above)")
         for p in r["pending"][:20]:
-            lines.append(f"   pending {p['task']} {p['case']}: {p['why']}")
+            # Which rep is missing, when the case has more than one: the other
+            # reps resolving does not resolve the case.
+            of = (f" (rep {', '.join(p['reps'])} of {p['n_reps']})"
+                  if p.get("reps") and p.get("n_reps", 0) > 1 else "")
+            lines.append(f"   pending {p['task']} {p['case']}{of}: {p['why']}")
         if len(r["pending"]) > 20:
             lines.append(f"   ... {len(r['pending']) - 20} more pending (see the JSON)")
     return "\n".join(lines)
