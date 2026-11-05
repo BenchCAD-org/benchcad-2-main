@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-"""One results row per trial (result.schema.json) from Harbor job directories, plus the line a run reports.
+"""One results row per trial (result.schema.json) from Harbor job directories, plus the line a run reports
+on the Customized-harness leaderboard (never beside a standard 2.1 run_core line).
 
     python collect.py JOB_DIR [JOB_DIR ...] --out results.jsonl [--summary summary.json]
 
@@ -27,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 
 N_CORE = 100
+TRACK = "customized-harness"             # the public name of this track; run_core's is the standard one
 STANDARD_BUDGET = 500_000
 STANDARD_PINS = {"data_commit": "4b6fe17f63ef46090e372120d5863bcb91bef9de", "harness_version": "2.1",
                  "scorer_digest": "c4799cc240612b038362efc5f649fc05e4bf1ce33babec46f1237092a9a7137d"}
@@ -218,7 +220,7 @@ def main() -> None:
         every = [x for xs in cases.values() for x in xs]
         # one line is one implementation: trials built from different pins are not averaged into it
         pinsets = {tuple(x["pins"].get(k) for k in PIN_KEYS if k != "case_tree_sha256") for x in every if x["pins"]}
-        line = {"agent": agent, "model": model, "effort": effort, "n_cases": n, "pending": pending,
+        line = {"track": TRACK, "agent": agent, "model": model, "effort": effort, "n_cases": n, "pending": pending,
                 "passes": sorted({len(xs) for xs in cases.values()}),
                 "mean": round(statistics.mean(per_case.values()), 4) if per_case and not pending else None,
                 "label": ("NOT REPORTABLE" if len(pinsets) > 1 or not all(x["reportable"] or x["status"] == "pending"
@@ -235,7 +237,8 @@ def main() -> None:
                 "budget_hit": sum(bool(x["budget_hit"]) for xs in cases.values() for x in xs),
                 "mean_output_tokens": _mean([x["output_tokens"] for xs in cases.values() for x in xs])}
         out.append(line)
-        print(f"{agent} {model} {effort}: {line['label']} n={n} mean={line['mean']} pending={len(pending)}")
+        print(f"{TRACK} {agent} {model} {effort}: {line['label']} n={n} mean={line['mean']} "
+              f"pending={len(pending)}")
     if args.summary:
         args.summary.write_text(json.dumps(out, indent=1) + "\n")
 

@@ -1,4 +1,4 @@
-"""own_agent/: the own-agent track's meter, its results collector, the benchcad.py wrapper and the task builder,
+"""own_agent/: the Customized-harness track's meter, results collector, benchcad.py wrapper and task builder,
 offline: no Docker, no Harbor, no model API and no Core download.
 
 The meter runs as a process in front of the stub model API (own_agent/metertest/stubapi/stub_api.py, every
@@ -425,7 +425,7 @@ def test_collect_averages_passes_per_case_then_means_over_cases(tmp_path):
     assert r["agent"] == "claude-code-bare" and r["model"] == "anthropic/m-1" and r["effort"] == "high"
     assert r["tool_calls"] == 6 and r["output_tokens"] == 1000 and r["reportable"] and r["wall_time_s"] == 300.0
     (line,) = summary
-    assert line["over_budget"] == []
+    assert line["track"] == "customized-harness" and line["over_budget"] == []
     assert line["mean"] == pytest.approx((0.6 + 0.0) / 2) and line["label"] == "SUBSET" and line["passes"] == [2]
     schema = json.loads((OWN / "result.schema.json").read_text())
     for x in rows:

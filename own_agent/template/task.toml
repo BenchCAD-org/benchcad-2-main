@@ -1,15 +1,15 @@
-# BenchCAD 2.1 Core, own-agent track: one Core case. Written by own_agent/build.py.
+# BenchCAD 2.1 Core, Customized harness: one Core case. Written by own_agent/build.py.
 schema_version = "1.3"
 artifacts = ["/work", { source = "/meter", service = "meter" }]
 
 [task]
 name = "benchcad-2.1-core/{{name}}"
-description = "BenchCAD 2.1 Core case {{name}} ({{kind}}), for an agent of the lab's own choosing: 500,000 output tokens (thinking included) and no round limit, scored by the 2.1 scorer."
-keywords = ["cad", "cadquery", "benchcad", "benchcad-2.1-core", "own-agent"]
+description = "BenchCAD 2.1 Core case {{name}} ({{kind}}), Customized harness: an agent of the lab's own choosing, 500,000 output tokens (thinking included) and no round limit, scored by the 2.1 scorer."
+keywords = ["cad", "cadquery", "benchcad", "benchcad-2.1-core", "customized-harness"]
 
 [metadata]
 category = "cad"
-tags = ["benchcad-2.1-core", "{{task}}", "{{kind}}", "own-agent", "continuous-score"]
+tags = ["benchcad-2.1-core", "{{task}}", "{{kind}}", "customized-harness", "continuous-score"]
 grading = "checks"
 
 [agent]

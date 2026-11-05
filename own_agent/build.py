@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Build the BenchCAD 2.1 Core own-agent dataset: one Harbor task per Core case.
+"""Build the BenchCAD 2.1 Core Customized-harness dataset: one Harbor task per Core case.
 
     python own_agent/build.py --data DATA --out OUT [--cases task<N>/caseNNN,...] [--budget N]
 
@@ -292,7 +292,7 @@ def main() -> None:
         r = build_case(data, c.parent.parent.name, c.name, out, meta)
         rows.append(r)
         print(f"{r['name']:12s} {r['kind']:8s} {r['sha256'][:12]}", flush=True)
-    index = {"dataset": "benchcad-2.1-core-own-agent", "n_tasks": len(rows), "token_budget": TOKEN_BUDGET, "data_commit": CORE_COMMIT,
+    index = {"dataset": "benchcad-2.1-core-customized-harness", "n_tasks": len(rows), "token_budget": TOKEN_BUDGET, "data_commit": CORE_COMMIT,
              "harness_commit": meta["harness_commit"], "harness_tag": tag, "scorer_digest": SCORER_DIGEST, "tasks": rows}
     (out / "dataset.json").write_text(json.dumps(index, indent=1) + "\n")
 

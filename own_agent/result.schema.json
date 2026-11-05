@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BenchCAD 2.1 Core own-agent trial",
+  "title": "BenchCAD 2.1 Core Customized-harness trial",
   "description": "One row per Harbor trial (collect.py).",
   "type": "object",
   "required": [

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""BenchCAD 2.1 Core with your own agent, in one command (from a checkout of tag v2.1):
+"""BenchCAD 2.1 Core, Customized harness: one command (from a checkout of tag v2.1):
 
     python3 own_agent/benchcad.py run --agent claude-code --model anthropic/claude-opus-5-5 --effort high
     python3 own_agent/benchcad.py run --agent codex --model openai/gpt-6-astra --effort xhigh --cases task<N>/caseNNN

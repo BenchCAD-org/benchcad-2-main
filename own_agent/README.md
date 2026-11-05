@@ -1,9 +1,10 @@
-# BenchCAD 2.1 Core with your own agent
+# BenchCAD 2.1 Core, Customized harness
 
 The 100 BenchCAD 2.1 Core cases as Harbor tasks (`harbor` on PyPI, 0.20.0), for running
 an agent of your choice (Claude Code, Codex, Gemini CLI, mini-swe-agent, OpenHands) instead of the
 harness's own loop. The inputs, the task text, the answer contract and the scorer are 2.1's; what changes
-is who drives the model.
+is who drives the model. Scores from it are reported as **Customized harness**, apart from the standard
+2.1 `run_core` track.
 
 ## Rules
 
@@ -21,7 +22,8 @@ is who drives the model.
 - **8 h wall clock**, as a runaway backstop only; what exists at that point is scored.
 - **No retries.** A retried trial would start a fresh budget; `benchcad.py` refuses `--max-retries`.
 - **Leaderboard rows are labelled by agent and model** (e.g. `codex` + `openai/gpt-6-astra`, effort
-  `xhigh`) and kept apart from the standard 2.1 `run_core` track: the two settings are not comparable.
+  `xhigh`) under Customized harness, never beside a standard 2.1 `run_core` line: the two settings are
+  not comparable.
 - **Codex runs over HTTP.** Codex opens a Responses WebSocket by default, which the meter cannot read
   token usage from, so the `codex` agent here points Codex at the meter with WebSockets off.
 
