@@ -77,6 +77,23 @@ priced as an estimate and labelled so. The token means leave out replies the har
 asked again for, reported apart as `discarded_*`. Prompts, limits, scoring and the scorer digest are
 unchanged; scores and `results/core_reference.json` are untouched.
 
+**Two scoring rules now hold where the code let them slip (2026-11-05).** The prompts, the limits,
+the metrics and the scorer digest are unchanged; what changed is what counts as an answer and when a
+headline prints.
+- An episode that ends without a `submit` has no answer, Task 6 included. `harness/run.py` used to
+  take a `pred_graph.json` it found in the working directory as the answer whenever the episode
+  reported none, which scored an episode that exported the graph in a round and then never submitted,
+  and one whose submitted program wrote the file and then failed.
+- Every rep of a case must resolve before `tools/core_score.py` prints a headline. A rep whose record
+  did not resolve (a scorer timeout, an infrastructure failure) used to be dropped when another rep
+  of the same case had, so a line could be a mean over 3 reps of one case and 2 of another with
+  nothing saying so. Such a case is now pending, named by rep, and `--provisional` says over what.
+
+Records already written keep their scores: these rules apply to runs made from here on.
+`results/core_reference.json` keeps the published 2.0 lines as they were measured, under the harness
+that ran them -- one of them, `openai/gpt-6-astra` at `max`, has one Task-6 cell (0.5008) that the
+old fallback scored; under the rule above its T6 column would read 0.4222 and its line 0.5893.
+
 ## Public set
 
 [`BenchCAD/benchcad-2.0-public`](https://huggingface.co/datasets/BenchCAD/benchcad-2.0-public):
