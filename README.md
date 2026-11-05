@@ -69,17 +69,20 @@ Don't mix versions or run from `main` for a reported score; check out a tag
 (`git checkout v2.1`). Every record and `core_summary.json` carry `harness_version`;
 scores from different versions are not comparable.
 
-**Tooling-only change on `main` (2026-11-04), no version bump: cost and token accounting.**
+Two changes were made after `v2.1` was first cut, and the tag was moved onto them. The harness
+version is still 2.1, and the prompts, the limits, the metrics and the T6 scorer digest are
+unchanged by both.
+
+**Tooling only (2026-11-04): cost and token accounting.**
 `tools/prices.json` now holds the providers' long-context tiers (Claude Haiku 5.5 over 100,000 prompt
 tokens, `gpt-6-astra` over 272K; sources cited in the file), and `tools/core_score.py` prices each
 request at its own tier. Records now carry each call's sizes (`tokens.per_call`); older records are
 priced as an estimate and labelled so. The token means leave out replies the harness discarded and
-asked again for, reported apart as `discarded_*`. Prompts, limits, scoring and the scorer digest are
-unchanged; scores and `results/core_reference.json` are untouched.
+asked again for, reported apart as `discarded_*`. Nothing it touches decides a score, and
+`results/core_reference.json` is untouched.
 
-**Two scoring rules now hold where the code let them slip (2026-11-05).** The prompts, the limits,
-the metrics and the scorer digest are unchanged; what changed is what counts as an answer and when a
-headline prints.
+**Scoring (2026-11-05): two rules now hold where the code let them slip.** What changed is what
+counts as an answer and when a headline prints; no metric changed.
 - An episode that ends without a `submit` has no answer, Task 6 included. `harness/run.py` used to
   take a `pred_graph.json` it found in the working directory as the answer whenever the episode
   reported none, which scored an episode that exported the graph in a round and then never submitted,
