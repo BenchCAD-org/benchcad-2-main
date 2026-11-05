@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import bisect
 import hashlib
+import os
+import stat
 import json
 from pathlib import Path
 
@@ -57,13 +59,22 @@ def scored_file(rel: str) -> bool:
     return rel == f"{ASSEMBLY}/{INSTANCES}"
 
 
+def _regular(p) -> bool:
+    try:
+        return stat.S_ISREG(os.lstat(p).st_mode)
+    except OSError:
+        return False
+
+
 def artifact_sha256(path) -> tuple[str, str] | None:
     """("file" | "tree", digest) of the answer at `path`; None when nothing is there."""
     p = Path(path)
-    if p.is_dir():
-        files = ((f.relative_to(p).as_posix(), f) for f in p.rglob("*") if f.is_file())
+    if p.is_dir() and not p.is_symlink():
+        # regular files only, and no link followed: the answer is what the program wrote, so a link in the
+        # submission directory must not be hashed (or scored) as the file it names
+        files = ((f.relative_to(p).as_posix(), f) for f in p.rglob("*") if _regular(f))
         return "tree", tree_sha256({rel: file_sha256(f) for rel, f in files if scored_file(rel)})
-    if p.is_file():
+    if _regular(p):
         return "file", file_sha256(p)
     return None
 

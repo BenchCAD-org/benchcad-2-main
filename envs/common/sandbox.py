@@ -22,12 +22,35 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .submission import SUB_ROOT
+
+# Anything the model leaves in its working directory is read by lstat and only when it is a regular file:
+# a link out of /work (to a reference, to one of the harness's own files, to /dev/zero) is not an artifact,
+# is not shown to the model, is not logged and is not scored.
+MAX_LOG_BYTES = 512 << 20                 # one file copied into a round's log
+TAIL_BYTES = 1_000_000                    # of each stream, as the model has always seen
+
+
+def _regular(p) -> os.stat_result | None:
+    """The file's lstat when it is a regular file, else None (a link, a directory, a device)."""
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return None
+    return st if stat.S_ISREG(st.st_mode) else None
+
+
+def _tail(f) -> bytes:
+    f.seek(0, os.SEEK_END)
+    f.seek(max(0, f.tell() - TAIL_BYTES))
+    return f.read()
 
 def _default_image() -> str:
     """benchcad-sandbox:<arch>, the tag tools/run_core.sh builds on this machine. A fixed
@@ -837,12 +860,22 @@ class Sandbox:
         self._seen = self._snapshot()
 
     def _snapshot(self) -> dict:
-        return {p.name: p.stat().st_mtime_ns
-                for p in self.dir.glob("*.png") if p.is_file()}
+        # lstat, and regular files only: a link the model leaves in the working directory is not a figure
+        # of its own, and following one would show it -- or hand the API -- a file from outside /work.
+        out = {}
+        for p in self.dir.glob("*.png"):
+            st = _regular(p)
+            if st is not None:
+                out[p.name] = st.st_mtime_ns
+        return out
 
     def run(self, code: str, timeout: int = 300) -> Result:
         script = self.dir / "_run.py"
-        script.write_text(code)
+        # written to a file made here, not through whatever is at that path: a program that leaves _run.py
+        # as a link would otherwise have the host write the next round's code wherever the link points.
+        script.unlink(missing_ok=True)
+        with open(os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644), "w") as f:
+            f.write(code)
         if self.docker:
             # Named after the directory's full path, not its (truncated) name:
             # two episodes whose work dirs share their first 40 characters --
@@ -886,9 +919,14 @@ class Sandbox:
         if EXEC_GATE is not None:
             EXEC_GATE.acquire()
         try:
-            r = subprocess.run(cmd, timeout=timeout, capture_output=True,
-                               cwd=None if self.docker else self.dir, env=env)
-            rc, out, err = r.returncode, r.stdout, r.stderr
+            # Through temporary files, not a pipe the parent buffers whole: a program that prints without
+            # stopping (or cats a device) would otherwise be held in the host's memory in full before the
+            # tail below is taken. What is kept is the same tail as before.
+            with tempfile.TemporaryFile() as fo, tempfile.TemporaryFile() as fe:
+                r = subprocess.run(cmd, timeout=timeout, stdout=fo, stderr=fe,
+                                   cwd=None if self.docker else self.dir, env=env)
+                out, err = _tail(fo), _tail(fe)
+            rc = r.returncode
         except subprocess.TimeoutExpired:
             if container:
                 subprocess.run(["docker", "kill", container],
@@ -921,6 +959,9 @@ class Sandbox:
         (d / "stderr.txt").write_text(res.stderr)
         kept = []
         for f in list(res.images) + sorted(self.dir.glob("*.step")):
+            st = _regular(f)                      # a link or a device the program left is not an artifact
+            if st is None or st.st_size > MAX_LOG_BYTES:
+                continue
             try:
                 shutil.copy(f, d / f.name)
                 if f.suffix == ".png" and _valid_png(f):
@@ -933,9 +974,16 @@ class Sandbox:
         # overwrites its working directory, and a round that cannot be
         # reconstructed cannot be diagnosed without paying for the model again.
         sub = self.dir / SUB_ROOT
-        if sub.is_dir():
+        if sub.is_dir() and not sub.is_symlink():
+            def _no_links(src, names):      # links are never followed out of the submission directory
+                out = []
+                for n in names:
+                    q = Path(src) / n
+                    if q.is_symlink() or (_regular(q) is None and not q.is_dir()):
+                        out.append(n)
+                return out
             try:
-                shutil.copytree(sub, d / SUB_ROOT, dirs_exist_ok=True)
+                shutil.copytree(sub, d / SUB_ROOT, dirs_exist_ok=True, ignore=_no_links)
             except OSError:
                 pass
         return kept
