@@ -236,9 +236,13 @@ def test_the_vendored_digest_sees_a_matcher_change(tmp_path, monkeypatch):
 # dev sample examples/task6/cases/case1 (ecad's `pcb2schematic` board, the same
 # bytes as bank case1). Its correspondence.json and spatial_reference.json, from
 # ecad verbatim (the sidecar from f021ef4, the correspondence re-stamped at
-# 61e6018 for the change 98/#100 scorer), are under tests/fixtures/t6_position/case1/gt/.
+# 61e6018 for the change 98/#100 scorer), are under tests/fixtures/t6_position/reference/.
+# They are grading files, not a case: they used to sit at a case-shaped path
+# (t6_position/case1/gt/), where tests/test_case_format.py's guard against a board in
+# the old layout -- anything under tests/fixtures/t*/* with a gt/ and no case.json --
+# read them as one and failed on every run (#22).
 
-POS_FILES = REPO / "tests/fixtures/t6_position/case1/gt"
+POS_FILES = REPO / "tests/fixtures/t6_position/reference"
 # ecad f021ef4 tasks/pcb2schematic-wheelleg-buck/grading/correspondence.json, verbatim
 HELD = {"mode": "held",
         "reason": "Spatial reference unavailable: authoritative placed terminal geometry is incomplete. "

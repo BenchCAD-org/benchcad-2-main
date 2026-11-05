@@ -79,7 +79,7 @@ def test_rescore_keeps_a_1_0_t6_answer_on_the_legacy_path_once_the_case_is_posit
     legacy_number = score(case, old_sub)["score"]            # before activation: the historical number
     assert 0.0 < legacy_number < 1.0
     for f in ("correspondence.json", "spatial_reference.json"):
-        shutil.copyfile(REPO / "tests/fixtures/t6_position/case1/gt" / f, case / "gt" / f)
+        shutil.copyfile(REPO / "tests/fixtures/t6_position/reference" / f, case / "gt" / f)
     assert score(case, old_sub)["status"] == "invalid_prediction"      # what a plain re-score would do
     new_sub = tmp_path / "new" / "pred_graph.json"
     new_sub.parent.mkdir()
