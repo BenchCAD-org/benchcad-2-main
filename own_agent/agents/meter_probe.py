@@ -162,7 +162,9 @@ class ForgeProbe(BaseAgent):
         "        tried['rename ' + p] = 'MOVED'\n"
         "    except OSError as e:\n"
         "        tried['rename ' + p] = type(e).__name__\n"
-        "open('/tmp/forge.json', 'w').write(json.dumps(tried))\n"
+        "import sys\n"
+        "sys.stdout.write('FORGE ' + json.dumps(tried) + chr(10))\n"
+        "sys.stdout.flush()\n"
         "os._exit(0)\n")
 
     @staticmethod
