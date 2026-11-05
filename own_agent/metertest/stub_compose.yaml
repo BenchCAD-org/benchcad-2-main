@@ -1,0 +1,23 @@
+# harbor run ... --extra-docker-compose own_agent/metertest/stub_compose.yaml
+# The meter's three upstreams become the stub (stubapi/stub_api.py: every reply reports 1,000 output tokens) and
+# its budget 500 (STUB_METER_BUDGET), below one reply: the first model call is served and read, every later one
+# is refused. With STUB_METER_BUDGET=0 the first call is refused: does the agent stop?
+# Compose resolves relative paths against the task's environment/, so STUB_CONTEXT (this folder's stubapi/) and
+# STUB_LOG_DIR are absolute host paths; STUB_LOG_DIR receives the stub's request log. Not a reportable run (collect.py says so).
+services:
+  meter:
+    environment:
+      METER_UPSTREAM_ANTHROPIC: "http://stubapi:8000"
+      METER_UPSTREAM_OPENAI: "http://stubapi:8000"
+      METER_UPSTREAM_GEMINI: "http://stubapi:8000"
+      METER_BUDGET: "${STUB_METER_BUDGET:-500}"
+  stubapi:
+    build:
+      context: ${STUB_CONTEXT:?set STUB_CONTEXT to the absolute path of metertest/stubapi}
+    environment:
+      STUB_OUTPUT_TOKENS: "1000"
+      STUB_DIR: /stub
+    volumes:
+      - ${STUB_LOG_DIR:?set STUB_LOG_DIR}:/stub
+    networks:
+      - default

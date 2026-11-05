@@ -171,6 +171,10 @@ The interface a model sees — the prompt, the tools, the round protocol — is
 `envs/common/episode.py` and `envs/common/sandbox.py`; the tools it can call are
 `export`, `export_part`, `use_part`, `submit_assembly` and `crop`.
 
+To run an existing agent CLI (Claude Code, Codex, Gemini CLI, mini-swe-agent, OpenHands) instead, with
+no round cap and the 500k budget metered at the model API, use the **Customized harness** track:
+[`own_agent/`](../own_agent/README.md). Its scores are reported apart from this one's.
+
 ## Gemini
 
 `--model gemini/<model-id> --effort low|medium|high`; the level is sent as `thinking_level`

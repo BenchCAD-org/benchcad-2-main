@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BenchCAD 2.1 Core Customized-harness trial",
+  "description": "One row per Harbor trial (collect.py).",
+  "type": "object",
+  "required": [
+    "case",
+    "status",
+    "score",
+    "agent",
+    "agent_version",
+    "model",
+    "effort",
+    "pass_index",
+    "wall_time_s",
+    "tokens",
+    "cost_usd",
+    "tool_calls",
+    "timed_out",
+    "pins",
+    "trajectory",
+    "output_tokens",
+    "budget_hit",
+    "reportable"
+  ],
+  "properties": {
+    "case": {
+      "type": "string",
+      "description": "t<N>-caseNNN"
+    },
+    "task": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "task1..task6"
+    },
+    "kind": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "part",
+        "assembly",
+        "ecad",
+        null
+      ]
+    },
+    "trial": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "scored",
+        "no_submission",
+        "pending"
+      ],
+      "description": "2.1's resolution: no_submission scores 0; pending has no score (run the case again)"
+    },
+    "score": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "why": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agent_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "provider/model-id"
+    },
+    "effort": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pass_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "0 for the first trial of this (agent, model, effort, case), by start time"
+    },
+    "wall_time_s": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "the agent phase, at most 28800"
+    },
+    "trial_time_s": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "verifier_time_s": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "timed_out": {
+      "type": "boolean",
+      "description": "the 8 h backstop ended the agent; its answer was still scored"
+    },
+    "exception": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "as the agent reports it, cache included"
+        },
+        "output": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cached": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "as the agent reports it"
+    },
+    "tool_calls": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "tool calls in agent/trajectory.json"
+    },
+    "pins": {
+      "type": "object",
+      "properties": {
+        "data_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scorer_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scorer_tree_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "case_tree_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "task_checksum": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trajectory": {
+      "type": "string",
+      "description": "the trial's agent/ folder, relative to the jobs folder, kept for audit"
+    },
+    "output_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "output tokens of every model call, thinking included, as the meter read them"
+    },
+    "budget": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "500000"
+    },
+    "budget_hit": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "the case's output tokens reached the budget; later requests were refused"
+    },
+    "refused_requests": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "model_requests": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "generation requests the meter forwarded"
+    },
+    "reportable": {
+      "type": "boolean",
+      "description": "the meter ran with the 500,000 budget and the real upstreams"
+    },
+    "websocket_refused": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "max_in_flight": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "most model requests the meter had in flight at once"
+    },
+    "over_budget": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "output tokens past the budget (requests in flight when it was reached ran to their end)"
+    },
+    "blocked_requests": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "requests to paths the meter does not carry (files, batches, ...), refused"
+    },
+    "model_reported": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "the model as Harbor's agent reported it"
+    }
+  }
+}

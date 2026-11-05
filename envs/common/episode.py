@@ -23,7 +23,7 @@ import json
 import re
 from pathlib import Path
 
-from .sandbox import Sandbox
+from .sandbox import Sandbox, _regular
 from .submission import SUB_ROOT, is_ready
 
 MAX_ROUNDS = 8
@@ -255,7 +255,8 @@ def _artifact(box: Sandbox):
     # final.step was looked for here.
     for name in ("final.step", "pred_graph.json"):
         f = box.dir / name
-        if f.exists():
+        # a regular file the program wrote, not a link it left: following one would score whatever it names
+        if _regular(f) is not None:
             return f
     return None
 

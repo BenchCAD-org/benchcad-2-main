@@ -1,0 +1,41 @@
+# BenchCAD 2.1 Core, Customized harness: one Core case. Written by own_agent/build.py.
+schema_version = "1.3"
+artifacts = ["/work", { source = "/meter", service = "meter" }]
+
+[task]
+name = "benchcad-2.1-core/{{name}}"
+description = "BenchCAD 2.1 Core case {{name}} ({{kind}}), Customized harness: an agent of the lab's own choosing, 500,000 output tokens (thinking included) and no round limit, scored by the 2.1 scorer."
+keywords = ["cad", "cadquery", "benchcad", "benchcad-2.1-core", "customized-harness"]
+
+[metadata]
+category = "cad"
+tags = ["benchcad-2.1-core", "{{task}}", "{{kind}}", "customized-harness", "continuous-score"]
+grading = "checks"
+
+[agent]
+timeout_sec = {{agent_timeout}}.0    # 8 h wall clock: a runaway backstop only; the limit is the token budget
+# While the agent works it reaches the meter only (environment/meter): the model API behind it, and the case's
+# budget of 500,000 output tokens, thinking included, kept there. No other network.
+network_mode = "allowlist"
+allowed_hosts = ["meter"]
+
+[environment]
+build_timeout_sec = 1800.0
+os = "linux"
+cpus = 2
+memory_mb = 8192
+gpus = 0
+network_mode = "public"         # setup only: an installed agent downloads itself before the agent phase
+
+[verifier]
+timeout_sec = {{verify_timeout}}.0   # the answer run (600 s) and the 2.1 scorer's own limit
+network_mode = "no-network"
+environment_mode = "separate"   # its own container, built from tests/; the agent never sees the reference
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+os = "linux"
+cpus = 2
+memory_mb = {{verifier_memory_mb}}
+gpus = 0
+network_mode = "no-network"

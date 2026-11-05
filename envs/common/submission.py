@@ -50,7 +50,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -193,6 +195,19 @@ def reference_submission(case_dir: Path | str, out_dir: Path | str) -> Path:
     return root
 
 
+def _is_link(p: Path) -> bool:
+    return p.is_symlink()
+
+
+def _is_regular(p: Path) -> bool:
+    """A regular file, and not a link to one: what the model wrote, not what it pointed at. A submission is
+    read out of a directory the model controls, so a link there could name the reference itself."""
+    try:
+        return stat.S_ISREG(os.lstat(p).st_mode)
+    except OSError:
+        return False
+
+
 def locate(path: Path | str | None) -> Path | None:
     """The `submission/` directory `path` refers to, or None when `path` is a
     single-STEP submission (or nothing at all).
@@ -204,15 +219,17 @@ def locate(path: Path | str | None) -> Path | None:
     if path is None:
         return None
     p = Path(path)
-    if p.is_file():
+    if _is_regular(p):
         if p.name == INSTANCES and p.parent.name == ASSEMBLY:
             return p.parent.parent
         return None
+    if _is_link(p):                       # a link is not a submission, whatever it points at
+        return None
     if not p.is_dir():
         return None
-    if (p / ASSEMBLY / INSTANCES).exists() or (p / PARTS).is_dir():
+    if _is_regular(p / ASSEMBLY / INSTANCES) or ((p / PARTS).is_dir() and not _is_link(p / PARTS)):
         return p
-    if (p / SUB_ROOT).is_dir():
+    if (p / SUB_ROOT).is_dir() and not _is_link(p / SUB_ROOT):
         return p / SUB_ROOT
     return None
 
@@ -228,14 +245,14 @@ def is_ready(root: Path | str) -> bool:
     r = locate(root)
     if r is None:
         return False
-    return (r / ASSEMBLY / INSTANCES).exists() and bool(_part_files(r / PARTS))
+    return _is_regular(r / ASSEMBLY / INSTANCES) and bool(_part_files(r / PARTS))
 
 
 def _part_files(parts_dir: Path) -> list[Path]:
-    if not parts_dir.is_dir():
+    if not parts_dir.is_dir() or _is_link(parts_dir):
         return []
     return sorted(p for p in parts_dir.iterdir()
-                  if p.is_file() and p.suffix.lower() in STEP_SUFFIXES)
+                  if _is_regular(p) and p.suffix.lower() in STEP_SUFFIXES)
 
 
 # ── transforms ─────────────────────────────────────────────────────────────
