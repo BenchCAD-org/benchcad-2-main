@@ -226,7 +226,9 @@ def main() -> None:
                           else "INCOMPLETE" if pending else ("SUBSET" if n < N_CORE else "CORE")),
                 "agent_versions": sorted({x["agent_version"] for x in every if x["agent_version"]}),
                 "max_in_flight": max((x.get("max_in_flight") or 0 for x in every), default=0),
-                "over_budget_max": max((x.get("over_budget") or 0 for x in every), default=0),
+                # every trial that went past the budget, by how much (allowed: requests in flight then finish)
+                "over_budget": [{"case": x["case"], "trial": x["trial"], "over_budget": x["over_budget"]}
+                                for x in every if (x.get("over_budget") or 0) > 0],
                 "usd_per_case": _mean([x["cost_usd"] for xs in cases.values() for x in xs]),
                 "median_wall_time_s": _median([x["wall_time_s"] for xs in cases.values() for x in xs]),
                 "timed_out": sum(x["timed_out"] for xs in cases.values() for x in xs),

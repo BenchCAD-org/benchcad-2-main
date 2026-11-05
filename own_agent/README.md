@@ -11,9 +11,9 @@ is who drives the model.
   models too). The count is kept at the model API by a meter the agent's traffic passes through, never
   by the agent. As in 2.1 it is checked before each request, so a request made while budget remains runs
   to its end; once the case has spent its budget, every further request is refused and the agent ends.
-  The `/work/answer.py` that exists when the agent ends is scored. Requests sent at the same time
-  (parallel subagents) are each admitted against the balance at that moment; every row records how many
-  were in flight at most and how far the total went past the budget (`max_in_flight`, `over_budget`).
+  The `/work/answer.py` that exists when the agent ends is scored. Requests already in flight when the
+  budget runs out are allowed to finish and are counted; each trial records how many were in flight at
+  most and how far it went past 500,000 (`max_in_flight`, `over_budget`, also on the summary line).
 - **No round cap.** The agent works however it likes until it stops or the budget is spent.
 - **Network: the model API only**, through the meter, and of it only the generation, token-count and
   model-list paths (no files, batches or other services). Nothing else is reachable while the agent works,

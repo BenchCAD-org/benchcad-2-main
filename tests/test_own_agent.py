@@ -425,6 +425,7 @@ def test_collect_averages_passes_per_case_then_means_over_cases(tmp_path):
     assert r["agent"] == "claude-code-bare" and r["model"] == "anthropic/m-1" and r["effort"] == "high"
     assert r["tool_calls"] == 6 and r["output_tokens"] == 1000 and r["reportable"] and r["wall_time_s"] == 300.0
     (line,) = summary
+    assert line["over_budget"] == []
     assert line["mean"] == pytest.approx((0.6 + 0.0) / 2) and line["label"] == "SUBSET" and line["passes"] == [2]
     schema = json.loads((OWN / "result.schema.json").read_text())
     for x in rows:
@@ -474,6 +475,17 @@ def test_collect_labels_a_run_off_the_standard_meter_not_reportable(tmp_path):
     _trial(job, "b", "t1-case002", reward=0.9, meter={"upstreams": {**STANDARD_UPSTREAMS, "openai": "http://stub"}})
     rows, (line,) = _collect(job, tmp_path=tmp_path)
     assert not any(r["reportable"] for r in rows) and line["label"] == "NOT REPORTABLE"
+
+
+def test_collect_shows_every_trial_that_went_past_the_budget_and_still_reports_it(tmp_path):
+    job = tmp_path / "job"
+    _trial(job, "a", "t1-case001", reward=0.9, meter={"budget_hit": True, "output_tokens": 512000, "over_budget": 12000,
+                                                    "max_in_flight": 3})
+    _trial(job, "b", "t1-case002", reward=0.5)
+    rows, (line,) = _collect(job, tmp_path=tmp_path)
+    assert all(r["reportable"] for r in rows) and line["label"] == "SUBSET"
+    assert line["over_budget"] == [{"case": "t1-case001", "trial": "a", "over_budget": 12000}]
+    assert line["max_in_flight"] == 3
 
 
 def test_collect_never_averages_trials_of_different_builds_into_one_line(tmp_path):
