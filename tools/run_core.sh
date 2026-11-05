@@ -103,9 +103,13 @@ mem_budget() {
 }
 
 # 1. tools: uv is installed if missing (and found again at ~/.local/bin on the next run);
-#    Docker cannot be installed for you.
+#    Docker cannot be installed for you. BENCHCAD_SKIP_SETUP (tests only) installs nothing:
+#    a test must not fetch an installer over the network, and the uvx that comes with uv would
+#    land in the test's own HOME ahead of the stub uvx the test put on PATH -- which is what
+#    hid the download command from test_the_download_is_the_releases_own_revision_never_main
+#    on a machine whose PATH has no uv (2026-11-05).
 [ -x "$HOME/.local/bin/uv" ] && export PATH="$HOME/.local/bin:$PATH"
-if ! command -v uv >/dev/null 2>&1; then
+if ! command -v uv >/dev/null 2>&1 && [ -z "${BENCHCAD_SKIP_SETUP:-}" ]; then
     step "installing uv"
     curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
     export PATH="$HOME/.local/bin:$PATH"
@@ -120,7 +124,7 @@ if ! docker_ok; then
     msg="Docker is required and must be usable by this user (Linux: curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker \$USER, then log in again)"
     [ -n "${BENCHCAD_SKIP_SETUP:-}" ] && step "WARNING: $msg" || die "$msg"
 fi
-# BENCHCAD_SKIP_SETUP (tests only): skip uv sync, the image and the self-test.
+# BENCHCAD_SKIP_SETUP (tests only): skip uv sync, the image and the self-test (and, above, installing uv).
 SETUP=1; [ -n "${BENCHCAD_SKIP_SETUP:-}" ] && SETUP=0
 
 # 2. the environment, and a self-test of what the scorers import (OCP, vtk, cadquery)
