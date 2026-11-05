@@ -12,10 +12,14 @@ passes, streamed or not:
 
 The budget is 2.1's: 500,000 output tokens per case, thinking included, every call counted (a subagent's and a
 small side model's too). It is checked before a request is forwarded, never inside one, as harness/run.py
-checks it between calls: a request made while budget remains runs to its end, and once the sum reaches the
-budget every further request is refused with a 400 in the provider's own error shape, which ends the agent.
-Requests made at the same time (subagents) are each admitted against the same balance; how many were in
-flight, and how far the total went past the budget, is recorded (max_in_flight, over_budget).
+checks it between calls: a request made while budget remains runs to its end, and once the budget is reached
+every further request is refused with a 400 in the provider's own error shape, which ends the agent.
+
+A request is admitted while the tokens spent plus what the requests already in flight may still generate
+(each one's own output cap, or DEFAULT_RESERVE when it names none) is under the budget. So parallel calls run
+freely early on, and near the budget they take their turn: whatever the fan-out, the total can pass the budget
+by at most the one reply that was admitted last. How many were in flight and how far the total went past the
+budget is recorded (max_in_flight, over_budget).
 
 Only the model APIs' generation, token-count and model-list paths are carried (PATHS); anything else (files,
 batches, fine-tuning, ...) gets a 403 and is counted in blocked. A reply's tokens are added before its last
@@ -51,23 +55,33 @@ UPSTREAMS = {
     "openai": os.environ.get("METER_UPSTREAM_OPENAI", "https://api.openai.com"),
     "gemini": os.environ.get("METER_UPSTREAM_GEMINI", "https://generativelanguage.googleapis.com"),
 }
-GENERATION = re.compile(r"(/messages$|/responses$|/responses/compact$|/chat/completions$|/completions$|"
-                        r":generateContent$|:streamGenerateContent$)")
-# What the meter carries, per provider: (method, path) after the route prefix. Everything else is refused.
+GENERATION = re.compile(r"(/messages$|/responses$|/chat/completions$|:generateContent$|:streamGenerateContent$)")
+# What the meter carries, per provider: (method, path) after the route prefix. Everything else is refused. Only
+# the generation endpoints whose reply states its output tokens are here: the legacy /v1/completions, the
+# batch, file and tuning services and everything else are not, so no model call can go uncounted.
 PATHS = {
     "anthropic": [("POST", r"/v1/messages"), ("POST", r"/v1/messages/count_tokens"), ("GET", r"/v1/models(/[^/]+)?")],
-    "openai": [("POST", r"/v1/responses"), ("POST", r"/v1/responses/compact"), ("POST", r"/v1/chat/completions"),
-               ("POST", r"/v1/completions"), ("GET", r"/v1/models(/[^/]+)?")],
+    "openai": [("POST", r"/v1/responses"), ("POST", r"/v1/chat/completions"), ("GET", r"/v1/models(/[^/]+)?")],
     "gemini": [("POST", r"/v1(beta|alpha)?/models/[^/:]+:(generateContent|streamGenerateContent|countTokens)"),
                ("GET", r"/v1(beta|alpha)?/models(/[^/:]+)?")],
 }
+# What one request may still generate, when it is admitted: its own cap, or this when it names none. The budget
+# is checked against the spent total plus what the requests in flight may still produce, so a fan-out of
+# parallel calls cannot pass the budget together (max_tokens is Anthropic's, and required there).
+DEFAULT_RESERVE = 64_000
+RESERVE_KEYS = ("max_tokens", "max_output_tokens", "max_completion_tokens")
+MAX_BODY = 32 << 20                      # a request body larger than this is refused, never buffered
+MAX_CONCURRENT = 64                      # requests the meter will carry at once; beyond that it says so
+BODY_TIMEOUT_S = 120                     # reading one request body
+GATE = threading.BoundedSemaphore(MAX_CONCURRENT)
 HOP = {"host", "connection", "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade",
        "content-length", "accept-encoding"}
 LOCK = threading.Lock()
 TOTALS = {"budget": BUDGET, "output_tokens": 0, "requests": 0, "generation_requests": 0, "refused": 0,
           "budget_hit": False, "budget_hit_at": None, "over_budget": 0, "usage_unread": 0, "websocket_refused": 0,
-          "blocked": 0, "include_usage_added": 0, "in_flight": 0, "max_in_flight": 0, "upstreams": UPSTREAMS,
-          "started_at": time.time()}
+          "blocked": 0, "include_usage_added": 0, "in_flight": 0, "max_in_flight": 0, "reserved": 0,
+          "overloaded": 0, "upstreams": UPSTREAMS, "started_at": time.time()}
+RESERVED: dict[int, int] = {}            # request id -> what it may still generate (LOCK)
 
 
 def save() -> None:
@@ -145,9 +159,29 @@ class Usage:
         return self.value
 
 
+def reserve_of(path: str, body: bytes) -> int:
+    """What one request may still generate: the output cap it names, else DEFAULT_RESERVE."""
+    if not GENERATION.search(path):
+        return 0
+    try:
+        req = json.loads(body or b"{}")
+    except ValueError:
+        return DEFAULT_RESERVE
+    if not isinstance(req, dict):
+        return DEFAULT_RESERVE
+    for k in RESERVE_KEYS:
+        if isinstance(req.get(k), int) and req[k] > 0:
+            return min(req[k], BUDGET)
+    cfg = req.get("generationConfig")                        # Gemini
+    if isinstance(cfg, dict) and isinstance(cfg.get("maxOutputTokens"), int) and cfg["maxOutputTokens"] > 0:
+        return min(cfg["maxOutputTokens"], BUDGET)
+    return DEFAULT_RESERVE
+
+
 def refusal(provider: str) -> bytes:
-    msg = (f"BenchCAD: this case's budget of {BUDGET:,} output tokens (thinking included) is spent; "
-           f"no further model requests are served. The /work/answer.py that exists now is scored.")
+    msg = (f"BenchCAD: this case's budget of {BUDGET:,} output tokens (thinking included) is spent or reserved "
+           f"by the requests in flight; no further model requests are served. The /work/answer.py that exists "
+           f"now is scored.")
     if provider == "anthropic":
         return json.dumps({"type": "error", "error": {"type": "invalid_request_error", "message": msg}}).encode()
     if provider == "openai":
@@ -170,6 +204,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _proxy(self) -> None:
+        if not GATE.acquire(blocking=False):
+            with LOCK:
+                TOTALS["overloaded"] += 1
+                save()
+            return self._reply(503, json.dumps({"error": f"the BenchCAD meter carries at most "
+                                                         f"{MAX_CONCURRENT} requests at once"}).encode())
+        try:
+            self._serve()
+        finally:
+            GATE.release()
+
+    def _serve(self) -> None:
         t0 = time.time()
         if self.path.startswith("/_meter/status"):
             with LOCK:
@@ -181,8 +227,24 @@ class Handler(BaseHTTPRequestHandler):
         rest = "/" + (parts[2] if len(parts) > 2 else "")
         path_only = urlsplit(rest).path
         gen = bool(GENERATION.search(path_only))
-        n = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(n) if n else b""
+        # the body is read on one length only: a chunked or double-framed request is refused, not guessed at,
+        # and a length larger than MAX_BODY is never buffered
+        if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length") or []) > 1:
+            return self._reply(400, json.dumps({"error": "the BenchCAD meter takes one Content-Length and no "
+                                                         "chunked request body"}).encode())
+        raw = self.headers.get("Content-Length") or "0"
+        if not raw.strip().isdigit():
+            return self._reply(400, json.dumps({"error": f"Content-Length {raw[:40]!r} is not a length"}).encode())
+        n = int(raw)
+        if n > MAX_BODY:
+            return self._reply(413, json.dumps({"error": f"a request body over {MAX_BODY} bytes is refused"}).encode())
+        try:
+            self.connection.settimeout(BODY_TIMEOUT_S)
+            body = self.rfile.read(n) if n else b""
+        except OSError:
+            return
+        if len(body) != n:
+            return self._reply(400, json.dumps({"error": "the request body was shorter than Content-Length"}).encode())
         if not any(m == self.command and re.fullmatch(rx, path_only) for m, rx in PATHS[provider]) \
                 and "websocket" not in (self.headers.get("Upgrade") or "").lower():
             with LOCK:
@@ -207,26 +269,35 @@ class Handler(BaseHTTPRequestHandler):
             if isinstance(req, dict) and req.get("stream") and not (req.get("stream_options") or {}).get("include_usage"):
                 req["stream_options"] = {**(req.get("stream_options") or {}), "include_usage": True}
                 body, added = json.dumps(req).encode(), True
+        reserve = reserve_of(path_only, body)
+        rid = id(self)
         with LOCK:
             TOTALS["include_usage_added"] += added
             TOTALS["requests"] += 1
-            if TOTALS["output_tokens"] >= BUDGET:
+            # admitted while what is spent plus what the requests in flight may still generate is under the
+            # budget: parallel calls are free early on, and near the budget they take their turn
+            if TOTALS["output_tokens"] + TOTALS["reserved"] >= BUDGET:
                 TOTALS["refused"] += 1
                 save()
-                log({"t": round(t0, 3), "provider": provider, "path": path_only, "status": 400, "refused": True})
+                log({"t": round(t0, 3), "provider": provider, "path": path_only, "status": 400, "refused": True,
+                     "spent": TOTALS["output_tokens"], "reserved": TOTALS["reserved"]})
                 return self._reply(400, refusal(provider))
             if gen:
                 TOTALS["generation_requests"] += 1
+            RESERVED[rid] = reserve
+            TOTALS["reserved"] += reserve
             TOTALS["in_flight"] += 1
             TOTALS["max_in_flight"] = max(TOTALS["max_in_flight"], TOTALS["in_flight"])
+            save()                       # what is in flight and reserved is part of the record
         try:
-            self._forward(t0, provider, rest, path_only, gen, body)
+            self._forward(t0, provider, rest, path_only, gen, body, rid)
         finally:
             with LOCK:
+                TOTALS["reserved"] -= RESERVED.pop(rid, 0)
                 TOTALS["in_flight"] -= 1
                 save()
 
-    def _forward(self, t0, provider, rest, path_only, gen, body) -> None:
+    def _forward(self, t0, provider, rest, path_only, gen, body, rid) -> None:
         up = urlsplit(UPSTREAMS[provider])
         conn_cls = http.client.HTTPSConnection if up.scheme == "https" else http.client.HTTPConnection
         kw = {"context": ssl.create_default_context()} if up.scheme == "https" else {}
@@ -267,6 +338,8 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 if ok and gen and not usage.found:
                     TOTALS["usage_unread"] += 1
+                # this request's reservation gives way to what it really generated
+                TOTALS["reserved"] -= RESERVED.pop(rid, 0)
                 TOTALS["output_tokens"] += out
                 if TOTALS["output_tokens"] >= BUDGET and not TOTALS["budget_hit"]:
                     TOTALS["budget_hit"], TOTALS["budget_hit_at"] = True, time.time()

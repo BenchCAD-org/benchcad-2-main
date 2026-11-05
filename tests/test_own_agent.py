@@ -226,9 +226,13 @@ def test_a_reply_whose_usage_cannot_be_read_is_counted_never_guessed(meter):
 class Upstream:
     """A model API that misbehaves on purpose, in this process: POST /v1/messages answers by the request's
     model name. "slow": a full stream, 1 s late; "cut": a stream that stops after message_start (only the
-    preliminary count); "long": a stream of 40 deltas, 50 ms apart, then the final usage (1000)."""
+    preliminary count); "long": a stream of 40 deltas, 50 ms apart, then the final usage (1000); "hold": a
+    stream that waits for release() before it answers at all."""
 
     def __init__(self):
+        self.go = threading.Event()
+        self_outer = self
+
         class H(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
@@ -248,6 +252,8 @@ class Upstream:
                     self.wfile.flush()
                 if kind == "slow":
                     time.sleep(1)
+                if kind == "hold":
+                    self_outer.go.wait(60)
                 ev({"type": "message_start", "message": {"model": kind, "usage": {"output_tokens": 1}}})
                 if kind == "cut":
                     return
@@ -262,7 +268,11 @@ class Upstream:
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
 
+    def release(self):
+        self.go.set()
+
     def close(self):
+        self.go.set()
         self.srv.shutdown()
 
 
@@ -299,38 +309,81 @@ def test_a_reply_the_agent_stops_reading_is_still_counted_in_full(meter, upstrea
     assert m.usage()["output_tokens"] == 1000 and m.usage()["usage_unread"] == 0
 
 
-def test_requests_in_flight_together_are_recorded(meter, upstream):
+def _until(f, what, timeout=20):
+    for _ in range(int(timeout / 0.05)):
+        try:
+            if f():
+                return
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.05)
+    raise AssertionError(f"never happened: {what}")
+
+
+def test_what_requests_in_flight_may_still_generate_is_held_against_the_budget(meter, upstream):
+    """A fan-out cannot pass the budget together: each request in flight reserves its own output cap, and the
+    total can go past the budget by at most the reply admitted last."""
     m = meter(budget=1500, upstream=upstream.url)
     out = []
-    ts = [threading.Thread(target=lambda: out.append(m.call("/anthropic/v1/messages",
-                                                           {**ANTHROPIC, "model": "slow", "stream": True})[0]))
-          for _ in range(3)]
+    ts = [threading.Thread(target=lambda: out.append(m.call(
+        "/anthropic/v1/messages", {**ANTHROPIC, "model": "hold", "max_tokens": 1000, "stream": True})[0]))
+        for _ in range(3)]
     for t in ts:
         t.start()
+    # two are admitted (0 spent + 1000 reserved < 1500); the third has nothing left to reserve
+    _until(lambda: m.usage()["refused"] == 1, "the third request refused")
+    assert m.usage()["in_flight"] == 2 and m.usage()["reserved"] == 2000
+    upstream.release()
     for t in ts:
         t.join()
-    for _ in range(100):
-        if m.usage()["in_flight"] == 0:
-            break
-        time.sleep(0.05)
+    _until(lambda: m.usage()["in_flight"] == 0, "both replies accounted")
     u = m.usage()
-    # all three were admitted against the same 0 spent: 2.1's rule (checked before a call) has one call at a time
-    assert out == [200, 200, 200] and u["max_in_flight"] == 3 and u["output_tokens"] == 3000
-    assert u["over_budget"] == 1500 and u["budget_hit"] and u["in_flight"] == 0
-    assert m.call("/anthropic/v1/messages", ANTHROPIC)[0] == 400
+    assert sorted(out) == [200, 200, 400] and u["max_in_flight"] == 2
+    assert u["output_tokens"] == 2000 and u["over_budget"] == 500 and u["budget_hit"] and u["reserved"] == 0
+
+
+def test_a_request_naming_no_output_cap_reserves_the_default(meter, upstream):
+    m = meter(budget=10**9, upstream=upstream.url)
+    t = threading.Thread(target=lambda: m.call("/openai/v1/responses", {**RESPONSES, "model": "hold", "stream": True}))
+    t.start()
+    _until(lambda: m.usage()["in_flight"] == 1, "the request in flight")
+    assert m.usage()["reserved"] == 64_000
+    upstream.release()
+    t.join()
+    _until(lambda: m.usage()["reserved"] == 0, "the reservation reconciled")
 
 
 def test_only_the_model_apis_generation_paths_are_carried(meter):
     m = meter(budget=10**9)
-    for method, path in [("POST", "/openai/v1/batches"), ("POST", "/openai/v1/files"), ("GET", "/openai/v1/files/x"),
+    for method, path in [("POST", "/openai/v1/completions"), ("POST", "/openai/v1/responses/compact"),
+                         ("POST", "/openai/v1/batches"), ("POST", "/openai/v1/files"), ("GET", "/openai/v1/files/x"),
                          ("POST", "/anthropic/v1/messages/batches"), ("POST", "/gemini/v1beta/cachedContents"),
                          ("GET", "/openai/v1/responses"), ("POST", "/gemini/upload/v1beta/files")]:
         st, _, raw = m.call(path, {} if method == "POST" else None, method=method)
         assert st == 403 and b"generation paths only" in raw, (path, raw)
-    assert m.usage()["blocked"] == 7 and m.usage()["requests"] == 0
+    assert m.usage()["blocked"] == 9 and m.usage()["requests"] == 0
     for method, path in [("GET", "/openai/v1/models"), ("POST", "/anthropic/v1/messages/count_tokens"),
                          ("POST", "/gemini/v1beta/models/m:countTokens"), ("GET", "/gemini/v1beta/models")]:
         assert m.call(path, {} if method == "POST" else None, method=method)[0] == 200, path
+
+
+def test_bad_framing_and_oversized_bodies_are_refused_not_buffered(meter):
+    m = meter(budget=10**9)
+
+    def raw(head: bytes):
+        c = socket.create_connection(("127.0.0.1", m.port), timeout=10)
+        c.sendall(head)
+        out = c.recv(200)
+        c.close()
+        return out
+    body = json.dumps(ANTHROPIC).encode()
+    assert b"400" in raw(b"POST /anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n")
+    assert b"400" in raw(b"POST /anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n"
+                         b"Content-Length: 1\r\n\r\n%s" % (len(body), body))
+    assert b"400" in raw(b"POST /anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nContent-Length: -5\r\n\r\n")
+    assert b"413" in raw(b"POST /anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nContent-Length: 999999999\r\n\r\n")
+    assert m.usage()["output_tokens"] == 0 and m.usage()["generation_requests"] == 0
+    assert m.call("/anthropic/v1/messages", ANTHROPIC)[0] == 200          # still serving
 
 
 def test_usage_parsing_takes_each_calls_last_value():
@@ -369,7 +422,8 @@ PINS = {"data_commit": "4b6fe17f63ef46090e372120d5863bcb91bef9de", "harness_comm
 
 
 def _trial(job: Path, name: str, case: str, *, reward=None, no_answer=0, error=0, meter: dict | None = None,
-           work_ok=True, started="2026-11-01T00:00:00Z", effort="high", pins=None, exception=None, statuses=()):
+           work_ok=True, started="2026-11-01T00:00:00Z", effort="high", pins=None, exception=None, statuses=(),
+           detail=None):
     t = job / name
     (t / "verifier").mkdir(parents=True)
     (t / "artifacts").mkdir()
@@ -394,7 +448,8 @@ def _trial(job: Path, name: str, case: str, *, reward=None, no_answer=0, error=0
         (t / "verifier/reward.json").write_text(json.dumps({"reward": reward or 0.0, "error": error,
                                                             "no_answer": no_answer}))
     (t / "verifier/detail.json").write_text(json.dumps({"pins": {"case": case, "task": case[:2].replace("t", "task"),
-                                                                 "kind": "part", **PINS, **(pins or {})}}))
+                                                                 "kind": "part", **PINS, **(pins or {})},
+                                                        **(detail or {})}))
     # ATIF: embedded subagent trajectories hang off the trajectory, nested
     (t / "agent/trajectory.json").write_text(json.dumps({"steps": [{"tool_calls": [{}, {}]}, {"tool_calls": [{}]}],
         "subagent_trajectories": [{"steps": [{"tool_calls": [{}]}],
@@ -436,11 +491,10 @@ def test_collect_gives_no_line_while_a_cell_has_no_score(tmp_path):
     job = tmp_path / "job"
     _trial(job, "a", "t1-case001", reward=0.9)
     _trial(job, "b", "t1-case002", error=1)                             # the verifier could not finish
-    _trial(job, "d", "t1-case004", reward=0.9, meter={"usage_unread": 2})
     _trial(job, "e", "t1-case005", no_answer=1, work_ok=False)           # /work never reached the verifier
     rows, (line,) = _collect(job, tmp_path=tmp_path)
-    assert [r["status"] for r in rows] == ["scored", "pending", "pending", "pending"]
-    assert line["mean"] is None and line["label"] == "INCOMPLETE" and len(line["pending"]) == 3
+    assert [r["status"] for r in rows] == ["scored", "pending", "pending"]
+    assert line["mean"] is None and line["label"] == "INCOMPLETE" and len(line["pending"]) == 2
     # no meter record: the budget cannot be shown to have held
     _trial(job, "c", "t1-case003", reward=0.9, meter=False)
     # the agent ended on a provider error it did not get past, before writing an answer: not a zero
@@ -456,6 +510,48 @@ def test_collect_gives_no_line_while_a_cell_has_no_score(tmp_path):
     assert "HTTP 529" in by["t1-case006"]["why"]
     assert by["t1-case007"]["status"] == "no_submission" and by["t1-case008"]["score"] == 0.4
     assert line["mean"] is None and line["label"] == "INCOMPLETE"
+
+
+def test_collect_scores_a_trial_whose_usage_could_not_be_read_but_never_reports_it(tmp_path):
+    """A reply the meter could not read would otherwise be a free re-run: the cell keeps its score and the
+    line is not reportable."""
+    job = tmp_path / "job"
+    _trial(job, "a", "t1-case001", reward=0.9, meter={"usage_unread": 2})
+    rows, (line,) = _collect(job, tmp_path=tmp_path)
+    assert rows[0]["status"] == "scored" and rows[0]["score"] == 0.9 and rows[0]["usage_unread"] == 2
+    assert not rows[0]["reportable"] and line["mean"] == 0.9 and line["label"] == "NOT REPORTABLE"
+
+
+def test_collect_allows_one_rerun_a_pass_then_counts_it_zero(tmp_path):
+    job = tmp_path / "job"
+    _trial(job, "a1", "t1-case001", error=1)
+    (job / "run.json").write_text(json.dumps({"agent": "claude-code", "model": "anthropic/m-1", "effort": "high",
+                                              "cases": "task1/case001", "passes": 1}))                             # the verifier could not finish
+    _, (line,) = _collect(job, tmp_path=tmp_path)
+    assert line["pending"] == ["t1-case001"] and line["label"] == "INCOMPLETE" and line["reruns"] == 0
+    _trial(job, "a2", "t1-case001", error=1, started="2026-11-01T02:00:00Z")   # the re-run fails too
+    _, (line,) = _collect(job, tmp_path=tmp_path)
+    assert line["pending"] == [] and line["zero_after_rerun"] == ["t1-case001"]
+    assert line["mean"] == 0.0 and line["reruns"] == 1 and line["label"] == "SUBSET"
+
+
+def test_collect_takes_the_rerun_that_scored(tmp_path):
+    job = tmp_path / "job"
+    _trial(job, "a1", "t1-case001", error=1)
+    (job / "run.json").write_text(json.dumps({"agent": "claude-code", "model": "anthropic/m-1", "effort": "high",
+                                              "cases": "task1/case001", "passes": 1}))
+    _trial(job, "a2", "t1-case001", reward=0.8, started="2026-11-01T02:00:00Z")
+    _, (line,) = _collect(job, tmp_path=tmp_path)
+    assert line["mean"] == 0.8 and line["pending"] == [] and line["zero_after_rerun"] == []
+    assert line["reruns"] == 1 and line["label"] == "SUBSET"
+
+
+def test_collect_lists_a_case_the_scorer_could_not_score(tmp_path):
+    job = tmp_path / "job"
+    _trial(job, "a", "t1-case001", no_answer=1, detail={"scorer_failed": "RecursionError"})
+    rows, (line,) = _collect(job, tmp_path=tmp_path)
+    assert rows[0]["status"] == "no_submission" and rows[0]["score"] == 0.0
+    assert rows[0]["scorer_failed"] == "RecursionError" and line["scorer_failed"] == ["t1-case001"]
 
 
 def test_collect_counts_a_missing_pass_as_pending(tmp_path):
@@ -652,3 +748,83 @@ def test_cleanup_removes_the_core_copies_and_keeps_what_the_agent_made(tmp_path)
     left = sorted(p.relative_to(work).as_posix() for p in work.rglob("*") if p.is_file())
     assert left == ["answer.py", "helpers.py", "notes.md", "out/part.step"]
     assert not (tmp_path / "tasks").exists()
+
+
+# -- the verifier's own file handling (template/tests/run) -----------------------------------------------------
+
+RUN = OWN / "template/tests/run"
+
+
+def test_copy_in_takes_regular_files_only_and_follows_nothing(tmp_path):
+    work, out, outside = tmp_path / "work", tmp_path / "run", tmp_path / "outside"
+    (work / "sub").mkdir(parents=True)
+    outside.mkdir()
+    (outside / "reference.step").write_text("the reference")
+    (work / "answer.py").write_text("x = 1\n")
+    (work / "sub/part.step").write_text("a part")
+    (work / "tools.py").write_text("not the harness's")                  # dropped: /tests holds the real one
+    (work / "final.step").symlink_to(outside / "reference.step")         # a link out of /work
+    (work / "linkdir").symlink_to(outside)                               # a directory link
+    (work / "sub/also.step").symlink_to(outside / "reference.step")
+    os.mkfifo(work / "pipe")
+    r = subprocess.run([sys.executable, str(RUN / "copy_in.py"), str(work), str(out)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    got = sorted(p.relative_to(out).as_posix() for p in out.rglob("*"))
+    assert got == ["answer.py", "sub", "sub/part.step"]
+    assert not any(p.is_symlink() for p in out.rglob("*"))
+    assert "a link" in r.stderr and "not a regular file" in r.stderr
+    assert (outside / "reference.step").read_text() == "the reference"    # untouched
+
+
+def test_copy_in_caps_what_one_file_can_bring(tmp_path, monkeypatch):
+    work, out = tmp_path / "work", tmp_path / "run"
+    work.mkdir()
+    (work / "big.step").write_bytes(b"x" * 4096)
+    (work / "answer.py").write_text("x = 1\n")
+    src = (RUN / "copy_in.py").read_text().replace("MAX_FILE = 4 << 30", "MAX_FILE = 1024")
+    script = tmp_path / "copy_in_small.py"
+    script.write_text(src)
+    r = subprocess.run([sys.executable, str(script), str(work), str(out)], capture_output=True, text=True)
+    assert r.returncode == 0 and "over the size cap" in r.stderr
+    assert sorted(p.name for p in out.iterdir()) == ["answer.py"]
+
+
+def test_the_seal_catches_a_change_to_the_verifiers_own_files(tmp_path):
+    tests = tmp_path / "tests"
+    (tests / "run").mkdir(parents=True)
+    (tests / "scorer/tools").mkdir(parents=True)
+    (tests / "test.sh").write_text("#!/bin/bash\n")
+    (tests / "pins.json").write_text("{}")
+    (tests / "run/score.py").write_text("print('the real scorer')\n")
+    (tests / "scorer/harness_scorer_child.py").write_text("child\n")
+    (tests / "scorer/tools/core_score.py").write_text("resolve\n")
+    src = (RUN / "seal.py").read_text().replace('"/tests', f'"{tests}')
+    seal_py = tmp_path / "seal.py"
+    seal_py.write_text(src)
+    seal = tmp_path / "seal.json"
+    assert subprocess.run([sys.executable, str(seal_py), "record", str(seal)]).returncode == 0
+    assert subprocess.run([sys.executable, str(seal_py), "verify", str(seal)]).returncode == 0
+    (tests / "run/score.py").write_text("print('whatever the answer wanted')\n")
+    r = subprocess.run([sys.executable, str(seal_py), "verify", str(seal)], capture_output=True, text=True)
+    assert r.returncode == 1 and "score.py changed during the answer run" in r.stderr
+
+
+def test_the_tmp_wipe_leaves_nothing_of_the_answers_behind(tmp_path):
+    shared, private, outside = tmp_path / "tmp", tmp_path / "private", tmp_path / "outside"
+    shared.mkdir()
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not the answer's to delete")
+    (shared / ".cache-sandbox").mkdir()
+    (shared / ".cache-sandbox/planted.py").write_text("import os\n")
+    (shared / "matplotlibrc").write_text("x")
+    (shared / "link").symlink_to(outside / "keep.txt")
+    (shared / "dirlink").symlink_to(outside)
+    private.mkdir()
+    (private / "stale").write_text("from a previous run")
+    r = subprocess.run([sys.executable, str(RUN / "wipe_tmp.py"), str(private), str(shared)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert list(shared.iterdir()) == []
+    assert sorted(p.name for p in private.iterdir()) == ["cache", "config", "home", "mpl", "tmp"]
+    assert (outside / "keep.txt").read_text() == "not the answer's to delete"
+    assert oct(private.stat().st_mode)[-3:] == "700"

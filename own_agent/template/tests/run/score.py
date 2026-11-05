@@ -1,13 +1,18 @@
 """Score what the agent's answer left, with the 2.1 scorer, and write the verifier's files.
 
-    /opt/scorer/bin/python /tests/run/score.py RUN_DIR RC
+    /opt/scorer/bin/python -s /tests/run/score.py RUN_DIR RC PRIVATE_DIR
 
-RUN_DIR holds what answer.py left, as its own uid copied it out (test.sh, collect_answer.py), RC its exit code. The answer is what harness/run.py takes from a
-submitted program (envs.common.episode._artifact): a complete submission/ directory, else final.step, else
-pred_graph.json. It is scored as harness/run.py scores (score_in_subprocess: envs.common.score_case in a child
-interpreter, the 2.1 time limit, out-of-memory told apart from a score) and the cell is resolved by 2.1's own
-rule (tools/core_score.resolve): scored, no submission (= 0), or pending (no score: the verifier's failure,
-re-verify it).
+RUN_DIR holds what answer.py left, as its own uid copied it out (test.sh, collect_answer.py), RC its exit
+code, PRIVATE_DIR the scorer's own HOME, TMPDIR and caches, made fresh after /tmp was emptied. The answer is
+what harness/run.py takes from a submitted program (envs.common.episode._artifact): a complete submission/
+directory, else final.step, else pred_graph.json. It is scored as harness/run.py scores
+(score_in_subprocess: envs.common.score_case in a child interpreter, the 2.1 time limit, out-of-memory told
+apart from a score) and the cell is resolved by 2.1's own rule (tools/core_score.resolve): scored, no
+submission (= 0), or pending (no score: the verifier's failure, re-verify it).
+
+A submission that the scorer cannot score is the answer's own 0, not a pending cell: only the scorer running
+out of memory or time, or failing to import, is the verifier's. Otherwise an answer could buy itself a fresh
+budget by crashing the scorer. The reason is recorded either way, and collect.py lists such cases.
 
 /logs/verifier/reward.json  reward (the cell's value, 0 when there is none), error (1: pending, not a score),
                             no_answer (1: the case scores 0 because there is no answer)
@@ -25,9 +30,47 @@ SCORER = T / "scorer"
 sys.path.insert(0, str(SCORER))
 sys.path.insert(0, str(SCORER / "tools"))
 
+MAX_JSON = 32 << 20                      # a prediction larger than this, or nested deeper, is malformed
+MAX_DEPTH = 64
+# the scorer's own failures that are ours, not the answer's: everything else is scored 0
+INFRA_ERRORS = ("MemoryError", "ImportError", "ModuleNotFoundError")
+
 pins = json.loads((T / "pins.json").read_text())
 run, rc = Path(sys.argv[1]), int(sys.argv[2])
+private = Path(sys.argv[3] if len(sys.argv) > 3 else "/run/private")
+for sub in ("home", "tmp", "mpl", "cache", "config"):
+    (private / sub).mkdir(parents=True, exist_ok=True)
 detail = {"pins": pins, "answer_rc": rc}
+
+
+def malformed(path: Path) -> str | None:
+    """Why this JSON prediction cannot be scored, or None. The bytes are scanned, never parsed: a deeply
+    nested document raises RecursionError inside json.loads itself."""
+    size = path.stat().st_size
+    if size > MAX_JSON:
+        return f"{path.name} is {size} bytes, over the {MAX_JSON} the scorer takes"
+    depth = top = 0
+    in_str = esc = False
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            for c in chunk:
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == 0x5C:
+                        esc = True
+                    elif c == 0x22:
+                        in_str = False
+                elif c == 0x22:
+                    in_str = True
+                elif c in (0x7B, 0x5B):
+                    depth += 1
+                    top = max(top, depth)
+                elif c in (0x7D, 0x5D):
+                    depth -= 1
+    if top > MAX_DEPTH:
+        return f"{path.name} nests {top} deep, over the {MAX_DEPTH} the scorer takes"
+    return None
 
 
 def write(reward: float, error: int, no_answer: int, **kw) -> None:
@@ -84,21 +127,50 @@ if artifact is None:
     why = "no /work/answer.py" if rc == -1 else (f"answer.py failed (exit {rc})" if rc else "answer.py left no answer")
     write(0, 0, 1, status=v[0], why=why, score=None)
 
-# score_in_subprocess, as harness/run.py runs it (the child's code is the harness's own SCORER_CHILD)
+# a prediction the scorer cannot read is the answer's 0, decided before the scorer sees it
+for f in ([artifact] if artifact.suffix == ".json" else sorted(artifact.rglob("*.json"))
+          if artifact.is_dir() else []):
+    if (why := malformed(f)):
+        v = resolve({"case": pins["task"], "score": None})
+        write(0, 0, 1, status=v[0], why=f"the answer cannot be scored: {why}", score=None)
+
+# score_in_subprocess, as harness/run.py runs it (the child's code is the harness's own SCORER_CHILD), with
+# its own HOME, TMPDIR and caches: it shares the container with a run by another user, so it shares no state
 child = (SCORER / "harness_scorer_child.py").read_text()
 limit = pins["score_timeout_s"]          # tools/run_core.sh's BENCHCAD_SCORE_TIMEOUT_S
+out_f, err_f = private / "scorer.stdout", private / "scorer.stderr"
+env = {"PATH": "/opt/scorer/bin:/usr/bin:/bin", "PYTHONPATH": str(SCORER), "PYTHONNOUSERSITE": "1",
+       "HOME": str(private / "home"), "TMPDIR": str(private / "tmp"), "MPLCONFIGDIR": str(private / "mpl"),
+       "XDG_CACHE_HOME": str(private / "cache"), "XDG_CONFIG_HOME": str(private / "config")}
 try:
-    r = subprocess.run([sys.executable, "-c", child, str(T / "case"), str(artifact)], capture_output=True,
-                       text=True, timeout=limit, cwd=str(SCORER), env={"PATH": "/opt/scorer/bin:/usr/bin:/bin",
-                                                                       "PYTHONPATH": str(SCORER), "HOME": "/tmp"})
+    with open(out_f, "wb") as o, open(err_f, "wb") as e:
+        rcode = subprocess.run([sys.executable, "-s", "-c", child, str(T / "case"), str(artifact)], stdout=o,
+                               stderr=e, timeout=limit, cwd=str(SCORER), env=env).returncode
 except subprocess.TimeoutExpired:
     write(0, 1, 0, status="pending", why=f"scorer timed out after {limit} s")
-detail["scorer_stderr_tail"] = r.stderr.strip()[-4096:]
-if r.returncode == 87 and "BENCHCAD_SCORER_MEMORY_ERROR" in r.stderr:
+
+
+def tail(path: Path, n: int = 65536) -> str:
+    with open(path, "rb") as f:
+        f.seek(max(0, path.stat().st_size - n))
+        return f.read().decode("utf-8", "replace")
+
+
+err = tail(err_f)
+detail["scorer_stderr_tail"] = err.strip()[-4096:]
+if rcode == 87 and "BENCHCAD_SCORER_MEMORY_ERROR" in err:
     write(0, 1, 0, status="pending", why="memory_budget_exceeded: the scorer ran out of memory")
-if r.returncode != 0:
-    write(0, 1, 0, status="pending", why=f"scorer exited {r.returncode}")
-score = json.loads(r.stdout.strip().splitlines()[-1])
+if rcode != 0:
+    last = [l for l in err.strip().splitlines() if l and not l[0].isspace()]
+    kind = (last[-1].split(":")[0].split(".")[-1] if last else "")
+    if kind in INFRA_ERRORS:
+        write(0, 1, 0, status="pending", why=f"the scorer could not run: {kind}")
+    write(0, 0, 1, status="no_submission", score=None, scorer_failed=kind or f"exit {rcode}",
+          why=f"the answer could not be scored: {kind or f'the scorer exited {rcode}'}")
+try:
+    score = json.loads(tail(out_f).strip().splitlines()[-1])
+except (ValueError, IndexError):
+    write(0, 1, 0, status="pending", why="the scorer printed no score")
 status, value, why = resolve({"case": pins["task"], "score": score})
 if status == "scored":
     write(value, 0, 0, status=status, why=why, score=score)

@@ -89,7 +89,8 @@ def missing(case: str, trial: str | None, why: str) -> dict:
             "wall_time_s": None, "trial_time_s": None, "verifier_time_s": None, "timed_out": False,
             "exception": None, "tokens": {}, "output_tokens": None, "budget": None, "budget_hit": None,
             "refused_requests": None, "model_requests": None, "reportable": False, "websocket_refused": None,
-            "cost_usd": None, "tool_calls": None, "pins": {}, "task_checksum": None, "trajectory": ""}
+            "usage_unread": None, "scorer_failed": None, "cost_usd": None, "tool_calls": None, "pins": {},
+            "task_checksum": None, "trajectory": ""}
 
 
 def row(trial: Path) -> dict | None:
@@ -128,8 +129,6 @@ def row(trial: Path) -> dict | None:
     meter = json.loads(um.read_text()) if um.exists() else None
     if meter is None and status != "pending":
         status, score, collect_why = "pending", None, "no meter record: the budget cannot be shown to have held"
-    elif meter and meter.get("usage_unread"):
-        status, score, collect_why = "pending", None, f"{meter['usage_unread']} model replies whose usage the meter could not read"
     elif exc and exc != "AgentTimeoutError" and meter and not meter.get("budget_hit") and (pe := provider_error(trial)):
         status, score, collect_why = "pending", None, f"the agent ended on a provider error (HTTP {pe}, {exc})"
     why = collect_why or detail.get("why")
@@ -157,8 +156,12 @@ def row(trial: Path) -> dict | None:
         "model_requests": None if meter is None else meter.get("generation_requests"),
         # a run whose meter had another budget or another upstream (harbor --extra-docker-compose can change
         # both) is a check, not a score to report
+        # a reply whose usage the meter could not read leaves the trial scored, but off the leaderboard: the
+        # budget cannot be shown to have held, and a pending cell would be a free re-run
+        "usage_unread": None if meter is None else meter.get("usage_unread"),
         "reportable": bool(meter) and meter.get("budget") == STANDARD_BUDGET
                       and (meter.get("upstreams") or STANDARD_UPSTREAMS) == STANDARD_UPSTREAMS
+                      and not meter.get("usage_unread")
                       and all(pins.get(k) == v for k, v in STANDARD_PINS.items()),
         "max_in_flight": None if meter is None else meter.get("max_in_flight"),
         "over_budget": None if meter is None else meter.get("over_budget"),
@@ -166,6 +169,7 @@ def row(trial: Path) -> dict | None:
         "websocket_refused": None if meter is None else meter.get("websocket_refused"),
         "cost_usd": ar.get("cost_usd"),
         "tool_calls": tool_calls(trial),
+        "scorer_failed": detail.get("scorer_failed"),
         "pins": {k: pins.get(k) for k in PIN_KEYS},
         "task_checksum": r.get("task_checksum"),
         "trajectory": f"{trial.parent.name}/{trial.name}/agent",
@@ -200,6 +204,7 @@ def main() -> None:
                 # the wrapper's names are the line's: agent, model and effort as the run was asked for
                 x["model_reported"] = x["model"]
                 x["agent"], x["model"], x["effort"] = run["agent"], run.get("model") or x["model"], run.get("effort") or x["effort"]
+                x["expected_passes"] = int(run.get("passes") or 1)
                 x["run"] = {k: run.get(k) for k in ("harbor_agent", "transport", "model_sent", "budget")}
         rows.extend(mine)
     rows.sort(key=lambda x: (x["agent"] or "", x["model"] or "", x["effort"] or "", x["case"], x["started_at"] or ""))
@@ -214,8 +219,24 @@ def main() -> None:
         lines[(x["agent"], x["model"], x["effort"])][x["case"]].append(x)
     out = []
     for (agent, model, effort), cases in sorted(lines.items(), key=lambda kv: tuple(str(s) for s in kv[0])):
-        pending = sorted(c for c, xs in cases.items() if any(x["status"] == "pending" for x in xs))
-        per_case = {c: statistics.mean(x["score"] for x in xs) for c, xs in cases.items() if c not in pending}
+        # A case's cell is the mean of its passes. A pass whose trial has no score may be run again once;
+        # if the second attempt has no score either, that pass counts 0 -- otherwise an answer that can make
+        # the verifier fail would buy itself a fresh budget every time.
+        pending, per_case, forced, reruns = [], {}, [], 0
+        for c, xs in cases.items():
+            xs.sort(key=lambda x: x["started_at"] or "")
+            want = max((x.get("expected_passes") or 1) for x in xs)
+            got = [x["score"] for x in xs if x["score"] is not None]
+            reruns += max(0, len(xs) - want)
+            if len(got) >= want:
+                per_case[c] = statistics.mean(got[:want])
+            elif len(xs) >= 2 * want:                    # the one re-run per pass has been used
+                per_case[c] = statistics.mean(got + [0.0] * (want - len(got)))
+                forced.append(c)
+            else:
+                pending.append(c)
+        pending.sort()
+        forced.sort()
         n = len(cases)
         every = [x for xs in cases.values() for x in xs]
         # one line is one implementation: trials built from different pins are not averaged into it
@@ -223,6 +244,8 @@ def main() -> None:
         line = {"track": TRACK, "agent": agent, "model": model, "effort": effort, "n_cases": n, "pending": pending,
                 "passes": sorted({len(xs) for xs in cases.values()}),
                 "mean": round(statistics.mean(per_case.values()), 4) if per_case and not pending else None,
+                "reruns": reruns, "zero_after_rerun": forced,
+                "scorer_failed": sorted({x["case"] for x in every if x.get("scorer_failed")}),
                 "label": ("NOT REPORTABLE" if len(pinsets) > 1 or not all(x["reportable"] or x["status"] == "pending"
                                                                           for x in every)
                           else "INCOMPLETE" if pending else ("SUBSET" if n < N_CORE else "CORE")),

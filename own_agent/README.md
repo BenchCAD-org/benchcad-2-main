@@ -111,6 +111,11 @@ Harbor job folders, e.g. after several runs into different jobs.
 | limits | 2 CPUs, 8 GB, no GPU |
 | verifier | a separate container the agent never sees, with the reference and the 2.1 scorer in its locked environment: it runs `answer.py` once in a copy of `/work` (600 s, one CPU, no network) and scores what it leaves as `harness/run.py` does |
 
+The case's inputs are in the agent's image, and the image is built with network (an installed agent
+downloads itself then). No model runs during that build, so nothing can be asked to send the inputs
+anywhere; Harbor 0.20.0 has no point between the build and the network lock at which a task could stage
+them instead. Build on a machine you trust with the gated data, as for `run_core`.
+
 Each task pins the scorer twice (`tests/pins.json`: the digest of the scorer tree it was built with, and
 the 2.1 task-6 digest `c4799cc2…`) and the case's own digest; the verifier checks all three and gives no
 score on a mismatch. The answer runs as an unprivileged user that cannot read the reference; what it
@@ -126,8 +131,14 @@ space instead of a 2 GB container limit.
 ## Checks
 
 - `tests/test_own_agent.py` (offline, part of the suite): the meter in front of a stub model API for every
-  provider shape, streamed and not; the budget check and the refusals; WebSocket refusal; unreadable usage;
-  `collect.py`'s rows and line; the wrapper's commands; the builder on the test fixtures.
+  provider shape, streamed and not; the budget check, the reservations that bound a fan-out, and the
+  refusals; WebSocket refusal; the request-framing caps; unreadable usage; `collect.py`'s rows, line and
+  re-run cap; the wrapper's commands and its cleanup; the verifier's copy-in, seal and `/tmp` wipe; the
+  builder on the test fixtures.
+- The verifier is tested with answers that try to be scored without solving the case: a link to the
+  reference, a link where the verifier writes its own files, a forged `reward.json`, a claimed launcher
+  failure, and links planted at the paths a scorer writes under `/tmp` (`agents/meter_probe.py`). Each must
+  come out as no answer, with the verifier's own files unchanged.
 - The reference answers score 1.0 on six Core cases, one per task, and no answer scores 0 on the same six,
   through Harbor 0.20.0.
 - The five agent CLIs, each against a stub model API with dummy keys (`metertest/cli_tests.sh`): every one

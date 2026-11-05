@@ -5,7 +5,10 @@ is not memory -- OCCT and numpy reserve far more than they touch -- so the cap i
 
 The run's uid is 61000, not 1000: RLIMIT_NPROC counts every process of a uid on the host kernel, and uid 1000
 is the host user on many machines (on a shared host whose user ran many processes, the answer could not
-even start). Anything that fails here, before the answer runs, exits LAUNCH_FAILED so the verifier reports no score, never a zero."""
+even start). Anything that fails here, before the answer runs, is written to the marker file given as the
+second argument, and the verifier reports no score instead of a zero. The marker is opened here, as root, in
+a directory the answer cannot write, and is not inherited across the exec, so only this code can write it:
+the answer cannot buy itself a "no score" by printing a marker or exiting 97."""
 import os
 import resource
 import sys
@@ -13,7 +16,9 @@ import sys
 UID = 61000
 LAUNCH_FAILED = 97
 
-work = sys.argv[1]
+work, marker = sys.argv[1], sys.argv[2]
+fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+os.set_inheritable(fd, False)
 try:
     cpus = sorted(os.sched_getaffinity(0))
     os.sched_setaffinity(0, {cpus[0]})
@@ -28,5 +33,6 @@ try:
            "PYTHONDONTWRITEBYTECODE": "1", "XDG_CACHE_HOME": "/tmp/.cache-sandbox"}
     os.execve("/usr/local/bin/python3", ["python", "_run.py"], env)
 except OSError as e:
+    os.write(fd, f"BENCHCAD_LAUNCH_FAILED {type(e).__name__}: {e}\n".encode())
     sys.stderr.write(f"BENCHCAD_LAUNCH_FAILED {type(e).__name__}: {e}\n")
     sys.exit(LAUNCH_FAILED)

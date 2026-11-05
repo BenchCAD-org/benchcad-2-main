@@ -225,31 +225,44 @@ IMAGES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".p
 
 def cleanup(tasks: Path, job: Path, dry: bool) -> None:
     """Remove the Core copies a run leaves: the built tasks, and in each trial's /work copy the files the task
-    staged there (by path) and every image or PDF (the agent's crops and renders of the drawings). What the agent
-    made itself stays: answer.py, the modules it imports, its own geometry and notes."""
+    staged there (by path) and every image or PDF (the agent's crops and renders of the drawings). What the
+    agent made itself stays: answer.py, the modules it imports, its own geometry and notes.
+
+    The walk never follows a link. An agent can leave a directory link in /work (hires -> somewhere on the
+    machine that runs this), and following it would delete files outside the trial."""
     import shutil
+    import stat
     work = sorted(job.glob("*/artifacts/work")) if job.exists() else []
     print(f"+ cleanup: remove {tasks}, and the staged inputs and images in {len(work)} trial artifacts/work", flush=True)
     if dry:
         return
     staged = {}
     for t in tasks.glob("*/environment/task") if tasks.exists() else []:
-        staged[t.parent.parent.name] = [p.relative_to(t) for p in t.rglob("*")]
+        staged[t.parent.parent.name] = {p.relative_to(t).as_posix() for p in t.rglob("*")}
     for w in work:
         trial = w.parent.parent
         try:
             name = json.loads((trial / "result.json").read_text())["task_name"].split("/")[-1]
         except (OSError, ValueError, KeyError):
             name = trial.name.split("__")[0]
-        for rel in sorted(staged.get(name, []), key=lambda r: len(r.parts), reverse=True):
-            f = w / rel
-            if f.is_symlink() or f.is_file():
-                f.unlink(missing_ok=True)
-            elif f.is_dir() and not any(f.iterdir()):
-                f.rmdir()
-        for f in sorted(w.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-            if f.suffix.lower() in IMAGES and (f.is_file() or f.is_symlink()):
-                f.unlink(missing_ok=True)
+        drop = staged.get(name, set())
+        for root, dirs, files, dfd in os.fwalk(w, topdown=False, follow_symlinks=False):
+            rel = os.path.relpath(root, w)
+            for f in files:
+                r = f if rel == "." else f"{rel}/{f}"
+                if r in drop or os.path.splitext(f)[1].lower() in IMAGES:
+                    try:
+                        os.unlink(f, dir_fd=dfd)
+                    except OSError:
+                        pass
+            for d in dirs:
+                try:
+                    if stat.S_ISLNK(os.lstat(d, dir_fd=dfd).st_mode):
+                        os.unlink(d, dir_fd=dfd)       # a link: removed, never descended into
+                    else:
+                        os.rmdir(d, dir_fd=dfd)        # only when the task's own files left it empty
+                except OSError:
+                    pass
     shutil.rmtree(tasks, ignore_errors=True)
 
 
