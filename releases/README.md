@@ -9,11 +9,14 @@ ran on:
 - the limits.
 
 A release's own JSON can't hold the commit of the tag it ships in. Until the tag is made,
-its `status` is `draft` and its `commit` is `null`; `main` fills both in afterwards.
+its `status` is `draft` and its `commit` is `null`; `main` fills both in afterwards. The same
+holds when a tag is moved onto a newer commit: `commit` names the newest harness commit the tag
+carries, and the tag itself sits one commit later, on the `main` commit that recorded it -- whose
+only change is this record.
 
 | Version | Status | Code tag | Datasets (Hugging Face revision) | Release |
 |---|---|---|---|---|
-| 2.1 | stable, recommended | [`v2.1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1) (`d262dc0`) | Core `v2.1` (`4b6fe17f63`), Public `v2.1` (`1ef73a9bb7`) | [BenchCAD 2.1](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1) |
+| 2.1 | stable, recommended | [`v2.1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1) (`803d063`) | Core `v2.1` (`4b6fe17f63`), Public `v2.1` (`1ef73a9bb7`) | [BenchCAD 2.1](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1) |
 | 2.1-beta | pre-release, superseded | [`v2.1-beta`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.1-beta) | Core `v2.1-beta` (`d159834275`), Public `v2.1-beta` (`4b5500320a`) | [BenchCAD 2.1-beta](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.1-beta) |
 | 2.0 | stable; reproduces the published lines | [`v2.0-core1`](https://github.com/BenchCAD-org/benchcad-2-main/tree/v2.0-core1) | Core `v2.0` (`d159834275`); Public not part of 2.0 | [BenchCAD 2.0](https://github.com/BenchCAD-org/benchcad-2-main/releases/tag/v2.0-core1) |
 

@@ -5,7 +5,7 @@
   "code": {
     "repo": "BenchCAD-org/benchcad-2-main",
     "tag": "v2.1",
-    "commit": "d262dc016e5edc217592833ca9eab317580050ba"
+    "commit": "803d063b4777c1345eefc8ee5b1f8ab8d84ccbc9"
   },
   "harness_version": "2.1",
   "datasets": {
