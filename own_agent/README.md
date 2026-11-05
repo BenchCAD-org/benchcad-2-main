@@ -9,10 +9,15 @@ is who drives the model.
 
 - **500,000 output tokens per case**, thinking included, every model call counted (subagents and side
   models too). The count is kept at the model API by a meter the agent's traffic passes through, never
-  by the agent. Once a case has spent its budget, every further request is refused, the agent stops, and
-  the `/work/answer.py` that exists then is scored.
+  by the agent. As in 2.1 it is checked before each request, so a request made while budget remains runs
+  to its end; once the case has spent its budget, every further request is refused and the agent ends.
+  The `/work/answer.py` that exists when the agent ends is scored. Requests sent at the same time
+  (parallel subagents) are each admitted against the balance at that moment; every row records how many
+  were in flight at most and how far the total went past the budget (`max_in_flight`, `over_budget`).
 - **No round cap.** The agent works however it likes until it stops or the budget is spent.
-- **Network: the model API only**, through the meter. Nothing else is reachable while the agent works.
+- **Network: the model API only**, through the meter, and of it only the generation, token-count and
+  model-list paths (no files, batches or other services). Nothing else is reachable while the agent works,
+  ICMP included.
 - **8 h wall clock**, as a runaway backstop only; what exists at that point is scored.
 - **No retries.** A retried trial would start a fresh budget; `benchcad.py` refuses `--max-retries`.
 - **Leaderboard rows are labelled by agent and model** (e.g. `codex` + `openai/gpt-6-astra`, effort
@@ -33,9 +38,10 @@ python3 own_agent/benchcad.py run --agent claude-code --model anthropic/claude-o
 
 One command downloads Core at revision `v2.1` to the same place as `tools/run_core.sh` (every file a task
 uses is checked against its `MANIFEST.sha256`), builds the tasks from this checkout in Docker, runs `harbor
-run` with the agent pointed at each case's meter, collects the results, and then removes the built tasks
-and the staged inputs, which hold the gated Core files. Each run is a new Harbor job; `--dry-run` prints
-the plain Harbor commands.
+run` with the agent pointed at each case's meter, collects the results, and then removes what holds the
+gated Core files: the built tasks, and in each trial's copy of `/work` the staged inputs and every image or
+PDF. What the agent wrote itself stays (`answer.py`, its modules, its own geometry). Each run is a new
+Harbor job, one at a time per budget (a lock); `--dry-run` prints the plain Harbor commands.
 
 | Flag | Meaning |
 |---|---|
@@ -71,12 +77,18 @@ over HTTP; the meter reads Anthropic Messages, OpenAI Responses and Chat Complet
 The job folder (default `results/own_agent/<job>/`) gets:
 
 - `results.jsonl`: one row per trial ([`result.schema.json`](result.schema.json)): the 2.1 cell (`scored`,
-  `no_submission` = 0, or `pending` = no score yet), the meter's output-token count and whether the
-  budget was hit, wall time, the agent's own token and cost report, tool calls, agent and version, model,
-  effort, pass index, and the pins (data, harness and scorer digests);
+  `no_submission` = 0, or `pending` = no score), the meter's output-token count and whether the budget was
+  hit, wall time, the agent's own token and cost report, tool calls, agent and version, model, effort,
+  pass index, and the pins (data, harness and scorer digests);
 - `summary.json`: the line, by 2.1's rule: a case's passes averaged, then the plain mean over the cases.
-  Its `label` is `CORE` (all 100 cases scored), `SUBSET`, `INCOMPLETE` (a pending cell: no line until it
-  is verified again) or `NOT REPORTABLE` (another budget, or a meter that did not reach the real APIs).
+  Its `label` is `CORE` (all 100 cases scored), `SUBSET`, `INCOMPLETE` (a pending cell: no line until that
+  case is run again) or `NOT REPORTABLE` (another budget, a meter not in front of the real APIs, or trials
+  that do not all carry the 2.1 pins of one build).
+
+A cell is pending when the trial has no result, the verifier could not finish, `/work` or the meter
+record is missing, the meter could not read a reply's usage, or the agent ended on a provider error it did
+not get past (a 429 or 5xx: 2.1 retries those calls; here the case is run again, a new trial, never a
+Harbor retry).
 
 To report a score, send `summary.json` and `results.jsonl` of a `CORE` run to benchcad.team@gmail.com,
 naming the agent, its version, the model and the effort. Keep the job folder: the trajectories, the
@@ -98,9 +110,9 @@ Harbor job folders, e.g. after several runs into different jobs.
 | verifier | a separate container the agent never sees, with the reference and the 2.1 scorer in its locked environment: it runs `answer.py` once in a copy of `/work` (600 s, one CPU, no network) and scores what it leaves as `harness/run.py` does |
 
 Each task pins the scorer twice (`tests/pins.json`: the digest of the scorer tree it was built with, and
-the 2.1 task-6 digest `c4799cc2…`); the verifier checks both and gives no score on a mismatch. A verifier
-that cannot finish, a trial whose `/work` was not collected, a missing meter record, or a model reply whose
-usage the meter could not read gives no score (`pending`), never a 0.
+the 2.1 task-6 digest `c4799cc2…`) and the case's own digest; the verifier checks all three and gives no
+score on a mismatch. The answer runs as an unprivileged user that cannot read the reference; what it
+leaves is copied out by that same user (links followed, regular files only) and only that copy is scored.
 
 Differences from a `run_core` run, all outside the scorer: the input images are named in the instruction
 for the agent to open, not attached to the first turn; the answer run's memory cap is 6 GiB of address

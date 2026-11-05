@@ -1,11 +1,19 @@
 # The meter sits between the agent and the model API. It declares its own network, so it is not behind Harbor's
 # egress sidecar: it is the one service with a way out. The agent (main) is behind the sidecar, whose agent-phase
 # allowlist is the host "meter" only (task.toml).
+# Harbor's egress filter lets ICMP through whatever the allowlist says, so the agent may send none: no raw
+# sockets in its container (NET_RAW dropped) and no ping sockets in the network namespace it shares with the
+# sidecar (ping_group_range empty).
 services:
   main:
+    cap_drop:
+      - NET_RAW
     depends_on:
       meter:
         condition: service_healthy
+  harbor-docker-egress-control-sidecar:
+    sysctls:
+      net.ipv4.ping_group_range: "1 0"
   meter:
     build:
       context: ./meter

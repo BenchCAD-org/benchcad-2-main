@@ -2,7 +2,7 @@
 
     /opt/scorer/bin/python /tests/run/score.py RUN_DIR RC
 
-RUN_DIR is where answer.py ran (test.sh), RC its exit code. The answer is what harness/run.py takes from a
+RUN_DIR holds what answer.py left, as its own uid copied it out (test.sh, collect_answer.py), RC its exit code. The answer is what harness/run.py takes from a
 submitted program (envs.common.episode._artifact): a complete submission/ directory, else final.step, else
 pred_graph.json. It is scored as harness/run.py scores (score_in_subprocess: envs.common.score_case in a child
 interpreter, the 2.1 time limit, out-of-memory told apart from a score) and the cell is resolved by 2.1's own
@@ -57,6 +57,9 @@ from envs.common.ecad_graph.spatial_reference import scorer_digest  # noqa: E402
 if scorer_digest() != pins["scorer_digest"]:
     write(0, 1, 0, status="pending", why=f"scorer digest {scorer_digest()} is not {pins['scorer_digest']}")
 
+if tree_sha256(T / "case") != pins["case_tree_sha256"]:
+    write(0, 1, 0, status="pending", why="the case in this image is not the one the task pins")
+
 from envs.common.submission import SUB_ROOT, is_ready  # noqa: E402
 from core_score import resolve  # noqa: E402
 
@@ -72,6 +75,8 @@ if rc == 0:
             if (run / name).exists():
                 artifact = run / name
                 break
+if artifact is not None and any(p.is_symlink() for p in [artifact, *(artifact.rglob("*") if artifact.is_dir() else [])]):
+    write(0, 1, 0, status="pending", why="the collected answer holds a link")      # collect_answer.py makes none
 detail["artifact"] = None if artifact is None else artifact.relative_to(run).as_posix()
 if artifact is None:
     # 2.1: a submitted program that does not run, or leaves no answer, is no answer (record score None)

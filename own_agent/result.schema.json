@@ -65,7 +65,7 @@
         "no_submission",
         "pending"
       ],
-      "description": "2.1's resolution: no_submission scores 0; pending has no score and is verified again"
+      "description": "2.1's resolution: no_submission scores 0; pending has no score (run the case again)"
     },
     "score": {
       "type": [
@@ -227,7 +227,7 @@
     },
     "trajectory": {
       "type": "string",
-      "description": "the trial's agent/ folder, kept for audit"
+      "description": "the trial's agent/ folder, relative to the jobs folder, kept for audit"
     },
     "output_tokens": {
       "type": [
@@ -272,6 +272,34 @@
         "integer",
         "null"
       ]
+    },
+    "max_in_flight": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "most model requests the meter had in flight at once"
+    },
+    "over_budget": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "output tokens past the budget (requests in flight when it was reached ran to their end)"
+    },
+    "blocked_requests": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "requests to paths the meter does not carry (files, batches, ...), refused"
+    },
+    "model_reported": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "the model as Harbor's agent reported it"
     }
   }
 }

@@ -7,6 +7,7 @@ of the real APIs in a task. The builder is run on the test fixtures, laid out as
 """
 from __future__ import annotations
 
+import hashlib
 import http.client
 import importlib.util
 import json
@@ -62,6 +63,13 @@ class Meter:
 
     def __init__(self, tmp: Path, budget: int, upstream: str | None = None, stub_tokens: int = 1000):
         self.dir, self.procs = tmp / "meter", []
+        try:
+            self._start(tmp, budget, upstream, stub_tokens)
+        except Exception:
+            self.close()                        # nothing started here outlives a failed start
+            raise
+
+    def _start(self, tmp, budget, upstream, stub_tokens) -> None:
         if upstream is None:
             sp = _port()
             self.procs.append(subprocess.Popen(
@@ -215,6 +223,116 @@ def test_a_reply_whose_usage_cannot_be_read_is_counted_never_guessed(meter):
         srv.shutdown()
 
 
+class Upstream:
+    """A model API that misbehaves on purpose, in this process: POST /v1/messages answers by the request's
+    model name. "slow": a full stream, 1 s late; "cut": a stream that stops after message_start (only the
+    preliminary count); "long": a stream of 40 deltas, 50 ms apart, then the final usage (1000)."""
+
+    def __init__(self):
+        class H(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                kind = req.get("model")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Connection", "close")
+                self.end_headers()
+
+                def ev(d):
+                    self.wfile.write(f"data: {json.dumps(d)}\n\n".encode())
+                    self.wfile.flush()
+                if kind == "slow":
+                    time.sleep(1)
+                ev({"type": "message_start", "message": {"model": kind, "usage": {"output_tokens": 1}}})
+                if kind == "cut":
+                    return
+                for _ in range(40 if kind == "long" else 1):
+                    ev({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "x" * 2000}})
+                    if kind == "long":
+                        time.sleep(0.05)
+                ev({"type": "message_delta", "usage": {"output_tokens": 1000}})
+                ev({"type": "message_stop"})
+        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.srv.daemon_threads = True
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+
+    def close(self):
+        self.srv.shutdown()
+
+
+@pytest.fixture
+def upstream():
+    u = Upstream()
+    yield u
+    u.close()
+
+
+def _settle(m: Meter, n: int) -> None:
+    for _ in range(200):
+        if (m.dir / "requests.jsonl").exists() and len(m.requests()) >= n:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"{n} requests never logged")
+
+
+def test_a_stream_cut_before_its_final_usage_is_unread_not_its_preliminary_count(meter, upstream):
+    m = meter(budget=10**9, upstream=upstream.url)
+    assert m.call("/anthropic/v1/messages", {**ANTHROPIC, "model": "cut", "stream": True})[0] == 200
+    assert m.usage()["usage_unread"] == 1 and m.requests()[-1]["usage_read"] is False
+
+
+def test_a_reply_the_agent_stops_reading_is_still_counted_in_full(meter, upstream):
+    m = meter(budget=10**9, upstream=upstream.url)
+    c = socket.create_connection(("127.0.0.1", m.port))
+    body = json.dumps({**ANTHROPIC, "model": "long", "stream": True}).encode()
+    c.sendall(b"POST /anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+              b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+    c.recv(4096)
+    c.close()                                   # gone after the first bytes
+    _settle(m, 1)
+    assert m.usage()["output_tokens"] == 1000 and m.usage()["usage_unread"] == 0
+
+
+def test_requests_in_flight_together_are_recorded(meter, upstream):
+    m = meter(budget=1500, upstream=upstream.url)
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(m.call("/anthropic/v1/messages",
+                                                           {**ANTHROPIC, "model": "slow", "stream": True})[0]))
+          for _ in range(3)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    for _ in range(100):
+        if m.usage()["in_flight"] == 0:
+            break
+        time.sleep(0.05)
+    u = m.usage()
+    # all three were admitted against the same 0 spent: 2.1's rule (checked before a call) has one call at a time
+    assert out == [200, 200, 200] and u["max_in_flight"] == 3 and u["output_tokens"] == 3000
+    assert u["over_budget"] == 1500 and u["budget_hit"] and u["in_flight"] == 0
+    assert m.call("/anthropic/v1/messages", ANTHROPIC)[0] == 400
+
+
+def test_only_the_model_apis_generation_paths_are_carried(meter):
+    m = meter(budget=10**9)
+    for method, path in [("POST", "/openai/v1/batches"), ("POST", "/openai/v1/files"), ("GET", "/openai/v1/files/x"),
+                         ("POST", "/anthropic/v1/messages/batches"), ("POST", "/gemini/v1beta/cachedContents"),
+                         ("GET", "/openai/v1/responses"), ("POST", "/gemini/upload/v1beta/files")]:
+        st, _, raw = m.call(path, {} if method == "POST" else None, method=method)
+        assert st == 403 and b"generation paths only" in raw, (path, raw)
+    assert m.usage()["blocked"] == 7 and m.usage()["requests"] == 0
+    for method, path in [("GET", "/openai/v1/models"), ("POST", "/anthropic/v1/messages/count_tokens"),
+                         ("POST", "/gemini/v1beta/models/m:countTokens"), ("GET", "/gemini/v1beta/models")]:
+        assert m.call(path, {} if method == "POST" else None, method=method)[0] == 200, path
+
+
 def test_usage_parsing_takes_each_calls_last_value():
     mt = _load("own_agent_meter", METER)
     u = mt.Usage("anthropic")
@@ -230,14 +348,28 @@ def test_usage_parsing_takes_each_calls_last_value():
                b'data: {"type": "response.completed", "response": {"usage": {"output_tokens": 9}}}\ndata: [DONE]\n')
     assert u.total() == 9
     u = mt.Usage("openai")
+    u.feed_sse(b'data: {"type": "response.incomplete", "response": {"usage": {"output_tokens": 4096}}}\n')
+    assert u.total() == 4096 and u.found
+    u = mt.Usage("anthropic")
+    u.feed_sse(b'data: {"type": "message_start", "message": {"usage": {"output_tokens": 3}}}\n')
+    assert u.total() == 3 and not u.found              # preliminary only
+    u = mt.Usage("anthropic")
+    u.feed_json(b'{"type": "message", "usage": {"output_tokens": 12}}')
+    assert u.total() == 12 and u.found
+    u = mt.Usage("openai")
     u.feed_json(b"not json")
     assert not u.found and u.total() == 0
 
 
 # -- collect.py -----------------------------------------------------------------------------------------------
 
+PINS = {"data_commit": "4b6fe17f63ef46090e372120d5863bcb91bef9de", "harness_commit": "a" * 40, "harness_version": "2.1",
+        "scorer_digest": "c4799cc240612b038362efc5f649fc05e4bf1ce33babec46f1237092a9a7137d",
+        "scorer_tree_sha256": "b" * 64, "case_tree_sha256": "c" * 64}
+
+
 def _trial(job: Path, name: str, case: str, *, reward=None, no_answer=0, error=0, meter: dict | None = None,
-           work_ok=True, started="2026-11-01T00:00:00Z", effort="high"):
+           work_ok=True, started="2026-11-01T00:00:00Z", effort="high", pins=None, exception=None, statuses=()):
     t = job / name
     (t / "verifier").mkdir(parents=True)
     (t / "artifacts").mkdir()
@@ -248,20 +380,25 @@ def _trial(job: Path, name: str, case: str, *, reward=None, no_answer=0, error=0
         "config": {"agent": {"name": "claude-code", "model_name": "m-1", "kwargs": {"reasoning_effort": effort}}},
         "agent_info": {"name": "claude-code", "version": "9.9", "model_info": {"name": "m-1", "provider": "anthropic"}},
         "agent_result": {"n_input_tokens": 10, "n_output_tokens": 20, "n_cache_tokens": 5, "cost_usd": 0.5},
-        "agent_execution": {"started_at": started, "finished_at": "2026-11-01T00:05:00Z"}}))
+        "agent_execution": {"started_at": started, "finished_at": "2026-11-01T00:05:00Z"},
+        "exception_info": {"exception_type": exception} if exception else None}))
     (t / "artifacts/manifest.json").write_text(json.dumps([{"source": "/work", "status": "ok" if work_ok else "failed"}]))
     if meter is not False:
         (t / "artifacts/meter").mkdir()
         (t / "artifacts/meter/usage.json").write_text(json.dumps({
             "budget": 500000, "output_tokens": 1000, "budget_hit": False, "refused": 0, "generation_requests": 2,
             "usage_unread": 0, "websocket_refused": 0, "upstreams": STANDARD_UPSTREAMS, **(meter or {})}))
+        (t / "artifacts/meter/requests.jsonl").write_text("".join(
+            json.dumps({"provider": "anthropic", "path": "/v1/messages", "status": st}) + "\n" for st in statuses))
     if reward is not None or no_answer or error:
         (t / "verifier/reward.json").write_text(json.dumps({"reward": reward or 0.0, "error": error,
                                                             "no_answer": no_answer}))
     (t / "verifier/detail.json").write_text(json.dumps({"pins": {"case": case, "task": case[:2].replace("t", "task"),
-                                                                 "kind": "part", "harness_version": "2.1"}}))
-    (t / "agent/trajectory.json").write_text(json.dumps({"steps": [
-        {"tool_calls": [{}, {}]}, {"tool_calls": [{}], "subagent_trajectories": [{"steps": [{"tool_calls": [{}]}]}]}]}))
+                                                                 "kind": "part", **PINS, **(pins or {})}}))
+    # ATIF: embedded subagent trajectories hang off the trajectory, nested
+    (t / "agent/trajectory.json").write_text(json.dumps({"steps": [{"tool_calls": [{}, {}]}, {"tool_calls": [{}]}],
+        "subagent_trajectories": [{"steps": [{"tool_calls": [{}]}],
+                                   "subagent_trajectories": [{"steps": [{"tool_calls": [{}, {}]}]}]}]}))
 
 
 def _collect(*jobs: Path, tmp_path: Path):
@@ -277,16 +414,18 @@ def test_collect_averages_passes_per_case_then_means_over_cases(tmp_path):
     _trial(job, "a1", "t1-case001", reward=0.5)
     _trial(job, "a2", "t1-case001", reward=0.7, started="2026-11-01T01:00:00Z")
     _trial(job, "b1", "t3-case001", no_answer=1)
-    (job / "run.json").write_text(json.dumps({"agent": "claude-code-bare", "transport": "http", "budget": 500000}))
+    (job / "run.json").write_text(json.dumps({"agent": "claude-code-bare", "transport": "http", "budget": 500000,
+                                              "cases": "task1/case001,task3/case001", "passes": 2}))
+    _trial(job, "b2", "t3-case001", no_answer=1, started="2026-11-01T01:00:00Z")
     rows, summary = _collect(job, tmp_path=tmp_path)
     by = {(r["case"], r["pass_index"]): r for r in rows}
     assert by[("t1-case001", 0)]["score"] == 0.5 and by[("t1-case001", 1)]["score"] == 0.7
     assert by[("t3-case001", 0)]["status"] == "no_submission" and by[("t3-case001", 0)]["score"] == 0.0
     r = by[("t1-case001", 0)]
     assert r["agent"] == "claude-code-bare" and r["model"] == "anthropic/m-1" and r["effort"] == "high"
-    assert r["tool_calls"] == 4 and r["output_tokens"] == 1000 and r["reportable"] and r["wall_time_s"] == 300.0
+    assert r["tool_calls"] == 6 and r["output_tokens"] == 1000 and r["reportable"] and r["wall_time_s"] == 300.0
     (line,) = summary
-    assert line["mean"] == pytest.approx((0.6 + 0.0) / 2) and line["label"] == "SUBSET" and line["passes"] == [1, 2]
+    assert line["mean"] == pytest.approx((0.6 + 0.0) / 2) and line["label"] == "SUBSET" and line["passes"] == [2]
     schema = json.loads((OWN / "result.schema.json").read_text())
     for x in rows:
         assert set(schema["required"]) <= set(x), set(schema["required"]) - set(x)
@@ -301,11 +440,32 @@ def test_collect_gives_no_line_while_a_cell_has_no_score(tmp_path):
     rows, (line,) = _collect(job, tmp_path=tmp_path)
     assert [r["status"] for r in rows] == ["scored", "pending", "pending", "pending"]
     assert line["mean"] is None and line["label"] == "INCOMPLETE" and len(line["pending"]) == 3
-    # no meter record: the budget cannot be shown to have held, so no score and nothing to report
+    # no meter record: the budget cannot be shown to have held
     _trial(job, "c", "t1-case003", reward=0.9, meter=False)
+    # the agent ended on a provider error it did not get past, before writing an answer: not a zero
+    _trial(job, "f", "t1-case006", no_answer=1, exception="NonZeroAgentExitCodeError", statuses=(200, 529))
+    # ... but one that ended on its own after a good reply keeps its score, and the budget's refusal is the end
+    _trial(job, "g", "t1-case007", no_answer=1, exception="NonZeroAgentExitCodeError", statuses=(200, 200))
+    _trial(job, "h", "t1-case008", reward=0.4, exception="NonZeroAgentExitCodeError", statuses=(529,),
+           meter={"budget_hit": True})
+    (job / "t1-case009__x").mkdir()                                      # a trial Harbor never finished
     rows, (line,) = _collect(job, tmp_path=tmp_path)
-    assert next(r for r in rows if r["case"] == "t1-case003")["status"] == "pending"
-    assert line["mean"] is None and line["label"] == "NOT REPORTABLE"
+    by = {r["case"]: r for r in rows}
+    assert by["t1-case003"]["status"] == by["t1-case006"]["status"] == by["t1-case009"]["status"] == "pending"
+    assert "HTTP 529" in by["t1-case006"]["why"]
+    assert by["t1-case007"]["status"] == "no_submission" and by["t1-case008"]["score"] == 0.4
+    assert line["mean"] is None and line["label"] == "INCOMPLETE"
+
+
+def test_collect_counts_a_missing_pass_as_pending(tmp_path):
+    job = tmp_path / "job"
+    _trial(job, "a1", "t1-case001", reward=0.9)
+    (job / "run.json").write_text(json.dumps({"agent": "claude-code", "model": "anthropic/m-1", "effort": "high",
+                                              "cases": "task1/case001,task2/case001", "passes": 2}))
+    rows, (line,) = _collect(job, tmp_path=tmp_path)
+    assert sorted((r["case"], r["status"]) for r in rows) == [
+        ("t1-case001", "pending"), ("t1-case001", "scored"), ("t2-case001", "pending"), ("t2-case001", "pending")]
+    assert line["label"] == "INCOMPLETE" and line["mean"] is None
 
 
 def test_collect_labels_a_run_off_the_standard_meter_not_reportable(tmp_path):
@@ -314,6 +474,17 @@ def test_collect_labels_a_run_off_the_standard_meter_not_reportable(tmp_path):
     _trial(job, "b", "t1-case002", reward=0.9, meter={"upstreams": {**STANDARD_UPSTREAMS, "openai": "http://stub"}})
     rows, (line,) = _collect(job, tmp_path=tmp_path)
     assert not any(r["reportable"] for r in rows) and line["label"] == "NOT REPORTABLE"
+
+
+def test_collect_never_averages_trials_of_different_builds_into_one_line(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    _trial(a, "x", "t1-case001", reward=0.9)
+    _trial(b, "y", "t1-case002", reward=0.9, pins={"scorer_tree_sha256": "d" * 64})
+    _, (line,) = _collect(a, b, tmp_path=tmp_path)
+    assert line["label"] == "NOT REPORTABLE"
+    _trial(b, "z", "t1-case003", reward=0.9, pins={"scorer_digest": "f" * 64})
+    rows, _ = _collect(b, tmp_path=tmp_path)
+    assert not next(r for r in rows if r["case"] == "t1-case003")["reportable"]
 
 
 # -- benchcad.py ----------------------------------------------------------------------------------------------
@@ -340,7 +511,7 @@ def test_wrapper_points_each_agent_at_the_meter(tmp_path):
     cmd = _harbor_cmd(r.stdout)
     for want in ("+ ANTHROPIC_BASE_URL=http://meter:8080/anthropic ", "-a claude-code",
                  "-m claude-opus-5-5 ", "--ak reasoning_effort=high", "--ae ANTHROPIC_BASE_URL=http://meter:8080/anthropic",
-                 "-i '*t1-case001'", "-k 1", "-y"):
+                 "-i '*t1-case001'", "-k 1", "--max-retries 0", "-y"):
         assert want in cmd, (want, cmd)
     assert "cleanup:" in r.stdout and "note: budget" not in r.stderr
     r = _wrapper(tmp_path, "--agent", "codex", "--model", "openai/gpt-6-astra", "--effort", "xhigh")
@@ -374,6 +545,8 @@ def built(tmp_path_factory):
     """Every task kind built from the test fixtures, laid out as a Core download."""
     tmp = tmp_path_factory.mktemp("own_build")
     local = os.environ.get("CADENV_LOCAL")                              # build_case sets it to stage locally
+    import envs.common.sandbox as sb
+    ready, sb._docker_ready = sb._docker_ready, lambda: False           # and never in docker, whatever the host has
     data, out = tmp / "data", tmp / "out"
     for task, fx in FIXTURES.items():
         shutil.copytree(ROOT / "tests/fixtures" / fx / "case1", data / task / "cases/case001")
@@ -386,6 +559,7 @@ def built(tmp_path_factory):
         rows = {task: b.build_case(data, task, "case001", out, meta) for task in FIXTURES}
     finally:
         os.environ.pop("CADENV_LOCAL") if local is None else os.environ.update(CADENV_LOCAL=local)
+        sb._docker_ready = ready
     return b, out, rows
 
 
@@ -428,3 +602,41 @@ def test_build_refuses_data_that_is_not_core_v21(tmp_path):
         r = subprocess.run([sys.executable, str(OWN / "build.py"), "--data", str(data), "--out", str(tmp_path / "o")],
                            capture_output=True, text=True)
         assert r.returncode != 0 and why in r.stderr, r.stderr
+
+
+def test_build_checks_the_manifest_both_ways(tmp_path):
+    b = _load("own_agent_build_m", OWN / "build.py")
+    case = tmp_path / "task1/cases/case001"
+    (case / "input").mkdir(parents=True)
+    (case / "case.json").write_text("{}")
+    (case / "input/sheet.pdf").write_text("x")
+    listed = {p: hashlib.sha256(Path(tmp_path / p).read_bytes()).hexdigest()
+              for p in ("task1/cases/case001/case.json", "task1/cases/case001/input/sheet.pdf")}
+    (tmp_path / "MANIFEST.sha256").write_text("".join(f"{v}  {k}\n" for k, v in listed.items()))
+    b.check_manifest(tmp_path, [case])
+    (case / "input/sheet.pdf").unlink()
+    with pytest.raises(SystemExit, match="missing"):
+        b.check_manifest(tmp_path, [case])
+    (case / "input/sheet.pdf").write_text("x")
+    (case / "input/extra.png").write_text("y")
+    with pytest.raises(SystemExit, match="not in MANIFEST"):
+        b.check_manifest(tmp_path, [case])
+
+
+def test_cleanup_removes_the_core_copies_and_keeps_what_the_agent_made(tmp_path):
+    w = _load("own_agent_wrapper", OWN / "benchcad.py")
+    staged = tmp_path / "tasks/t1-case001/environment/task"
+    (staged / "hires").mkdir(parents=True)
+    for f in ("sheet_1.png", "hires/sheet_1.png", "tools.py", "bom.json"):
+        (staged / f).write_text("core")
+    work = tmp_path / "job/t1-case001__abc/artifacts/work"
+    (work / "hires").mkdir(parents=True)
+    (work / "out").mkdir()
+    for f in ("sheet_1.png", "hires/sheet_1.png", "tools.py", "bom.json", "answer.py", "helpers.py", "out/crop.PNG",
+              "out/part.step", "notes.md"):
+        (work / f).write_text("x")
+    (work.parent.parent / "result.json").write_text(json.dumps({"task_name": "benchcad-2.1-core/t1-case001"}))
+    w.cleanup(tmp_path / "tasks", tmp_path / "job", dry=False)
+    left = sorted(p.relative_to(work).as_posix() for p in work.rglob("*") if p.is_file())
+    assert left == ["answer.py", "helpers.py", "notes.md", "out/part.step"]
+    assert not (tmp_path / "tasks").exists()

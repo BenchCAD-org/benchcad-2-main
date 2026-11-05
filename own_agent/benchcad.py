@@ -101,19 +101,39 @@ def head() -> str:
     return subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
+def lock(tokens: int, dry: bool):
+    """One run at a time per task folder: a run rebuilds and removes it, so a second one would pull it away
+    from under the first. Held until the process ends."""
+    if dry:
+        return None
+    import fcntl
+    CACHE.mkdir(parents=True, exist_ok=True)
+    f = open(CACHE / f"own-agent-tasks-{tokens}.lock", "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(f"another benchcad.py run is using {CACHE / f'own-agent-tasks-{tokens}'}; wait for it, or "
+                         "give this one its own BENCHCAD_CACHE")
+    return f
+
+
 def ensure_tasks(tokens: int, cases: str, dry: bool) -> Path:
-    """The built tasks for this budget, reused only when they were built from this checkout's commit and hold
-    every case asked for."""
+    """The built tasks for this budget, reused only when they were built from this checkout's commit, hold
+    every case asked for, and each one is still byte for byte what was built (its tree digest in the index)."""
     out = CACHE / f"own-agent-tasks-{tokens}"
     want = [c for c in cases.split(",") if c] if cases else None
     try:
         index = json.loads((out / "dataset.json").read_text())
     except (OSError, ValueError):
         index = {}
-    have = {t["name"] for t in index.get("tasks", [])} if index.get("harness_commit") == head() else set()
-    names = [f"t{c.split('/')[0][4:]}-{c.split('/')[1]}" for c in want] if want else None
-    if (names is None and len(have) == 100) or (names and all(n in have for n in names)):
-        return out
+    built = {t["name"]: t["sha256"] for t in index.get("tasks", [])} if index.get("harness_commit") == head() else {}
+    names = [f"t{c.split('/')[0][4:]}-{c.split('/')[1]}" for c in want] if want else sorted(built)
+    if (want or len(built) == 100) and names and all(n in built for n in names):
+        sys.path.insert(0, str(HERE))
+        from build import tree_sha256
+        if all((out / n).is_dir() and tree_sha256(out / n) == built[n] for n in names):
+            return out
+        print(f"note: {out} was changed since it was built; building again", file=sys.stderr)
     data = ensure_data(dry)
     sh(["rm", "-rf", str(out)], dry)
     sh([str(HERE / "run_build.sh"), str(data), str(out), "--budget", str(tokens)]
@@ -158,6 +178,7 @@ def main() -> None:
         print(f"note: budget {args.budget:,} is not 2.1's {STANDARD_BUDGET:,}: a plumbing check, not a reportable run",
               file=sys.stderr)
 
+    held = lock(args.budget, args.dry_run)                    # noqa: F841 (held until exit)
     tasks = ensure_tasks(args.budget, args.cases, args.dry_run)
     env = {v: ROUTE[provider] for v in spec["providers"][provider]}
     env["PYTHONPATH"] = os.pathsep.join([str(HERE)] + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else []))
@@ -167,8 +188,9 @@ def main() -> None:
     # Harbor's claude-code sends "provider/model" as the model id once a base URL is set (it assumes a router
     # such as OpenRouter); the Anthropic API behind the meter takes the bare id
     model = args.model.split("/", 1)[1] if spec.get("bare_model") else args.model
+    # --max-retries 0 is always sent: it overrides any retry setting a --config file might bring
     cmd = [*shlex.split(os.environ.get("BENCHCAD_HARBOR", "harbor")), "run", "-p", str(tasks), *spec["harbor"], "-m", model, "-o", str(args.jobs_dir),
-           "--job-name", job, "-n", str(args.n_concurrent), "-k", str(args.passes), "-y"]
+           "--job-name", job, "-n", str(args.n_concurrent), "-k", str(args.passes), "--max-retries", "0", "-y"]
     effort = args.effort or spec.get("default_effort")
     if effort:
         cmd += ["--ak", f"{spec['effort']}={effort}"]
@@ -198,20 +220,37 @@ def main() -> None:
         cleanup(tasks, jd, args.dry_run)
 
 
+IMAGES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".pdf"}
+
+
 def cleanup(tasks: Path, job: Path, dry: bool) -> None:
-    """Remove the Core copies a run leaves: the built tasks, and the staged inputs in each trial's /work copy
-    (the agent's answer.py stays: it is the answer that was scored)."""
+    """Remove the Core copies a run leaves: the built tasks, and in each trial's /work copy the files the task
+    staged there (by path) and every image or PDF (the agent's crops and renders of the drawings). What the agent
+    made itself stays: answer.py, the modules it imports, its own geometry and notes."""
     import shutil
     work = sorted(job.glob("*/artifacts/work")) if job.exists() else []
-    print(f"+ cleanup: remove {tasks} and the inputs in {len(work)} trial artifacts/work (answer.py kept)", flush=True)
+    print(f"+ cleanup: remove {tasks}, and the staged inputs and images in {len(work)} trial artifacts/work", flush=True)
     if dry:
         return
-    shutil.rmtree(tasks, ignore_errors=True)
+    staged = {}
+    for t in tasks.glob("*/environment/task") if tasks.exists() else []:
+        staged[t.parent.parent.name] = [p.relative_to(t) for p in t.rglob("*")]
     for w in work:
-        for f in w.iterdir():
-            if f.name == "answer.py":
-                continue
-            shutil.rmtree(f, ignore_errors=True) if f.is_dir() and not f.is_symlink() else f.unlink(missing_ok=True)
+        trial = w.parent.parent
+        try:
+            name = json.loads((trial / "result.json").read_text())["task_name"].split("/")[-1]
+        except (OSError, ValueError, KeyError):
+            name = trial.name.split("__")[0]
+        for rel in sorted(staged.get(name, []), key=lambda r: len(r.parts), reverse=True):
+            f = w / rel
+            if f.is_symlink() or f.is_file():
+                f.unlink(missing_ok=True)
+            elif f.is_dir() and not any(f.iterdir()):
+                f.rmdir()
+        for f in sorted(w.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+            if f.suffix.lower() in IMAGES and (f.is_file() or f.is_symlink()):
+                f.unlink(missing_ok=True)
+    shutil.rmtree(tasks, ignore_errors=True)
 
 
 if __name__ == "__main__":

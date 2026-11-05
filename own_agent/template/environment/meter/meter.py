@@ -14,15 +14,22 @@ The budget is 2.1's: 500,000 output tokens per case, thinking included, every ca
 small side model's too). It is checked before a request is forwarded, never inside one, as harness/run.py
 checks it between calls: a request made while budget remains runs to its end, and once the sum reaches the
 budget every further request is refused with a 400 in the provider's own error shape, which ends the agent.
+Requests made at the same time (subagents) are each admitted against the same balance; how many were in
+flight, and how far the total went past the budget, is recorded (max_in_flight, over_budget).
 
-/meter/usage.json      the running totals (budget, output_tokens, budget_hit, refused, usage_unread)
+Only the model APIs' generation, token-count and model-list paths are carried (PATHS); anything else (files,
+batches, fine-tuning, ...) gets a 403 and is counted in blocked. A reply's tokens are added before its last
+byte reaches the agent, and a reply the agent stops reading is read to its end, so its tokens still count.
+
+/meter/usage.json      the running totals (budget, output_tokens, budget_hit, refused, usage_unread, ...)
 /meter/requests.jsonl  one line per request: provider, path, status, model, output_tokens, seconds (no bodies)
 GET /_meter/status     the totals, for the agent: what 2.1 shows after every round
 
-A 2xx reply from a generation endpoint whose usage cannot be read is counted in usage_unread and logged; it
-is never guessed. A streamed Chat Completions request is sent on with stream_options.include_usage = true, the
-one way such a stream reports its usage; nothing else in a request is changed. A WebSocket upgrade is refused
-(the meter reads HTTP replies only) and counted in websocket_refused.
+A 2xx reply from a generation endpoint whose final usage cannot be read is counted in usage_unread and logged;
+it is never guessed (an Anthropic stream that ends before its message_delta has only a preliminary count). A
+streamed Chat Completions request is sent on with stream_options.include_usage = true, the one way such a
+stream reports its usage; nothing else in a request is changed. A WebSocket upgrade is refused (the meter
+reads HTTP replies only) and counted in websocket_refused.
 """
 from __future__ import annotations
 
@@ -44,14 +51,23 @@ UPSTREAMS = {
     "openai": os.environ.get("METER_UPSTREAM_OPENAI", "https://api.openai.com"),
     "gemini": os.environ.get("METER_UPSTREAM_GEMINI", "https://generativelanguage.googleapis.com"),
 }
-GENERATION = re.compile(r"(/messages$|/responses$|/chat/completions$|/completions$|:generateContent$|"
-                        r":streamGenerateContent$)")
+GENERATION = re.compile(r"(/messages$|/responses$|/responses/compact$|/chat/completions$|/completions$|"
+                        r":generateContent$|:streamGenerateContent$)")
+# What the meter carries, per provider: (method, path) after the route prefix. Everything else is refused.
+PATHS = {
+    "anthropic": [("POST", r"/v1/messages"), ("POST", r"/v1/messages/count_tokens"), ("GET", r"/v1/models(/[^/]+)?")],
+    "openai": [("POST", r"/v1/responses"), ("POST", r"/v1/responses/compact"), ("POST", r"/v1/chat/completions"),
+               ("POST", r"/v1/completions"), ("GET", r"/v1/models(/[^/]+)?")],
+    "gemini": [("POST", r"/v1(beta|alpha)?/models/[^/:]+:(generateContent|streamGenerateContent|countTokens)"),
+               ("GET", r"/v1(beta|alpha)?/models(/[^/:]+)?")],
+}
 HOP = {"host", "connection", "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade",
        "content-length", "accept-encoding"}
 LOCK = threading.Lock()
 TOTALS = {"budget": BUDGET, "output_tokens": 0, "requests": 0, "generation_requests": 0, "refused": 0,
-          "budget_hit": False, "budget_hit_at": None, "usage_unread": 0, "websocket_refused": 0,
-          "include_usage_added": 0, "upstreams": UPSTREAMS, "started_at": time.time()}
+          "budget_hit": False, "budget_hit_at": None, "over_budget": 0, "usage_unread": 0, "websocket_refused": 0,
+          "blocked": 0, "include_usage_added": 0, "in_flight": 0, "max_in_flight": 0, "upstreams": UPSTREAMS,
+          "started_at": time.time()}
 
 
 def save() -> None:
@@ -68,28 +84,32 @@ def log(row: dict) -> None:
 
 class Usage:
     """Output tokens of one response, from its JSON body or from its server-sent events. One response is one
-    model call: Anthropic's stream reports output_tokens in message_start and, cumulative, in message_delta;
-    OpenAI's in response.completed (or a chat completion's usage chunk); Gemini's every chunk repeats the
-    totals so far. In each case the last value seen is the call's."""
+    model call: Anthropic's stream reports a preliminary output_tokens in message_start and the final,
+    cumulative one in message_delta; OpenAI's in response.completed / response.incomplete / response.failed
+    (or a chat completion's usage chunk); Gemini's every chunk repeats the totals so far. In each case the last
+    final value seen is the call's."""
 
     def __init__(self, provider: str):
         self.provider, self.buf, self.found, self.model, self.value = provider, b"", False, None, 0
 
-    def _set(self, n) -> None:
+    def _set(self, n, final: bool = True) -> None:
         if isinstance(n, int):
-            self.value, self.found = n, True
+            self.value = n
+            self.found = self.found or final
 
     def _event(self, d) -> None:
         if not isinstance(d, dict):
             return
         p = self.provider
         if p == "anthropic":
-            m = d.get("message") if d.get("type") == "message_start" else d
+            t = d.get("type")
+            m = d.get("message") if t == "message_start" else d
             if isinstance(m, dict):
                 self.model = m.get("model") or self.model
-                self._set((m.get("usage") or {}).get("output_tokens"))
+                self._set((m.get("usage") or {}).get("output_tokens"), final=t != "message_start")
         elif p == "openai":
-            r = d.get("response") if d.get("type") == "response.completed" else d
+            r = d.get("response") if d.get("type") in ("response.completed", "response.incomplete",
+                                                       "response.failed") else d
             if isinstance(r, dict) and isinstance(r.get("usage"), dict):
                 u = r["usage"]
                 self._set(u.get("output_tokens", u.get("completion_tokens")))
@@ -163,6 +183,15 @@ class Handler(BaseHTTPRequestHandler):
         gen = bool(GENERATION.search(path_only))
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
+        if not any(m == self.command and re.fullmatch(rx, path_only) for m, rx in PATHS[provider]) \
+                and "websocket" not in (self.headers.get("Upgrade") or "").lower():
+            with LOCK:
+                TOTALS["blocked"] += 1
+                save()
+            log({"t": round(t0, 3), "provider": provider, "path": path_only[:200], "method": self.command,
+                 "status": 403, "blocked": True})
+            return self._reply(403, json.dumps({"error": f"the BenchCAD meter carries the model API's generation "
+                                                         f"paths only, not {self.command} {path_only[:80]}"}).encode())
         if "websocket" in (self.headers.get("Upgrade") or "").lower():
             with LOCK:
                 TOTALS["websocket_refused"] += 1
@@ -188,6 +217,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._reply(400, refusal(provider))
             if gen:
                 TOTALS["generation_requests"] += 1
+            TOTALS["in_flight"] += 1
+            TOTALS["max_in_flight"] = max(TOTALS["max_in_flight"], TOTALS["in_flight"])
+        try:
+            self._forward(t0, provider, rest, path_only, gen, body)
+        finally:
+            with LOCK:
+                TOTALS["in_flight"] -= 1
+                save()
+
+    def _forward(self, t0, provider, rest, path_only, gen, body) -> None:
         up = urlsplit(UPSTREAMS[provider])
         conn_cls = http.client.HTTPSConnection if up.scheme == "https" else http.client.HTTPConnection
         kw = {"context": ssl.create_default_context()} if up.scheme == "https" else {}
@@ -231,26 +270,36 @@ class Handler(BaseHTTPRequestHandler):
                 TOTALS["output_tokens"] += out
                 if TOTALS["output_tokens"] >= BUDGET and not TOTALS["budget_hit"]:
                     TOTALS["budget_hit"], TOTALS["budget_hit_at"] = True, time.time()
+                TOTALS["over_budget"] = max(0, TOTALS["output_tokens"] - BUDGET)
                 save()
                 log({"t": round(t0, 3), "provider": provider, "path": path_only, "status": resp.status,
                      "model": usage.model, "output_tokens": out, "usage_read": usage.found,
                      "stream": sse, "seconds": round(time.time() - t0, 1), "total": TOTALS["output_tokens"]})
+        gone = False                                 # the agent stopped reading: the reply is read to its end anyway
         try:
             while True:
-                chunk = resp.read1(65536) if hasattr(resp, "read1") else resp.read(65536)
+                try:
+                    chunk = resp.read1(65536) if hasattr(resp, "read1") else resp.read(65536)
+                except (OSError, http.client.HTTPException):
+                    break                            # the upstream broke off: what was read is what counts
                 if not chunk:
                     break
                 if sse:
                     usage.feed_sse(chunk)
                 elif len(whole) < 64 << 20:
                     whole += chunk
-                self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
-                self.wfile.flush()
+                if not gone:
+                    try:
+                        self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+                        self.wfile.flush()
+                    except OSError:
+                        gone = True
             account()
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            if not gone:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
         except OSError:
-            pass                                     # the client went away; what was generated still counts
+            pass
         finally:
             account()
 

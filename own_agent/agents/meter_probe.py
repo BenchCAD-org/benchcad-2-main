@@ -1,6 +1,6 @@
 """A test agent for the meter (metertest/make_metertest.sh): it writes the reference answer (the test task
 carries it in /probe_answer, which no real task does), then asks the model API for completions through the
-meter until it is refused, and tries the network around it. What it saw goes to /logs/agent/probe.json."""
+meter until it is refused, and tries the network around it (HTTPS and ICMP). What it saw goes to /logs/agent/probe.json."""
 from harbor.agents.base import BaseAgent
 
 PROBE = r'''
@@ -31,6 +31,26 @@ for name, url in [("anthropic_direct", "https://api.anthropic.com/v1/messages"),
         out["direct"][name] = f"REACHED (HTTP {e.code})"
     except Exception as e:
         out["direct"][name] = f"blocked: {type(e).__name__}: {str(e)[:120]}"
+def icmp(kind):
+    import struct, select
+    pkt = struct.pack("!BBHHH", 8, 0, 0, 1, 1)
+    csum = 0
+    for i in range(0, len(pkt), 2):
+        csum += (pkt[i] << 8) + pkt[i + 1]
+    csum = ~((csum >> 16) + (csum & 0xFFFF)) & 0xFFFF
+    pkt = struct.pack("!BBHHH", 8, 0, csum, 1, 1)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_RAW if kind == "raw" else socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+    except OSError as e:
+        return f"blocked: no socket: {e}"
+    try:
+        s.sendto(pkt, ("1.1.1.1", 0))
+        r, _, _ = select.select([s], [], [], 5)
+        return "REACHED (echo reply)" if r else "no reply in 5 s"
+    except OSError as e:
+        return f"blocked: {e}"
+for kind in ("raw", "ping_socket"):
+    out["direct"]["icmp_" + kind] = icmp(kind)
 with urllib.request.urlopen("http://meter:8080/_meter/status", timeout=10) as r:
     out["status"] = json.loads(r.read())
 open("/logs/agent/probe.json", "w").write(json.dumps(out, indent=1))
@@ -53,3 +73,28 @@ class MeterProbe(BaseAgent):
         await environment.exec(command="cp -r /probe_answer/. /work/", timeout_sec=60)
         r = await environment.exec(command="python3 - <<'PY'\n" + PROBE + "\nPY", timeout_sec=600)
         (self.logs_dir / "probe.stdout").write_text((r.stdout or "") + (r.stderr or ""))
+
+
+class LinkProbe(BaseAgent):
+    """A test agent for the verifier: its answer.py links final.step (and a submission part) to the reference in
+    the verifier's /tests and exits before the harness's finish. The verifier must score that as no answer."""
+
+    ANSWER = ("import os\n"
+              "os.symlink('/tests/case/gt/gt.step', 'final.step')\n"
+              "os.makedirs('submission/parts', exist_ok=True)\n"
+              "os.symlink('/tests/case/gt/gt.step', 'submission/parts/p.step')\n"
+              "os._exit(0)\n")
+
+    @staticmethod
+    def name() -> str:
+        return "link-probe"
+
+    def version(self) -> str:
+        return "1.0.0"
+
+    async def setup(self, environment) -> None:
+        return
+
+    async def run(self, instruction, environment, context) -> None:
+        import shlex
+        await environment.exec(command=f"printf %s {shlex.quote(self.ANSWER)} > /work/answer.py", timeout_sec=60)

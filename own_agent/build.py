@@ -61,16 +61,20 @@ def tree_sha256(root: Path, rel: list[str] | None = None) -> str:
 
 
 def check_manifest(data: Path, cases: list[Path]) -> None:
+    """Every file MANIFEST.sha256 lists for these cases is there with its hash, and there is nothing else."""
     want = {}
     for line in (data / "MANIFEST.sha256").read_text().splitlines():
         digest, path = line.split(None, 1)
         want[path.strip()] = digest
     for c in cases:
-        for f in sorted(c.rglob("*")):
-            if f.is_file():
-                rel = f.relative_to(data).as_posix()
-                if want.get(rel) != sha256(f):
-                    raise SystemExit(f"{rel}: not as MANIFEST.sha256 lists it (data revision other than v2.1?)")
+        prefix = c.relative_to(data).as_posix() + "/"
+        listed = {k: v for k, v in want.items() if k.startswith(prefix)}
+        on_disk = {f.relative_to(data).as_posix() for f in c.rglob("*") if f.is_file()}
+        for rel in sorted(set(listed) | on_disk):
+            if rel not in listed:
+                raise SystemExit(f"{rel}: not in MANIFEST.sha256 (data revision other than v2.1?)")
+            if rel not in on_disk or sha256(data / rel) != listed[rel]:
+                raise SystemExit(f"{rel}: missing or not as MANIFEST.sha256 lists it; download the data again")
 
 
 def git(*args: str) -> str:
