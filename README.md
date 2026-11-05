@@ -116,6 +116,8 @@ tools/run_core.sh --model openai/gpt-6-astra            # OPENAI_API_KEY
 ## More
 
 - `docs/RUNNING.md`: providers, flags, clocks, running your own agent.
+- `own_agent/`: Core 2.1 as Harbor tasks for your own agent (Claude Code, Codex, Gemini CLI, ...), with
+  500k output tokens per case metered at the model API; its rows are kept apart from `run_core`'s.
 - `docs/METRICS.md`: every metric. `docs/CASE_FORMAT.md`: a case and a submission.
 - `envs/<task>/TASK.md`: the prompt each task gives the model.
 
